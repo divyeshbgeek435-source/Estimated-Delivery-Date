@@ -1,0 +1,226 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  session_id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  id                  String    @unique
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+
+  @@index([shop])
+}
+
+model Merchant {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  shopDomain    String    @unique
+  timezone      String    @default("UTC")
+  billingPlan   String    @default("FREE")
+  uninstalledAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  widgets       Widget[]
+}
+
+model Widget {
+  id          String  @id @default(auto()) @map("_id") @db.ObjectId
+  merchantId  String  @db.ObjectId
+  merchant    Merchant @relation(fields: [merchantId], references: [id])
+  name        String
+  location    String  @default("PRODUCT")
+  status      String  @default("DRAFT")
+  currentStep String  @default("conditions")
+  timezone    String  @default("UTC")
+  marketMode  String  @default("ALL")
+  marketIds   String[]
+  markets     Json?
+
+  shippingRules   ShippingRules?
+  messageConfig   MessageConfig?
+  iconConfig      IconConfig?
+  styleConfig     StyleConfig?
+  placementConfig PlacementConfig?
+  cartConfig      CartConfig?
+  checkoutConfig  CheckoutConfig?
+  events          WidgetEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([merchantId, status])
+  @@index([merchantId, location])
+}
+
+model ShippingRules {
+  id                String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId          String   @unique @db.ObjectId
+  widget            Widget   @relation(fields: [widgetId], references: [id])
+  processingMinDays Int      @default(1)
+  processingMaxDays Int      @default(2)
+  cutoffTime        String   @default("12:00 PM")
+  workingDays       String[]
+  blockedDates      Json
+  transitMinDays    Int      @default(2)
+  transitMaxDays    Int      @default(5)
+  transitWorkingDays String[]
+  transitBlockedDates Json?
+  pincodeRules      Json?
+  weightRules       Json?
+  countryRules      Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model MessageConfig {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId  String   @unique @db.ObjectId
+  widget    Widget   @relation(fields: [widgetId], references: [id])
+  heading       String   @default("")
+  template      String   @default("Order today within {counter}, you'll receive your package between {delivery_from} to {delivery_to}")
+  dateFormat    String   @default("NUMERIC_DMY")
+  dateSeparator String   @default("/")
+  includeYear   Boolean  @default(true)
+  widgetLayout  String   @default("FULL")
+  descriptionEnabled Boolean @default(true)
+  translations  Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model IconConfig {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId   String   @unique @db.ObjectId
+  widget     Widget   @relation(fields: [widgetId], references: [id])
+  purchased  String   @default("bag")
+  processing String   @default("truck")
+  delivered  String   @default("pin")
+  purchasedTitle  String @default("Purchased")
+  processingTitle String @default("Processing")
+  deliveredTitle  String @default("Delivered")
+  purchasedColor  String @default("")
+  processingColor String @default("")
+  deliveredColor  String @default("")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model StyleConfig {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId           String   @unique @db.ObjectId
+  widget             Widget   @relation(fields: [widgetId], references: [id])
+  backgroundType     String   @default("SOLID")
+  backgroundColor    String   @default("#E8E8E8")
+  gradientStart      String   @default("#FFFFFF")
+  gradientEnd        String   @default("#F1F1F1")
+  gradientDirection  String   @default("TO_BOTTOM")
+  borderRadius       Int      @default(8)
+  themeColor         String   @default("#008060")
+  borderWidth        Int      @default(1)
+  borderColor        String   @default("#E1E3E5")
+  paddingTop         Int      @default(16)
+  paddingMiddle      Int      @default(12)
+  paddingBottom      Int      @default(12)
+  paddingLeft        Int      @default(16)
+  paddingRight       Int      @default(16)
+  iconSize           Int      @default(18)
+  progressWidth      Int      @default(2)
+  progressColor      String   @default("#008060")
+  fontFamily         String   @default("inherit")
+  fontSize           Int      @default(14)
+  textColor          String   @default("#202223")
+  statusFontSize     Int      @default(12)
+  statusColor        String   @default("#202223")
+  dateFontSize       Int      @default(11)
+  dateColor          String   @default("#202223")
+  dynamicColor       String   @default("#202223")
+  customCss          String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model PlacementConfig {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId      String   @unique @db.ObjectId
+  widget        Widget   @relation(fields: [widgetId], references: [id])
+  mode          String   @default("ALL_PRODUCTS")
+  productIds    String[]
+  collectionIds String[]
+  products      Json
+  collections   Json
+  position      String   @default("DEFAULT")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model CartConfig {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId    String   @unique @db.ObjectId
+  widget      Widget   @relation(fields: [widgetId], references: [id])
+  displayMode String   @default("GENERAL")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CheckoutConfig {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId        String   @unique @db.ObjectId
+  widget          Widget   @relation(fields: [widgetId], references: [id])
+  heading         String   @default("Estimated Delivery")
+  template        String   @default("Estimated delivery: {delivery_date}")
+  purchasedIcon   String   @default("check")
+  processingIcon  String   @default("clock")
+  deliveredIcon   String   @default("truck")
+  backgroundType  String   @default("SOLID")
+  backgroundColor String   @default("#FFFFFF")
+  gradientStart   String   @default("#FFFFFF")
+  gradientEnd     String   @default("#F1F1F1")
+  gradientDirection String @default("TO_BOTTOM")
+  borderRadius    Int      @default(8)
+  themeColor      String   @default("#008060")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model WidgetEvent {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  widgetId   String   @db.ObjectId
+  widget     Widget   @relation(fields: [widgetId], references: [id])
+  merchantId String   @db.ObjectId
+  type       String
+  productId  String?
+  timestamp  DateTime @default(now())
+  metadata   Json?
+  eventKey   String?  @unique
+
+  @@index([widgetId, type])
+  @@index([merchantId, type, timestamp])
+}
+
+model ProcessedWebhook {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  webhookId   String   @unique
+  topic       String
+  shop        String
+  processedAt DateTime @default(now())
+
+  @@index([shop, topic])
+}

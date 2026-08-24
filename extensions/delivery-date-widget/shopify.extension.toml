@@ -1,0 +1,4 @@
+name = "Estimated Delivery Date"
+type = "theme"
+handle = "delivery-date-widget"
+uid = "edd-theme-app-extension-001"

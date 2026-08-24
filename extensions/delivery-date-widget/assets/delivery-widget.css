@@ -1,0 +1,270 @@
+.edd-widget {
+  font-family: inherit;
+  color: inherit;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.edd-widget *,
+.edd-widget *::before,
+.edd-widget *::after {
+  box-sizing: border-box;
+}
+
+.edd-widget__heading {
+  font-size: 0.8rem;
+  font-weight: 650;
+  margin: 0 0 0.5rem;
+}
+
+.edd-widget__message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.edd-widget__clock {
+  flex: 0 0 auto;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-top: 0.12rem;
+  color: inherit;
+}
+
+.edd-widget__clock .edd-icon,
+.edd-widget__clock svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.edd-widget__message,
+.edd-widget__item,
+.edd-widget__minimal {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.edd-widget__message {
+  flex: 1;
+  min-width: 0;
+}
+
+.edd-widget__message strong {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.edd-widget__timeline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 0.15rem;
+}
+
+.edd-widget__connector {
+  display: flex;
+  align-items: center;
+  height: var(--edd-icon-box, 22px);
+  min-width: 2.4rem;
+  width: 100%;
+}
+
+.edd-widget__connector-line {
+  display: block;
+  flex: 1;
+  min-width: 0.75rem;
+  background: #111;
+}
+
+.edd-widget__connector-arrow {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid #111;
+  flex: 0 0 auto;
+}
+
+.edd-widget__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.edd-widget__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+}
+
+.edd-widget__date {
+  font-size: 0.72rem;
+  font-weight: 550;
+}
+
+.edd-widget__icon {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edd-widget__icon .edd-icon {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.edd-widget__icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.edd-widget__label {
+  font-size: 0.78rem;
+}
+
+.edd-widget__items {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.edd-widget__timeline--stacked {
+  grid-template-columns: 1fr;
+}
+
+.edd-widget__timeline--stacked .edd-widget__step {
+  flex-direction: row;
+  text-align: left;
+  gap: 0.7rem;
+}
+
+.edd-widget__timeline--stacked .edd-widget__meta {
+  align-items: flex-start;
+}
+
+.edd-widget__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.edd-widget__pill {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.75rem;
+}
+
+.edd-widget__rows {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.edd-widget__row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.edd-widget__row b,
+.edd-widget__row i {
+  display: block;
+  font-style: normal;
+}
+
+@media (max-width: 749px) {
+  .edd-widget__timeline:not(.edd-widget__timeline--stacked) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__connector {
+    display: none;
+  }
+}
+
+.edd-check {
+  margin: 0.9rem 0 0;
+  padding: 0.85rem 0 0;
+  border-top: 1px solid rgba(32, 34, 35, 0.12);
+  font-family: inherit;
+}
+
+.edd-check__title {
+  margin: 0 0 0.45rem;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: inherit;
+}
+
+.edd-check__row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.edd-check__input,
+.edd-check__button {
+  height: 2.5rem;
+  margin: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.edd-check__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #c9cccf;
+  background: #fff;
+  color: #202223;
+  padding: 0 0.85rem;
+}
+
+.edd-check__input:focus {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.edd-check__button {
+  flex: 0 0 auto;
+  min-width: 4.75rem;
+  padding: 0 1rem;
+  border: 0;
+  background: var(--edd-theme, #111);
+  color: #fff;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.edd-check__status {
+  margin: 0.45rem 0 0;
+  min-height: 1.1em;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.edd-check__status[data-tone="error"] {
+  color: #b3261e;
+  font-weight: 650;
+}
+
+.edd-check__status[data-tone="ok"] {
+  color: #0c6b3d;
+  font-weight: 550;
+}
+
+[data-edd-body]:empty + [data-edd-extras] .edd-check {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}

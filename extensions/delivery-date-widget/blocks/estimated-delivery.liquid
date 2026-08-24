@@ -1,0 +1,40 @@
+{% doc %}
+Renders the estimated delivery date widget on product pages.
+@param {product} [product] - The current product
+{% enddoc %}
+
+{% if app.metafields.app.embed_enabled.value != false %}
+<div
+  class="edd-root"
+  data-edd-root
+  data-location="PRODUCT"
+  data-product-id="gid://shopify/Product/{{ product.id }}"
+  data-product-name="{{ product.title | escape }}"
+  data-stock-left="{{ product.selected_or_first_available_variant.inventory_quantity | default: '' }}"
+  data-locale="{{ request.locale.iso_code }}"
+  data-country="{{ localization.country.iso_code }}"
+  data-market="{{ localization.market.handle }}"
+  data-collection-ids="{% for collection in product.collections %}gid://shopify/Collection/{{ collection.id }}{% unless forloop.last %},{% endunless %}{% endfor %}"
+  data-config-url="/apps/delivery-date/config"
+  data-events-url="/apps/delivery-date/events"
+  {{ block.shopify_attributes }}
+></div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Estimated delivery",
+  "target": "section",
+  "stylesheet": "delivery-widget.css",
+  "javascript": "delivery-widget.js",
+  "enabled_on": {
+    "templates": ["product"]
+  },
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Shows the published estimated delivery dates from the app. After you add this block, it uses the active product configuration automatically. The App Embed must be Active in the theme editor for this block to appear on the store."
+    }
+  ]
+}
+{% endschema %}

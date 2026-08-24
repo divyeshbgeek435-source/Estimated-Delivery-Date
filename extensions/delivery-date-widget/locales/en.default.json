@@ -1,0 +1,11 @@
+{
+  "name": "Estimated Delivery Date",
+  "blocks": {
+    "estimated_delivery": {
+      "name": "Estimated delivery"
+    },
+    "cart_estimated_delivery": {
+      "name": "Cart estimated delivery"
+    }
+  }
+}

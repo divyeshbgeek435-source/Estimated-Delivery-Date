@@ -1,0 +1,75 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "428f3d88064e44c926da9dbde635d831"
+name = "Estimated Delivery Date"
+application_url = "https://example.com"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/data_request"
+  compliance_topics = [ "customers/data_request" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/customers/redact"
+  compliance_topics = [ "customers/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/shop/redact"
+  compliance_topics = [ "shop/redact" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/collections/update"
+  topics = [ "collections/update" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/products/update"
+  topics = [ "products/update" ]
+
+[events]
+api_version = "unstable"
+subscription = []
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products,write_metaobjects,write_metaobject_definitions"
+optional_scopes = [ "read_themes" ]
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[app_proxy]
+url = "/api/widget"
+subpath = "delivery-date"
+prefix = "apps"
+
+[shop.metafields.app.embed_enabled]
+type = "boolean"
+name = "App embed enabled"
+description = "Whether the Estimated Delivery Date app embed is enabled on the live theme"
+
+  [shop.metafields.app.embed_enabled.access]
+  admin = "merchant_read"
+  storefront = "public_read"
+
+[shop.metafields.app.checkout_widget]
+type = "json"
+name = "Checkout delivery widget"
+description = "Public checkout widget configuration used by the Checkout UI extension"
+
+  [shop.metafields.app.checkout_widget.access]
+  admin = "merchant_read"

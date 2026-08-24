@@ -1,0 +1,22 @@
+{% doc %}
+App embed that enables estimated delivery on the storefront. The visible widget comes from the app block.
+{% enddoc %}
+
+<script>
+  fetch("/apps/delivery-date/embed-ping", { keepalive: true }).catch(function () {});
+</script>
+
+{% schema %}
+{
+  "name": "Estimated delivery embed",
+  "target": "body",
+  "stylesheet": "delivery-widget.css",
+  "javascript": "delivery-widget.js",
+  "settings": [
+    {
+      "type": "paragraph",
+      "content": "Activates estimated delivery on this theme. Add the Estimated delivery app block where you want the widget to appear. This embed does not show a second widget on the page."
+    }
+  ]
+}
+{% endschema %}

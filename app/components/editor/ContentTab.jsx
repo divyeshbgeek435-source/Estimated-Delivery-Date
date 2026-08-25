@@ -1,5 +1,6 @@
 import { DATE_FORMATS, ICON_OPTIONS, MESSAGE_TAGS, TRANSLATION_LOCALES, WIDGET_LOCATIONS } from "../../lib/constants";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
+import { ActionButton } from "../common/ActionButton";
 import { widgetProfile } from "../../lib/widget-profiles";
 
 const DATE_FORMAT_SAMPLES = {
@@ -254,9 +255,9 @@ export function ContentTab({ widget, draft, onChange, errors = {} }) {
             </s-grid>
           </>
         ) : (
-          <s-button type="button" onClick={() => onChange({ ...draft, addingTranslation: true })}>
+          <ActionButton type="button" onClick={() => onChange({ ...draft, addingTranslation: true })}>
             Add Translation
-          </s-button>
+          </ActionButton>
         )}
         <input type="hidden" name="translations" value={JSON.stringify(translations)} />
       </s-section>

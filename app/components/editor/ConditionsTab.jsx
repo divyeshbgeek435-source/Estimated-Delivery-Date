@@ -1,9 +1,12 @@
 import { format, parseISO } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher } from "react-router";
+import { useAppBridge } from "@shopify/app-bridge-react";
+import { MARKET_SCOPES, ensureScopes } from "../../lib/app-scopes";
 import { WORKING_DAYS, WIDGET_LOCATIONS } from "../../lib/constants";
 import { joinCutoff, splitCutoff } from "../../lib/delivery-calculator";
 import { widgetProfile } from "../../lib/widget-profiles";
+import { ActionButton, HostChoiceList } from "../common/ActionButton";
 import { PincodeRulesEditor } from "./PincodeRulesEditor";
 
 const DAY_SHORT = {
@@ -36,7 +39,7 @@ export function ConditionsTab({ widget, draft, onChange, errors = {} }) {
         {profile.showCartMode ? (
           <>
             <input type="hidden" name="displayMode" value={draft.cartConfig.displayMode} />
-            <s-choice-list
+            <HostChoiceList
               label="Widget mode"
               name="displayModeField"
               onChange={(event) =>
@@ -55,7 +58,7 @@ export function ConditionsTab({ widget, draft, onChange, errors = {} }) {
               <s-choice value="PER_PRODUCT" selected={draft.cartConfig.displayMode === "PER_PRODUCT"}>
                 Per product — a compact line under each item
               </s-choice>
-            </s-choice-list>
+            </HostChoiceList>
           </>
         ) : null}
       </s-section>
@@ -341,7 +344,7 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
         checked={recurring}
         onChange={(event) => setRecurring(Boolean(event.currentTarget.checked))}
       ></s-checkbox>
-      <s-button
+      <ActionButton
         type="button"
         variant="tertiary"
         onClick={() => {
@@ -361,7 +364,7 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
         }}
       >
         + Add Blocked Dates
-      </s-button>
+      </ActionButton>
     </s-stack>
   );
 }
@@ -371,7 +374,7 @@ function MarketsSection({ draft, onChange, errors }) {
     <s-section heading="Markets">
       <s-paragraph color="subdued">Select markets where the widget will be visible.</s-paragraph>
       <input type="hidden" name="marketMode" value={draft.marketMode || "ALL"} />
-      <s-choice-list
+      <HostChoiceList
         label="Markets"
         name="marketModeField"
         onChange={(event) =>
@@ -387,7 +390,7 @@ function MarketsSection({ draft, onChange, errors }) {
         <s-choice value="SPECIFIC" selected={draft.marketMode === "SPECIFIC"}>
           Specific market
         </s-choice>
-      </s-choice-list>
+      </HostChoiceList>
       {draft.marketMode === "SPECIFIC" ? (
         <MarketPicker
           selected={draft.markets || []}
@@ -408,16 +411,54 @@ function MarketsSection({ draft, onChange, errors }) {
 }
 
 function MarketPicker({ selected, onSelected }) {
+  const shopify = useAppBridge();
   const fetcher = useFetcher();
   const [query, setQuery] = useState("");
+  const [scopeState, setScopeState] = useState("checking");
+  const retried = useRef(false);
+
+  const grantMarkets = async () => {
+    retried.current = false;
+    const granted = await ensureScopes(shopify, MARKET_SCOPES);
+    setScopeState(granted ? "granted" : "denied");
+    return granted;
+  };
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const granted = await grantMarkets();
+      if (cancelled) return;
+      if (!granted) setScopeState("denied");
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (scopeState !== "granted") return;
     const handle = setTimeout(() => {
       fetcher.load(`/api/markets/search?q=${encodeURIComponent(query)}`);
     }, 250);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query]);
+  }, [query, scopeState]);
+
+  useEffect(() => {
+    if (scopeState !== "granted" || !fetcher.data?.needsScopes || fetcher.state !== "idle") return;
+    if (retried.current) {
+      setScopeState("denied");
+      return;
+    }
+    retried.current = true;
+    const timer = setTimeout(() => {
+      fetcher.load(`/api/markets/search?q=${encodeURIComponent(query)}`);
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetcher.data?.needsScopes, fetcher.state, scopeState, query]);
 
   const results = fetcher.data?.nodes || [];
   const selectedIds = useMemo(() => new Set(selected.map((item) => item.id)), [selected]);
@@ -432,12 +473,24 @@ function MarketPicker({ selected, onSelected }) {
         labelAccessibilityVisibility="exclusive"
         onInput={(event) => setQuery(event.currentTarget.value)}
       ></s-search-field>
-      {fetcher.state === "loading" ? <s-spinner accessibilityLabel="Loading markets"></s-spinner> : null}
-      {fetcher.data?.error ? <s-banner tone="warning">{fetcher.data.error}</s-banner> : null}
+      {fetcher.state === "loading" || scopeState === "checking" ? (
+        <s-spinner accessibilityLabel="Loading markets"></s-spinner>
+      ) : null}
+      {scopeState === "denied" ? (
+        <s-stack gap="small-200">
+          <s-banner tone="warning">Allow market access to choose specific markets.</s-banner>
+          <ActionButton type="button" variant="primary" onClick={grantMarkets}>
+            Allow access
+          </ActionButton>
+        </s-stack>
+      ) : null}
+      {fetcher.data?.error && !fetcher.data?.needsScopes ? (
+        <s-banner tone="warning">{fetcher.data.error}</s-banner>
+      ) : null}
       {results.map((item) => (
         <div key={item.id} className="edd-selected-row">
           <s-text>{item.title}</s-text>
-          <s-button
+          <ActionButton
             type="button"
             variant={selectedIds.has(item.id) ? "secondary" : "primary"}
             onClick={() =>
@@ -447,7 +500,7 @@ function MarketPicker({ selected, onSelected }) {
             }
           >
             {selectedIds.has(item.id) ? "Remove" : "Select"}
-          </s-button>
+          </ActionButton>
         </div>
       ))}
       {selected.length ? (

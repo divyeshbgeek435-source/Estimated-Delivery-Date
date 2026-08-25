@@ -15,6 +15,7 @@ import {
 } from "../../lib/constants";
 import { normalizePincodeRules, normalizeWeightRules } from "../../lib/pincode";
 import { normalizePosition } from "../../lib/widget-profiles";
+import { syncWidgetStorefrontByShop } from "../shopify/store-block.server";
 
 const widgetInclude = {
   shippingRules: true,
@@ -154,6 +155,24 @@ export async function activateDueWidgets(merchantId) {
       ]);
     }),
   );
+
+  const merchant = await prisma.merchant.findUnique({
+    where: { id: merchantId },
+    select: { shopDomain: true },
+  });
+  if (merchant?.shopDomain) {
+    await Promise.all(
+      due.map(async (item) => {
+        const widget = await prisma.widget.findFirst({
+          where: { id: item.id, merchantId },
+          include: widgetInclude,
+        });
+        if (!widget) return;
+        await syncWidgetStorefrontByShop(merchant.shopDomain, withDefaults(widget));
+      }),
+    );
+  }
+
   return due.map((widget) => ({ id: widget.id, name: widget.name, at: publishedAt }));
 }
 
@@ -164,6 +183,7 @@ export async function listLiveNotices(merchantId) {
     select: {
       id: true,
       name: true,
+      location: true,
       messageConfig: { select: { translations: true } },
     },
   });
@@ -172,6 +192,7 @@ export async function listLiveNotices(merchantId) {
     .map((widget) => ({
       id: widget.id,
       name: widget.name,
+      location: widget.location,
       at: widget.messageConfig.translations[LIVE_NOTICE_KEY],
     }));
 }
@@ -247,6 +268,7 @@ export async function getPublishStatus(merchantId, widgetId = null) {
       .map((widget) => ({
         id: widget.id,
         name: widget.name,
+        location: widget.location,
         at: widget.liveNotice,
       })),
   };
@@ -555,7 +577,7 @@ export async function duplicateWidget(merchantId, widgetId) {
       merchantId,
       name: `${widget.name} copy`,
       location: widget.location,
-      status: WIDGET_STATUSES.INACTIVE,
+      status: WIDGET_STATUSES.DRAFT,
       currentStep: widget.currentStep,
       timezone: widget.timezone,
       shippingRules: {
@@ -654,8 +676,18 @@ export async function deleteWidget(merchantId, widgetId) {
 }
 
 export async function getActiveStorefrontWidgets(shopDomain, location) {
-  const merchant = await prisma.merchant.findUnique({
-    where: { shopDomain },
+  const raw = String(shopDomain || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .split("/")[0];
+  if (!raw) return [];
+  const full = raw.includes(".") ? raw : `${raw}.myshopify.com`;
+  const handle = full.replace(/\.myshopify\.com$/i, "");
+  const variants = [...new Set([shopDomain, raw, full, handle, `${handle}.myshopify.com`].filter(Boolean))];
+
+  const merchant = await prisma.merchant.findFirst({
+    where: { shopDomain: { in: variants } },
   });
   if (!merchant || merchant.uninstalledAt) return [];
   await activateDueWidgets(merchant.id);

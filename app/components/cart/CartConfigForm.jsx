@@ -4,6 +4,8 @@ import {
   formatDisplayDate,
   summarizeWorkingDays,
 } from "../../lib/delivery-calculator";
+import { AppLink } from "../common/AppLink";
+import { HostChoiceList } from "../common/ActionButton";
 
 export function ShippingSummary({ shipping, widgetId }) {
   const holidays = (shipping.blockedDates || [])
@@ -26,7 +28,7 @@ export function ShippingSummary({ shipping, widgetId }) {
         </s-list-item>
         <s-list-item>Blocked dates: {holidays || "None"}</s-list-item>
       </s-unordered-list>
-      <s-link href={`/app/widgets/${widgetId}/shipping`}>Edit conditions</s-link>
+      <AppLink to={`/app/widgets/${widgetId}?tab=conditions`}>Edit conditions</AppLink>
     </s-section>
   );
 }
@@ -35,7 +37,7 @@ export function CartConfigForm({ cart, onChange }) {
   return (
     <s-section heading="Cart delivery display">
       <input type="hidden" name="displayMode" value={cart.displayMode} />
-        <s-choice-list
+        <HostChoiceList
         label="Display mode"
         name="displayModeField"
         onChange={(event) =>
@@ -57,7 +59,7 @@ export function CartConfigForm({ cart, onChange }) {
         >
           General
         </s-choice>
-      </s-choice-list>
+      </HostChoiceList>
       <s-box padding="base" background="subdued" borderRadius="base">
         {cart.displayMode === CART_DISPLAY_MODES.PER_PRODUCT ? (
           <s-stack gap="small-200">

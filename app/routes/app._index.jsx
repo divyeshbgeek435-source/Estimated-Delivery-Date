@@ -7,35 +7,55 @@ import { loadDashboardAnalytics } from "../lib/analytics.server";
 import {
   deleteWidget,
   duplicateWidget,
+  getWidgetForMerchant,
   listLiveNotices,
   listWidgetSummaries,
   setWidgetStatus,
   acknowledgeLiveNotice,
 } from "../services/widgets/widget.server";
 import { WIDGET_STATUSES } from "../lib/constants";
+import { syncWidgetStorefront } from "../services/shopify/store-block.server";
 import { appBlockEditorUrl, appEmbedEditorUrl } from "../lib/theme-editor";
 import { DashboardHome } from "../components/dashboard/DashboardHome";
 
 export const loader = async ({ request }) => {
-  const { merchant, shop } = await requireAdmin(request);
+  const { admin, merchant, shop } = await requireAdmin(request);
   const [widgets, totals, liveNotices] = await Promise.all([
     listWidgetSummaries(merchant.id),
     loadDashboardAnalytics(merchant.id),
     listLiveNotices(merchant.id),
   ]);
 
+  let productHandle = "";
+  try {
+    const response = await admin.graphql(`#graphql
+      query DashboardStorefrontProduct {
+        products(first: 1, query: "status:active") {
+          nodes {
+            handle
+          }
+        }
+      }
+    `);
+    const json = await response.json();
+    productHandle = json.data?.products?.nodes?.[0]?.handle || "";
+  } catch {
+    productHandle = "";
+  }
+
   return {
     widgets,
     totals,
     liveNotices,
     shop,
+    productHandle,
     themeEditorEmbed: appEmbedEditorUrl(shop),
     themeEditorBlock: appBlockEditorUrl(shop),
   };
 };
 
 export const action = async ({ request }) => {
-  const { merchant } = await requireAdmin(request);
+  const { admin, session, merchant } = await requireAdmin(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "");
   const widgetIds = formData
@@ -56,16 +76,22 @@ export const action = async ({ request }) => {
       return { toast: "Widget duplicated" };
     }
     if (intent === "activate") {
-      await setWidgetStatus(merchant.id, widgetId, WIDGET_STATUSES.ACTIVE);
+      const saved = await setWidgetStatus(merchant.id, widgetId, WIDGET_STATUSES.ACTIVE);
+      await syncWidgetStorefront(admin, session, saved);
       return { toast: "Widget published" };
     }
     if (intent === "deactivate") {
-      await setWidgetStatus(merchant.id, widgetId, WIDGET_STATUSES.INACTIVE);
+      const saved = await setWidgetStatus(merchant.id, widgetId, WIDGET_STATUSES.DRAFT);
+      await syncWidgetStorefront(admin, session, saved);
       return { toast: "Widget unpublished" };
     }
     if (intent === "delete") {
       for (const id of widgetIds.length ? widgetIds : [widgetId]) {
+        const existing = await getWidgetForMerchant(merchant.id, id);
         await deleteWidget(merchant.id, id);
+        if (existing) {
+          await syncWidgetStorefront(admin, session, { ...existing, status: WIDGET_STATUSES.INACTIVE });
+        }
       }
       return { toast: "Widget deleted" };
     }
@@ -92,6 +118,8 @@ export default function Dashboard() {
       widgets={data.widgets}
       totals={data.totals}
       liveNotices={data.liveNotices}
+      shop={data.shop}
+      productHandle={data.productHandle}
       themeEditorEmbed={data.themeEditorEmbed}
       themeEditorBlock={data.themeEditorBlock}
       saving={navigation.state !== "idle"}

@@ -15,7 +15,7 @@ const shopify = shopifyApp({
   scopes: (
     process.env.SCOPES ||
     process.env.SHOPIFY_SCOPES ||
-    "read_products,read_product_listings,read_collection_listings,read_markets,write_markets"
+    "write_products,write_metaobjects,write_metaobject_definitions,read_themes,write_themes"
   )
     .split(",")
     .map((scope) => scope.trim())

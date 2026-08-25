@@ -19,14 +19,17 @@ export function readJsonField(formData, name, fallback) {
 
 export function widgetAppliesToProduct(widget, productId, collectionIds = []) {
   const placement = widget.placementConfig || {};
-  if (!productId || placement.mode === "ALL_PRODUCTS") return true;
-  if (placement.mode === "PRODUCTS") {
-    return (placement.productIds || []).includes(productId);
+  const mode = placement.mode || "ALL_PRODUCTS";
+  const productIds = placement.productIds || [];
+  const collectionIdsForWidget = placement.collectionIds || [];
+  if (!productId || mode === "ALL_PRODUCTS") return true;
+  if (mode === "PRODUCTS") {
+    if (!productIds.length) return true;
+    return productIds.includes(productId);
   }
-  if (placement.mode === "COLLECTIONS") {
-    return (collectionIds || []).some((id) =>
-      (placement.collectionIds || []).includes(id),
-    );
+  if (mode === "COLLECTIONS") {
+    if (!collectionIdsForWidget.length) return true;
+    return (collectionIds || []).some((id) => collectionIdsForWidget.includes(id));
   }
   return true;
 }
@@ -35,21 +38,21 @@ export function widgetAppliesToMarket(widget, marketHandle, country) {
   if (!widget.marketMode || widget.marketMode === "ALL") return true;
   const ids = widget.marketIds || [];
   const markets = widget.markets || [];
+  if (!ids.length && !markets.length) return true;
   const handles = markets.map((item) => item.handle || item.id);
   const titles = markets.map((item) => item.title);
   if (marketHandle && (ids.includes(marketHandle) || handles.includes(marketHandle))) return true;
-  if (country && (ids.includes(country) || titles.includes(country))) return true;
+  if (country && (ids.includes(country) || titles.includes(country) || handles.includes(country))) return true;
   return false;
 }
 
 export function pickStorefrontWidget(widgets, { productId, collectionIds = [], marketHandle, country } = {}) {
-  const matching = (widgets || []).filter((widget) =>
-    widgetAppliesToProduct(widget, productId, collectionIds),
-  );
-  const specific = matching.filter(
-    (widget) =>
-      widget.marketMode === "SPECIFIC" && widgetAppliesToMarket(widget, marketHandle, country),
+  const list = widgets || [];
+  const matching = list.filter((widget) => widgetAppliesToProduct(widget, productId, collectionIds));
+  const pool = matching.length ? matching : list;
+  const specific = pool.filter(
+    (widget) => widget.marketMode === "SPECIFIC" && widgetAppliesToMarket(widget, marketHandle, country),
   );
   if (specific.length) return specific[0];
-  return matching.find((widget) => widget.marketMode !== "SPECIFIC") || null;
+  return pool.find((widget) => widget.marketMode !== "SPECIFIC") || pool[0] || null;
 }

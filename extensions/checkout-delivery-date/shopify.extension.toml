@@ -8,7 +8,7 @@ type = "ui_extension"
 
 [[extensions.targeting]]
 module = "./src/Checkout.jsx"
-target = "purchase.checkout.block.render"
+target = "purchase.checkout.cart-line-list.render-after"
 
 [[extensions.targeting]]
 module = "./src/Shipping.jsx"

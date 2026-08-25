@@ -528,6 +528,17 @@
   flex-wrap: wrap;
   gap: 0.75rem;
   padding: 1rem 0 2rem;
+  align-items: flex-start;
+}
+
+.edd-status-picker {
+  flex: 1 0 100%;
+}
+
+.edd-status-picker__title {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+  font-weight: 650;
 }
 
 .edd-btn {
@@ -926,6 +937,21 @@
   color: #0c6b3d;
   font-size: 0.75rem;
   font-weight: 650;
+}
+
+.edd-live-dialog__badge--live {
+  background: #d1f0dc;
+  color: #0c6b3d;
+}
+
+.edd-live-dialog__badge--draft {
+  background: #e4e5e7;
+  color: #202223;
+}
+
+.edd-live-dialog__badge--schedule {
+  background: #d3e4fd;
+  color: #1a4e8a;
 }
 
 .edd-live-dialog h2 {

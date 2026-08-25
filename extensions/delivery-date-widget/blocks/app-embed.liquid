@@ -1,10 +1,16 @@
 {% doc %}
-App embed that enables estimated delivery on the storefront. The visible widget comes from the app block.
+App embed that enables estimated delivery on the storefront and shows the widget once on product and cart pages.
 {% enddoc %}
 
 <script>
   fetch("/apps/delivery-date/embed-ping", { keepalive: true }).catch(function () {});
 </script>
+
+{% if template.name == "product" %}
+  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, product: product %}
+{% elsif template.name == "cart" %}
+  {% render "edd-cart-root", shopify_attributes: block.shopify_attributes %}
+{% endif %}
 
 {% schema %}
 {
@@ -15,7 +21,7 @@ App embed that enables estimated delivery on the storefront. The visible widget 
   "settings": [
     {
       "type": "paragraph",
-      "content": "Activates estimated delivery on this theme. Add the Estimated delivery app block where you want the widget to appear. This embed does not show a second widget on the page."
+      "content": "Activates estimated delivery. On product and cart pages this embed shows the published widget once. Checkout widgets use the checkout extension."
     }
   ]
 }

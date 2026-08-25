@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useFetcher } from "react-router";
 import { PLACEMENT_MODES } from "../../lib/constants";
+import { ActionButton, HostChoiceList } from "../common/ActionButton";
 
 export function PlacementForm({ placement, onChange, errors = {} }) {
   return (
     <s-stack gap="large">
       <s-section heading="Apply to">
         <input type="hidden" name="mode" value={placement.mode} />
-        <s-choice-list
+        <HostChoiceList
           label="Apply to"
           name="modeField"
           onChange={(event) =>
@@ -26,7 +27,7 @@ export function PlacementForm({ placement, onChange, errors = {} }) {
           <s-choice value={PLACEMENT_MODES.PRODUCTS} selected={placement.mode === PLACEMENT_MODES.PRODUCTS}>
             Specific Products
           </s-choice>
-        </s-choice-list>
+        </HostChoiceList>
       </s-section>
 
       {placement.mode === PLACEMENT_MODES.PRODUCTS ? (
@@ -127,13 +128,13 @@ function ResourceSearch({ kind, selected, onSelected }) {
                 ) : null}
               </s-stack>
             </s-stack>
-            <s-button
+            <ActionButton
               type="button"
               variant={selectedIds.has(item.id) ? "secondary" : "primary"}
               onClick={() => toggle(item)}
             >
               {selectedIds.has(item.id) ? "Remove" : "Select"}
-            </s-button>
+            </ActionButton>
           </div>
         ))}
       </s-stack>
@@ -142,9 +143,9 @@ function ResourceSearch({ kind, selected, onSelected }) {
           {selected.map((item) => (
             <div key={item.id} className="edd-selected-row">
               <s-text>{item.title}</s-text>
-              <s-button type="button" tone="critical" variant="tertiary" onClick={() => toggle(item)}>
+              <ActionButton type="button" tone="critical" variant="tertiary" onClick={() => toggle(item)}>
                 Remove
-              </s-button>
+              </ActionButton>
             </div>
           ))}
         </s-section>

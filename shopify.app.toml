@@ -9,6 +9,10 @@ embedded = true
 automatically_update_urls_on_dev = true
 include_config_on_deploy = true
 
+[events]
+api_version = "unstable"
+subscription = [ ]
+
 [webhooks]
 api_version = "2026-10"
 
@@ -40,14 +44,10 @@ api_version = "2026-10"
   uri = "/webhooks/products/update"
   topics = [ "products/update" ]
 
-[events]
-api_version = "unstable"
-subscription = []
-
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,write_metaobjects,write_metaobject_definitions"
-optional_scopes = [ "read_themes" ]
+scopes = "write_products,write_metaobjects,write_metaobject_definitions,read_themes,write_themes"
+optional_scopes = [ "read_markets" ]
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
@@ -73,3 +73,4 @@ description = "Public checkout widget configuration used by the Checkout UI exte
 
   [shop.metafields.app.checkout_widget.access]
   admin = "merchant_read"
+  storefront = "public_read"

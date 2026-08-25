@@ -19,14 +19,39 @@ import {
 import { WidgetWorkspace } from "../components/editor/WidgetWorkspace";
 import { DEFAULT_STYLE, DEFAULT_WORKING_DAYS, WIDGET_STATUSES, WORKING_DAYS } from "../lib/constants";
 import { normalizePosition } from "../lib/widget-profiles";
-import { productThemeEditorUrl } from "../lib/theme-editor";
-import { syncCheckoutMetafield } from "../services/shopify/metafields.server";
+import { confirmKindForStatus, resolveEditorStatus } from "../lib/widget-status";
+import { productThemeEditorUrl, storefrontPageUrl } from "../lib/theme-editor";
+import { syncWidgetStorefront } from "../services/shopify/store-block.server";
+
+async function firstProductHandle(admin, widget) {
+  const fromPlacement = widget.placementConfig?.products?.[0]?.handle;
+  if (fromPlacement) return fromPlacement;
+  if (!admin) return "";
+  try {
+    const response = await admin.graphql(`#graphql
+      query FirstStorefrontProduct {
+        products(first: 1, query: "status:active") {
+          nodes {
+            handle
+          }
+        }
+      }
+    `);
+    const json = await response.json();
+    return json.data?.products?.nodes?.[0]?.handle || "";
+  } catch {
+    return "";
+  }
+}
 
 export const loader = async ({ request, params }) => {
-  const { widget, shop } = await requireWidget(request, params.id);
+  const { admin, widget, shop } = await requireWidget(request, params.id);
+  const productHandle = await firstProductHandle(admin, widget);
   return {
     widget: serializeWidget(widget),
     themeEditorUrl: productThemeEditorUrl(shop),
+    shop,
+    storefrontUrl: storefrontPageUrl(shop, widget.location, productHandle),
   };
 };
 
@@ -112,7 +137,7 @@ function pickStyle(style = {}) {
 }
 
 export const action = async ({ request, params }) => {
-  const { admin, merchant, widget } = await requireWidget(request, params.id);
+  const { admin, session, merchant, widget } = await requireWidget(request, params.id);
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "save");
   const draft = readJsonField(formData, "editorState", {});
@@ -138,8 +163,9 @@ export const action = async ({ request, params }) => {
         ...values.style,
         ...values.placement,
         ...values.editor,
-        status: WIDGET_STATUSES.INACTIVE,
+        status: WIDGET_STATUSES.DRAFT,
       });
+      await syncWidgetStorefront(admin, session, saved);
       return { widget: serializeWidget(saved), toast: widget.status === WIDGET_STATUSES.SCHEDULED ? "Schedule cancelled" : "Widget unpublished" };
     } catch (error) {
       return { errors: { form: error?.message || "Could not unpublish the widget." } };
@@ -160,36 +186,18 @@ export const action = async ({ request, params }) => {
     return { errors };
   }
 
-  const publishWhen = String(formData.get("publishWhen") || "now");
-  const scheduledRaw = String(formData.get("scheduledPublishAt") || "");
-  let scheduledPublishAt = values.message.scheduledPublishAt || null;
-  let status =
-    widget.status === WIDGET_STATUSES.ACTIVE || widget.status === WIDGET_STATUSES.SCHEDULED
-      ? widget.status
-      : WIDGET_STATUSES.DRAFT;
-  let toast = "Widget saved";
-
-  if (intent === "publish") {
-    if (publishWhen === "schedule") {
-      const when = new Date(scheduledRaw);
-      if (!scheduledRaw || Number.isNaN(when.getTime())) {
-        return { errors: { form: "Choose a date and time to schedule this widget." } };
-      }
-      if (when.getTime() <= Date.now()) {
-        return { errors: { form: "Scheduled time must be in the future." } };
-      }
-      scheduledPublishAt = when.toISOString();
-      status = WIDGET_STATUSES.SCHEDULED;
-      toast = `Scheduled for ${when.toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })}`;
-    } else {
-      scheduledPublishAt = null;
-      status = WIDGET_STATUSES.ACTIVE;
-      toast = "Widget published";
-    }
+  const resolved = resolveEditorStatus({
+    intent,
+    saveAction: String(formData.get("saveAction") || ""),
+    publishWhen: String(formData.get("publishWhen") || "now"),
+    scheduledRaw: String(formData.get("scheduledPublishAt") || ""),
+    currentStatus: widget.status,
+    currentScheduledAt: values.message.scheduledPublishAt || null,
+  });
+  if (resolved.error) {
+    return { errors: { form: resolved.error } };
   }
+  const { status, scheduledPublishAt } = resolved;
 
   try {
     const saved = await saveWidgetEditor(
@@ -199,7 +207,7 @@ export const action = async ({ request, params }) => {
         ...shippingParsed.data,
         ...messageParsed.data,
         scheduledPublishAt,
-        liveNotice: intent === "publish" ? null : values.message.liveNotice || null,
+        liveNotice: intent === "autosave" ? values.message.liveNotice || null : null,
         ...styleParsed.data,
         ...placementParsed.data,
         ...editorParsed.data,
@@ -209,8 +217,8 @@ export const action = async ({ request, params }) => {
       { returnWidget: intent !== "autosave" },
     );
 
-    if (intent === "publish") {
-      await syncCheckoutMetafield(admin, saved);
+    if (intent !== "autosave") {
+      await syncWidgetStorefront(admin, session, saved);
     }
 
     if (intent === "autosave") {
@@ -219,8 +227,11 @@ export const action = async ({ request, params }) => {
 
     return {
       widget: serializeWidget(saved),
-      toast: intent === "publish" ? toast : "Widget saved",
-      published: intent === "publish" && status === WIDGET_STATUSES.ACTIVE,
+      confirm: {
+        kind: confirmKindForStatus(status),
+        scheduledAt: scheduledPublishAt,
+      },
+      published: status === WIDGET_STATUSES.ACTIVE,
     };
   } catch (error) {
     return {
@@ -252,7 +263,7 @@ export default function WidgetEditorRoute() {
   const widget = currentWidget(actionData?.widget, loaderData.widget);
 
   useEffect(() => {
-    if (actionData?.silent) return;
+    if (actionData?.silent || actionData?.confirm) return;
     if (actionData?.toast) shopify.toast.show(actionData.toast);
     if (actionData?.errors) {
       shopify.toast.show("Could not save. Check the highlighted fields.", { isError: true });
@@ -264,6 +275,8 @@ export default function WidgetEditorRoute() {
       widget={widget}
       errors={actionData?.errors}
       themeEditorUrl={loaderData.themeEditorUrl}
+      shop={loaderData.shop}
+      storefrontUrl={loaderData.storefrontUrl}
     />
   );
 }

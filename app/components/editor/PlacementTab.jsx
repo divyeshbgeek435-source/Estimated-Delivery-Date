@@ -1,6 +1,7 @@
 import { PlacementForm } from "../placement/PlacementForm";
 import { widgetSnippet } from "../../lib/constants";
 import { normalizePosition, widgetProfile } from "../../lib/widget-profiles";
+import { HostChoiceList } from "../common/ActionButton";
 
 export function PlacementTab({ widget, draft, onChange, errors = {} }) {
   const profile = widgetProfile(widget.location);
@@ -27,7 +28,7 @@ export function PlacementTab({ widget, draft, onChange, errors = {} }) {
 
       <s-section heading={profile.placementTitle}>
         <input type="hidden" name="position" value={position} />
-        <s-choice-list
+        <HostChoiceList
           label={profile.placementTitle}
           name="positionField"
           onChange={(event) =>
@@ -45,15 +46,15 @@ export function PlacementTab({ widget, draft, onChange, errors = {} }) {
               {option.label}
             </s-choice>
           ))}
-        </s-choice-list>
+        </HostChoiceList>
         <s-paragraph color="subdued">
           {profile.positions.find((option) => option.value === position)?.help}
         </s-paragraph>
       </s-section>
 
       {widget.location === "CHECKOUT" ? (
-        <s-banner heading="Checkout editor">
-          After publishing, add the Estimated Delivery Date block in the Shopify checkout editor for the selected location.
+        <s-banner heading="Checkout display">
+          Once published, this widget appears once on checkout at the selected location. Draft and scheduled widgets stay hidden until they go live.
         </s-banner>
       ) : (
         <s-section heading="Code snippet">

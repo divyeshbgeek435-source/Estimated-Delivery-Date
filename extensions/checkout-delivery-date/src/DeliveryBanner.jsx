@@ -24,38 +24,29 @@ export function DeliveryBanner({ slot, trackConversion = false }) {
 
     async function load() {
       const metafields = shopify.appMetafields?.value || [];
-      const embedField = metafields.find((item) => item.key === "embed_enabled");
-      const embedOff =
-        embedField != null &&
-        (embedField.value === false || embedField.value === "false");
-
-      if (embedOff) {
-        if (!active) return;
-        setReady(true);
-        return;
-      }
-
       const field = metafields.find((item) => item.key === "checkout_widget");
       let widget = null;
       if (field?.value) {
-        widget = typeof field.value === "string" ? JSON.parse(field.value) : field.value;
+        try {
+          widget = typeof field.value === "string" ? JSON.parse(field.value) : field.value;
+        } catch {
+          widget = null;
+        }
       }
 
       try {
         const token = await shopify.sessionToken.get();
-        const response = await fetch("/api/widget/checkout-config", {
+        const country = shopify.billingAddress?.value?.countryCode || shopify.shippingAddress?.value?.countryCode || "";
+        const params = country ? `?country=${encodeURIComponent(country)}` : "";
+        const response = await fetch(`/api/widget/checkout-config${params}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (response.ok) {
           const data = await response.json();
-          if (data.embedEnabled === false) {
-            widget = null;
-          } else if (data.widget) {
-            widget = data.widget;
-          }
+          widget = data.widget || null;
         }
       } catch {
-        // Banner stays hidden when checkout config cannot load.
+        // Fall back to the shop metafield when the live config request fails.
       }
 
       if (trackConversion && widget?.id) {

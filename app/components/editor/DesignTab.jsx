@@ -1,5 +1,6 @@
 import { FONT_OPTIONS, GRADIENT_DIRECTIONS, WIDGET_DESIGNS } from "../../lib/constants";
 import { widgetProfile } from "../../lib/widget-profiles";
+import { HostChoiceList } from "../common/ActionButton";
 
 const TEMPLATE_COLORS = ["#000000", "#E53935", "#43A047", "#1E88E5", "#3949AB", "#FDD835", "#757575"];
 
@@ -77,7 +78,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
 
       <s-section heading="Card background">
         <input type="hidden" name="backgroundType" value={backgroundType} />
-        <s-choice-list
+        <HostChoiceList
           label="Card background"
           name="backgroundTypeField"
           onChange={(event) =>
@@ -93,7 +94,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           <s-choice value="GRADIENT" selected={backgroundType === "GRADIENT"}>
             Gradient background
           </s-choice>
-        </s-choice-list>
+        </HostChoiceList>
         {backgroundType === "GRADIENT" ? (
           <s-stack gap="base">
             <s-color-field

@@ -1,11 +1,12 @@
 import { GRADIENT_DIRECTIONS } from "../../lib/constants";
+import { HostChoiceList } from "../common/ActionButton";
 
 export function StyleForm({ style, onChange, errors = {} }) {
   return (
     <s-stack gap="large">
       <s-section heading="Background">
         <input type="hidden" name="backgroundType" value={style.backgroundType} />
-        <s-choice-list
+        <HostChoiceList
           label="Background type"
           name="backgroundTypeField"
           onChange={(event) =>
@@ -21,7 +22,7 @@ export function StyleForm({ style, onChange, errors = {} }) {
           <s-choice value="GRADIENT" selected={style.backgroundType === "GRADIENT"}>
             Gradient
           </s-choice>
-        </s-choice-list>
+        </HostChoiceList>
         {style.backgroundType === "GRADIENT" ? (
           <s-stack gap="base">
             <s-color-field

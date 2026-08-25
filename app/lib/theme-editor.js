@@ -5,6 +5,7 @@ const APP_CLIENT_ID =
 
 export const APP_EMBED_HANDLE = "app-embed";
 export const APP_BLOCK_HANDLE = "estimated-delivery";
+export const APP_CART_BLOCK_HANDLE = "cart-estimated-delivery";
 
 function storeHandle(shop) {
   return String(shop || "").replace(/\.myshopify\.com$/i, "");
@@ -51,3 +52,5 @@ export function appBlockEditorUrl(shop, { themeId, productHandle, activate = tru
 export function productThemeEditorUrl(shop, options = {}) {
   return appBlockEditorUrl(shop, { ...options, activate: true });
 }
+
+export { storefrontPageUrl } from "./widget-status";

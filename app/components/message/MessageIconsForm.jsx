@@ -1,5 +1,6 @@
 import { ICON_OPTIONS, MESSAGE_TAGS } from "../../lib/constants";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
+import { ActionButton } from "../common/ActionButton";
 
 export function MessageIconsForm({
   message,
@@ -44,14 +45,14 @@ export function MessageIconsForm({
           <s-text color="subdued">Insert a dynamic tag</s-text>
           <div className="edd-tag-row">
             {MESSAGE_TAGS.map((item) => (
-              <s-button
+              <ActionButton
                 key={item.tag}
                 type="button"
                 variant="secondary"
                 onClick={() => insertTag(item.tag)}
               >
                 {item.tag}
-              </s-button>
+              </ActionButton>
             ))}
           </div>
         </s-stack>

@@ -2,23 +2,24 @@ import { authenticate } from "../shopify.server";
 import { getActiveStorefrontWidgets } from "../services/widgets/widget.server";
 import { buildStorefrontDelivery } from "../services/delivery/delivery-calculator.server";
 import { publicStorefrontConfig } from "../services/analytics/analytics.server";
+import { pickStorefrontWidget } from "../lib/form.server";
 import { WIDGET_LOCATIONS } from "../lib/constants";
-import { isAppEmbedEnabledForShop } from "../services/shopify/app-embed.server";
 
 export const loader = async ({ request }) => {
   const { cors, sessionToken } = await authenticate.public.checkout(request);
-  const shop = String(sessionToken?.dest || "").replace(/^https?:\/\//, "");
+  const shop = String(sessionToken?.dest || sessionToken?.iss || "")
+    .replace(/^https?:\/\//, "")
+    .split("/")[0];
   if (!shop) {
     return cors(Response.json({ widget: null }, { status: 401 }));
   }
 
-  const embedEnabled = await isAppEmbedEnabledForShop(shop);
-  if (!embedEnabled) {
-    return cors(Response.json({ widget: null, embedEnabled: false }));
-  }
-
+  const url = new URL(request.url);
   const widgets = await getActiveStorefrontWidgets(shop, WIDGET_LOCATIONS.CHECKOUT);
-  const widget = widgets[0];
+  const widget = pickStorefrontWidget(widgets, {
+    marketHandle: url.searchParams.get("market") || "",
+    country: url.searchParams.get("country") || "",
+  });
   if (!widget) {
     return cors(Response.json({ widget: null }));
   }

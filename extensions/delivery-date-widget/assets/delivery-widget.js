@@ -68,6 +68,16 @@
     root.style.display = "none";
   }
 
+  function isCartPage() {
+    const path = window.location.pathname.replace(/\/+$/, "") || "/";
+    return path === "/cart" || path.endsWith("/cart");
+  }
+
+  function isProductPage() {
+    const path = window.location.pathname.replace(/\/+$/, "") || "/";
+    return path.includes("/products/");
+  }
+
   function isDuplicateRoot(root) {
     const location = root.dataset.location || "PRODUCT";
     const roots = [...document.querySelectorAll(`[data-edd-root][data-location="${location}"]`)];
@@ -334,6 +344,14 @@
     if (root.dataset.eddReady) return;
     root.dataset.eddReady = "true";
     const location = root.dataset.location || "PRODUCT";
+    if (location === "PRODUCT" && !isProductPage()) {
+      hideRoot(root);
+      return;
+    }
+    if (location === "CART" && !isCartPage()) {
+      hideRoot(root);
+      return;
+    }
     if (isDuplicateRoot(root)) {
       hideRoot(root);
       return;
@@ -354,14 +372,24 @@
     if (root.dataset.productWeight) configUrl.searchParams.set("productWeight", root.dataset.productWeight);
 
     const response = await fetch(configUrl.toString(), { credentials: "same-origin" });
-    if (!response.ok) return;
+    if (!response.ok) {
+      hideRoot(root);
+      return;
+    }
     const payload = await response.json();
     if (!payload.widget) {
       hideRoot(root);
       return;
     }
     root.hidden = false;
+    root.removeAttribute("hidden");
     root.style.removeProperty("display");
+    if (location === "CART") {
+      placeCartRoot(root, payload.widget.placement?.position);
+    }
+    if (location === "PRODUCT") {
+      placeProductRoot(root, payload.widget.placement?.position);
+    }
     ensureShell(root);
     renderCard(root, payload);
     renderExtras(root, payload);
@@ -370,7 +398,103 @@
     bindTracking(root, payload);
   }
 
-  document.querySelectorAll("[data-edd-root]").forEach((root) => {
-    init(root).catch(() => {});
-  });
+  function firstMatch(selectors) {
+    for (const selector of selectors) {
+      try {
+        const node = document.querySelector(selector);
+        if (node) return node;
+      } catch {
+        // Ignore invalid selectors in older browsers.
+      }
+    }
+    return null;
+  }
+
+  function movableNode(root) {
+    return root.closest("[id^='shopify-block'], .shopify-block, .shopify-app-block") || root;
+  }
+
+  function placeProductRoot(root, position) {
+    if ((root.dataset.location || "") !== "PRODUCT" || !isProductPage()) return;
+
+    const key =
+      position === "ABOVE_ATC" || position === "PRODUCT_INFO" || position === "BELOW_ATC"
+        ? position
+        : "BELOW_ATC";
+    if (root.dataset.eddPlaced === key) return;
+
+    const node = movableNode(root);
+    const atc = firstMatch([
+      '[name="add"]',
+      'button[name="add"]',
+      'form[action*="/cart/add"] [type="submit"]',
+      ".product-form__submit",
+      ".product-form__cart-submit",
+      "button.product-form__cart-submit",
+      "[data-add-to-cart]",
+    ]);
+    const info = firstMatch([
+      ".product__info-container",
+      ".product__info",
+      ".product-single__meta",
+      ".product__title",
+      "h1.product-title",
+      ".product__description",
+    ]);
+
+    if (key === "PRODUCT_INFO" && info) {
+      info.after(node);
+    } else if (atc?.parentElement) {
+      if (key === "ABOVE_ATC") atc.parentElement.insertBefore(node, atc);
+      else atc.parentElement.insertBefore(node, atc.nextSibling);
+    }
+    root.dataset.eddPlaced = key;
+  }
+
+  function placeCartRoot(root, position) {
+    if ((root.dataset.location || "") !== "CART" || !isCartPage()) return;
+
+    const key = position === "AFTER_ITEMS" ? "AFTER_ITEMS" : "BEFORE_CHECKOUT";
+    if (root.dataset.eddPlaced === key) return;
+
+    const node = movableNode(root);
+    const checkout = firstMatch([
+      '[name="checkout"]',
+      "button[name='checkout']",
+      "#checkout",
+      'form[action*="/cart"] [name="checkout"]',
+      'button[name="checkout"]',
+      'a[href*="/checkout"]',
+    ]);
+    const items = firstMatch([
+      "#main-cart-items",
+      "cart-items",
+      "[id*='CartItems']",
+      ".cart-items",
+      ".cart__items",
+    ]);
+
+    if (key === "AFTER_ITEMS" && items) {
+      items.after(node);
+    } else if (checkout?.parentElement) {
+      checkout.parentElement.insertBefore(node, checkout);
+    }
+    root.dataset.eddPlaced = key;
+  }
+
+  function boot() {
+    document.querySelectorAll("[data-edd-root]").forEach((root) => {
+      const location = root.dataset.location || "PRODUCT";
+      if (location === "CART") placeCartRoot(root);
+      if (location === "PRODUCT") placeProductRoot(root);
+      init(root).catch(() => {});
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
+  }
+  new MutationObserver(boot).observe(document.documentElement, { childList: true, subtree: true });
 })();

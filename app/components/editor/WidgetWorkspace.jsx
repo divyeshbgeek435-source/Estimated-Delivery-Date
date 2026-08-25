@@ -4,30 +4,26 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { EDITOR_TABS, locationLabel, WIDGET_STATUSES } from "../../lib/constants";
 import { applyLiveStatus, formatCountdown, useLivePublishPoll } from "../../lib/use-live-publish";
 import { normalizePosition, widgetProfile } from "../../lib/widget-profiles";
-import { openProductPageEditor } from "../../lib/open-theme-editor";
+import {
+  defaultScheduleValue,
+  formatScheduleLabel,
+  parseScheduleInput,
+  SAVE_ACTIONS,
+  saveActionFromStatus,
+  storefrontPageLabel,
+  toDatetimeLocal,
+} from "../../lib/widget-status";
+import { ActionButton } from "../common/ActionButton";
+import { AppLink } from "../common/AppLink";
 import { LiveWidgetPreview } from "../widgets/PlacementPreview";
 import { EmbedActivateBanner } from "../common/EmbedActivateBanner";
 import { ErrorBanner } from "../common/Feedback";
-import { LivePublishedDialog } from "../common/LivePublishedDialog";
+import { WidgetConfirmDialog } from "../common/LivePublishedDialog";
 import { ConditionsTab } from "./ConditionsTab";
 import { ContentTab } from "./ContentTab";
 import { DesignTab } from "./DesignTab";
 import { PlacementTab } from "./PlacementTab";
-
-function defaultScheduleValue() {
-  const date = new Date(Date.now() + 60 * 60 * 1000);
-  date.setMinutes(0, 0, 0);
-  if (date.getTime() <= Date.now()) date.setHours(date.getHours() + 1);
-  const pad = (value) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function formatScheduleLabel(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
+import { WidgetStatusPicker } from "./WidgetStatusPicker";
 
 const NEXT_TAB = {
   conditions: { id: "content", label: "Continue to Content" },
@@ -41,29 +37,35 @@ function tabFromUrl() {
   return EDITOR_TABS.some((item) => item.id === value) ? value : "conditions";
 }
 
-export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
-  const fetcher = useFetcher();
+export function WidgetWorkspace({ widget, errors }) {
+  const saveFetcher = useFetcher();
+  const autoFetcher = useFetcher();
   const shopify = useAppBridge();
   const [tab, setTab] = useState(tabFromUrl);
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([tabFromUrl()]));
   const [draft, setDraft] = useState(() => structuredClone(widget));
   const [previewDevice, setPreviewDevice] = useState("desktop");
-  const [saveState, setSaveState] = useState("saved");
-  const [publishWhen, setPublishWhen] = useState("now");
-  const [scheduleAt, setScheduleAt] = useState(defaultScheduleValue);
+  const [saveAction, setSaveAction] = useState(() => saveActionFromStatus(widget.status));
+  const [scheduleAt, setScheduleAt] = useState(() =>
+    toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
+  );
   const skipAutosave = useRef(true);
+  const seenConfirm = useRef("");
+  const [confirm, setConfirm] = useState(null);
   const draftRef = useRef(draft);
   const tabRef = useRef(tab);
+  const saveBusy = useRef(false);
   draftRef.current = draft;
   tabRef.current = tab;
-  const saving = fetcher.state !== "idle";
+  saveBusy.current = saveFetcher.state !== "idle";
+  const saving = saveFetcher.state !== "idle";
   const savedWidget =
-    fetcher.data?.widget &&
-    new Date(fetcher.data.widget.updatedAt || 0).getTime() >= new Date(widget.updatedAt || 0).getTime()
-      ? fetcher.data.widget
-      : widget.status === WIDGET_STATUSES.ACTIVE && fetcher.data?.widget?.status === WIDGET_STATUSES.SCHEDULED
+    saveFetcher.data?.widget &&
+    new Date(saveFetcher.data.widget.updatedAt || 0).getTime() >= new Date(widget.updatedAt || 0).getTime()
+      ? saveFetcher.data.widget
+      : widget.status === WIDGET_STATUSES.ACTIVE && saveFetcher.data?.widget?.status === WIDGET_STATUSES.SCHEDULED
         ? widget
-        : fetcher.data?.widget || widget;
+        : saveFetcher.data?.widget || widget;
   const scheduledAt = savedWidget.scheduledPublishAt || savedWidget.messageConfig?.scheduledPublishAt || null;
   const livePoll = useLivePublishPoll({
     widgetId: widget.id,
@@ -77,27 +79,60 @@ export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
   const countdown = formatCountdown(remainingMs);
   const next = NEXT_TAB[tab];
   const profile = widgetProfile(widget.location);
-  const isProduct = widget.location === "PRODUCT";
+  const pageLabel = storefrontPageLabel(widget.location);
 
   useEffect(() => {
     setDraft(structuredClone(widget));
+    setSaveAction(saveActionFromStatus(widget.status));
+    setScheduleAt(
+      toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
+    );
     skipAutosave.current = true;
   }, [widget.id]);
 
   useEffect(() => {
-    if (fetcher.data?.silent) setSaveState("saved");
-    if (fetcher.data?.errors) setSaveState("error");
-    if (fetcher.data?.toast) shopify.toast.show(fetcher.data.toast);
-  }, [fetcher.data, shopify]);
+    if (liveWidget.status === WIDGET_STATUSES.ACTIVE && saveAction === SAVE_ACTIONS.SCHEDULE) {
+      setSaveAction(SAVE_ACTIONS.PUBLISH);
+    }
+  }, [liveWidget.status, saveAction]);
+
+  useEffect(() => {
+    if (saveFetcher.data?.toast) shopify.toast.show(saveFetcher.data.toast);
+  }, [saveFetcher.data, shopify]);
+
+  useEffect(() => {
+    if (saveFetcher.state !== "idle" || saveFetcher.data?.errors || !saveFetcher.data?.confirm) return;
+    const key = `save:${saveFetcher.data.widget?.updatedAt}:${saveFetcher.data.confirm.kind}`;
+    if (seenConfirm.current === key) return;
+    seenConfirm.current = key;
+    setConfirm({
+      kind: saveFetcher.data.confirm.kind,
+      name: saveFetcher.data.widget?.name || draft.name,
+      scheduledLabel: formatScheduleLabel(saveFetcher.data.confirm.scheduledAt),
+    });
+  }, [saveFetcher.state, saveFetcher.data, draft.name]);
+
+  useEffect(() => {
+    const notice = liveWidget.messageConfig?.liveNotice;
+    if (!notice || liveWidget.status !== WIDGET_STATUSES.ACTIVE) return;
+    const key = `live:${liveWidget.id}:${notice}`;
+    if (seenConfirm.current === key) return;
+    seenConfirm.current = key;
+    setConfirm({
+      kind: "live",
+      name: liveWidget.name || draft.name,
+      fromSchedule: true,
+    });
+  }, [liveWidget.id, liveWidget.status, liveWidget.messageConfig?.liveNotice, liveWidget.name, draft.name]);
 
   useEffect(() => {
     if (skipAutosave.current) {
       skipAutosave.current = false;
       return;
     }
-    setSaveState("saving");
     const timer = setTimeout(() => {
-      fetcher.submit(
+      if (saveBusy.current) return;
+      autoFetcher.submit(
         {
           intent: "autosave",
           currentStep: tabRef.current,
@@ -123,12 +158,8 @@ export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
     window.history.replaceState(window.history.state, "", url);
   };
 
-  const hidePublishModal = () => {
-    document.getElementById("edd-publish-modal")?.hideOverlay?.();
-  };
-
   const submitIntent = (intent, extras = {}) => {
-    fetcher.submit(
+    saveFetcher.submit(
       {
         intent,
         currentStep: tabRef.current,
@@ -139,27 +170,20 @@ export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
     );
   };
 
-  const submitPublishNow = () => {
-    submitIntent("publish", { publishWhen: "now" });
-    hidePublishModal();
-    openProductPageEditor(themeEditorUrl);
-  };
-
-  const submitSchedule = () => {
-    if (!scheduleAt) {
-      shopify.toast.show("Choose a date and time", { isError: true });
+  const submitSave = () => {
+    if (saveAction === SAVE_ACTIONS.SCHEDULE) {
+      const parsed = parseScheduleInput(scheduleAt);
+      if (parsed.error) {
+        shopify.toast.show(parsed.error, { isError: true });
+        return;
+      }
+      submitIntent("save", {
+        saveAction,
+        scheduledPublishAt: parsed.when.toISOString(),
+      });
       return;
     }
-    const when = new Date(scheduleAt);
-    if (Number.isNaN(when.getTime()) || when.getTime() <= Date.now()) {
-      shopify.toast.show("Scheduled time must be in the future", { isError: true });
-      return;
-    }
-    submitIntent("publish", {
-      publishWhen: "schedule",
-      scheduledPublishAt: when.toISOString(),
-    });
-    hidePublishModal();
+    submitIntent("save", { saveAction });
   };
 
   const previewMessage = draft.messageConfig;
@@ -167,23 +191,17 @@ export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
 
   return (
     <s-page heading={draft.name || widget.name} inlineSize="large">
-      <s-link slot="breadcrumb-actions" href="/app">
+      <AppLink slot="breadcrumb-actions" to="/app">
         Home
-      </s-link>
-      {isProduct ? (
-        <s-button slot="primary-action" variant="primary" commandFor="edd-publish-modal" command="--show">
-          Publish
-        </s-button>
-      ) : (
-        <s-button
-          slot="primary-action"
-          variant="primary"
-          {...(saving ? { loading: true } : {})}
-          onClick={() => submitIntent("publish")}
-        >
-          Publish
-        </s-button>
-      )}
+      </AppLink>
+      <ActionButton
+        slot="primary-action"
+        variant="primary"
+        {...(saving ? { loading: true } : {})}
+        onClick={submitSave}
+      >
+        Save
+      </ActionButton>
 
       <div className="edd-page edd-page--wide">
       <p className="edd-editor__kicker">
@@ -198,19 +216,21 @@ export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
               ? "Going live"
               : `Scheduled${countdown && countdown !== "now" ? ` · ${countdown}` : ""}`}
           </s-badge>
-        ) : null}
+        ) : (
+          <s-badge>Draft</s-badge>
+        )}
       </p>
-      <EmbedActivateBanner />
-      {published && liveWidget.messageConfig?.liveNotice ? (
-        <s-banner tone="success">This widget is live on the product page.</s-banner>
+      {widget.location !== "CHECKOUT" ? <EmbedActivateBanner /> : null}
+      {published ? (
+        <s-banner tone="success">This widget is live on the {pageLabel}.</s-banner>
       ) : scheduled ? (
         <s-banner tone="info">
           {remainingMs != null && remainingMs <= 0
             ? "Scheduled time reached. Publishing to the storefront now."
-            : `Scheduled to publish ${scheduledLabel ? `on ${scheduledLabel}` : "later"}${countdown && countdown !== "now" ? ` · goes live in ${countdown}` : ""}. It stays hidden on the storefront until then.`}
+            : `Scheduled to publish ${scheduledLabel ? `on ${scheduledLabel}` : "later"}${countdown && countdown !== "now" ? ` · goes live in ${countdown}` : ""}. It stays hidden on the ${pageLabel} until then.`}
         </s-banner>
       ) : null}
-      <ErrorBanner errors={errors || fetcher.data?.errors} />
+      <ErrorBanner errors={errors || saveFetcher.data?.errors} />
 
       <div className="edd-tabs-row">
         <nav className="edd-tabs" aria-label="Widget settings">
@@ -251,19 +271,21 @@ export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
             </div>
           ) : null}
           <div className="edd-editor__footer">
+            <WidgetStatusPicker
+              location={widget.location}
+              value={saveAction}
+              onChange={setSaveAction}
+              scheduleAt={scheduleAt}
+              onScheduleAtChange={setScheduleAt}
+            />
             {next ? (
-              <button type="button" className="edd-btn edd-btn--primary" onClick={() => goTab(next.id)}>
+              <button type="button" className="edd-btn" onClick={() => goTab(next.id)}>
                 {next.label}
               </button>
-            ) : isProduct ? (
-              <s-button variant="primary" commandFor="edd-publish-modal" command="--show">
-                Publish
-              </s-button>
-            ) : (
-              <button type="button" className="edd-btn edd-btn--primary" onClick={() => submitIntent("publish")}>
-                Publish
-              </button>
-            )}
+            ) : null}
+            <button type="button" className="edd-btn edd-btn--primary" onClick={submitSave}>
+              Save
+            </button>
             {published || scheduled ? (
               <button type="button" className="edd-btn" onClick={() => submitIntent("unpublish")}>
                 {scheduled ? "Cancel schedule" : "Unpublish"}
@@ -321,69 +343,15 @@ export function WidgetWorkspace({ widget, errors, themeEditorUrl }) {
       </div>
       </div>
 
-      <s-modal id="edd-publish-modal" heading="Publish">
-        <s-paragraph>Choose when this widget should go live.</s-paragraph>
-        <div className="edd-publish-when">
-          <label className="edd-publish-option">
-            <input
-              type="radio"
-              name="publishWhen"
-              value="now"
-              checked={publishWhen === "now"}
-              onChange={() => setPublishWhen("now")}
-            />
-            <span>
-              <strong>Publish now</strong>
-              <em>Open the product page with the Estimated delivery block added. You only need to click Save.</em>
-            </span>
-          </label>
-          <label className="edd-publish-option">
-            <input
-              type="radio"
-              name="publishWhen"
-              value="schedule"
-              checked={publishWhen === "schedule"}
-              onChange={() => setPublishWhen("schedule")}
-            />
-            <span>
-              <strong>Schedule</strong>
-              <em>Keep it hidden until the date and time you choose. We'll show a popup when it goes live.</em>
-            </span>
-          </label>
-        </div>
-
-        {publishWhen === "schedule" ? (
-          <label className="edd-field edd-publish-when__time">
-            <span>Date and time</span>
-            <input
-              className="edd-input"
-              type="datetime-local"
-              value={scheduleAt}
-              min={defaultScheduleValue()}
-              onChange={(event) => setScheduleAt(event.currentTarget.value)}
-            />
-          </label>
-        ) : null}
-
-        <s-button
-          slot="primary-action"
-          variant="primary"
-          onClick={publishWhen === "now" ? submitPublishNow : submitSchedule}
-        >
-          {publishWhen === "now" ? "Publish now" : "Schedule"}
-        </s-button>
-        <s-button slot="secondary-actions" variant="secondary" commandFor="edd-publish-modal" command="--hide">
-          Cancel
-        </s-button>
-      </s-modal>
-      <LivePublishedDialog
-        notices={
-          liveWidget.messageConfig?.liveNotice
-            ? [{ id: liveWidget.id, name: liveWidget.name || draft.name, at: liveWidget.messageConfig.liveNotice }]
-            : []
-        }
-        editorUrl={themeEditorUrl}
-        onDismiss={() => submitIntent("ack-live")}
+      <WidgetConfirmDialog
+        kind={confirm?.kind}
+        name={confirm?.name || draft.name || widget.name}
+        location={widget.location}
+        scheduledLabel={confirm?.scheduledLabel}
+        onClose={() => {
+          if (confirm?.kind === "live") submitIntent("ack-live");
+          setConfirm(null);
+        }}
       />
     </s-page>
   );

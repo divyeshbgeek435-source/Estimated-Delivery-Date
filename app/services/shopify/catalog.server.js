@@ -104,6 +104,11 @@ const MARKETS_QUERY = `#graphql
   }
 `;
 
+function isMarketsAccessDenied(error) {
+  const message = String(error?.message || error || "");
+  return /access denied/i.test(message) && /markets/i.test(message);
+}
+
 export async function searchMarkets(admin, { q = "", first = 50 } = {}) {
   try {
     const data = await graphqlJson(admin, MARKETS_QUERY, { first });
@@ -125,6 +130,7 @@ export async function searchMarkets(admin, { q = "", first = 50 } = {}) {
         : nodes,
     };
   } catch (error) {
-    return { nodes: [], error: error.message || "Markets could not be loaded" };
+    if (isMarketsAccessDenied(error)) return { nodes: [], needsScopes: true };
+    return { nodes: [], error: "Markets could not be loaded. Try again." };
   }
 }

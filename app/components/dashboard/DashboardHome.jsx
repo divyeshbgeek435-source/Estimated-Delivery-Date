@@ -3,6 +3,8 @@ import { useFetcher, useSubmit } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { locationLabel, WIDGET_LOCATIONS, WIDGET_STATUSES } from "../../lib/constants";
 import { formatCountdown, mergeLiveRows, useLivePublishPoll } from "../../lib/use-live-publish";
+import { ActionButton } from "../common/ActionButton";
+import { AppLink } from "../common/AppLink";
 import { LivePublishedDialog } from "../common/LivePublishedDialog";
 
 const SECTIONS = [
@@ -31,14 +33,14 @@ export function DashboardHome({
 
   return (
     <s-page heading="Estimated delivery">
-      <s-button
+      <ActionButton
         slot="primary-action"
         variant="primary"
-        href="/app/widgets/new"
+        to="/app/widgets/new"
         {...(saving ? { loading: true } : {})}
       >
         Create new widget
-      </s-button>
+      </ActionButton>
 
       {error ? <s-banner tone="critical">{error}</s-banner> : null}
 
@@ -69,7 +71,6 @@ export function DashboardHome({
       </div>
       <LivePublishedDialog
         notices={notices}
-        editorUrl={themeEditorBlock}
         onDismiss={(widgetId) => {
           const notice = notices.find((item) => item.id === widgetId);
           setAcked((current) => new Set(current).add(`${widgetId}:${notice?.at || ""}`));
@@ -95,8 +96,9 @@ function useEmbedStatus(fallbackEmbedUrl, fallbackBlockUrl) {
       try {
         const current = await shopify.scopes?.query?.();
         const granted = current?.granted || [];
-        if (!granted.includes("read_themes")) {
-          await shopify.scopes.request(["read_themes"]);
+        const needed = ["read_themes", "write_themes"].filter((scope) => !granted.includes(scope));
+        if (needed.length) {
+          await shopify.scopes.request(needed);
         }
       } catch {
         // Continue with whatever theme access the session already has.
@@ -215,7 +217,7 @@ function WidgetList({ heading, widgets, now }) {
                   : "Unpublished";
             return (
               <div key={widget.id} className="edd-widget-row">
-                <s-link href={`/app/widgets/${widget.id}?tab=conditions`}>{widget.name}</s-link>
+                <AppLink to={`/app/widgets/${widget.id}?tab=conditions`}>{widget.name}</AppLink>
                 <span>{locationLabel(widget.location)}</span>
                 <span className="edd-widget-row__status">
                   <s-badge tone={published ? "success" : scheduled ? "info" : "neutral"}>
@@ -269,10 +271,12 @@ function WidgetActions({ widget, published, scheduled }) {
       </button>
       {open ? (
         <div className="edd-actions__menu" role="menu">
-          <s-link href={`/app/widgets/${widget.id}?tab=conditions`}>Edit</s-link>
-          <button type="button" role="menuitem" onClick={() => run("duplicate")}>
-            Duplicate
-          </button>
+          <AppLink to={`/app/widgets/${widget.id}?tab=conditions`}>Edit</AppLink>
+          {widget.location === WIDGET_LOCATIONS.CHECKOUT ? null : (
+            <button type="button" role="menuitem" onClick={() => run("duplicate")}>
+              Duplicate
+            </button>
+          )}
           {scheduled ? (
             <>
               <button type="button" role="menuitem" onClick={() => run("activate")}>

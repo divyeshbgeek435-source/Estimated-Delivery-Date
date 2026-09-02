@@ -12,15 +12,8 @@ const OPTIONS = [
     value: WIDGET_LOCATIONS.CART,
     title: "Cart page",
     badge: "Beta",
-    description: "Add an offer block to the cart page or cart drawer.",
+    description: "Add an app block to cart page or cart drawer.",
     sketch: "cart",
-  },
-  {
-    value: WIDGET_LOCATIONS.CHECKOUT,
-    title: "Checkout page",
-    badge: "Beta",
-    description: "Show estimated delivery dates on the checkout page.",
-    sketch: "checkout",
   },
 ];
 
@@ -76,21 +69,6 @@ function PlacementSketch({ type }) {
             <span />
             <span />
             <span className="edd-sketch__widget" />
-          </div>
-        </>
-      ) : null}
-      {type === "checkout" ? (
-        <>
-          <div className="edd-sketch__form">
-            <span />
-            <span />
-            <span />
-            <span />
-          </div>
-          <div className="edd-sketch__side">
-            <span />
-            <span />
-            <span className="edd-sketch__widget edd-sketch__widget--wide" />
           </div>
         </>
       ) : null}

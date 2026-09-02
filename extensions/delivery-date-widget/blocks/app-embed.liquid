@@ -1,5 +1,5 @@
 {% doc %}
-App embed that enables estimated delivery on the storefront and shows the widget once on product and cart pages.
+App embed that loads estimated delivery scripts and shows the widget when the page block is missing.
 {% enddoc %}
 
 <script>
@@ -7,9 +7,11 @@ App embed that enables estimated delivery on the storefront and shows the widget
 </script>
 
 {% if template.name == "product" %}
-  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, product: product %}
+  {% render "edd-product-root", product: product, collection: collection %}
+{% elsif template.name == "collection" %}
+  {% render "edd-product-root", collection: collection %}
 {% elsif template.name == "cart" %}
-  {% render "edd-cart-root", shopify_attributes: block.shopify_attributes %}
+  {% render "edd-cart-root" %}
 {% endif %}
 
 {% schema %}
@@ -21,7 +23,7 @@ App embed that enables estimated delivery on the storefront and shows the widget
   "settings": [
     {
       "type": "paragraph",
-      "content": "Activates estimated delivery. On product and cart pages this embed shows the published widget once. Checkout widgets use the checkout extension."
+      "content": "Loads scripts and shows the widget if the page block is missing. Use Product delivery date on product pages and Cart delivery date on the cart page to choose placement."
     }
   ]
 }

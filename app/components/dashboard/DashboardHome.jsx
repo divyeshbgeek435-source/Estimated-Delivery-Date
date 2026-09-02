@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useFetcher, useSubmit } from "react-router";
+import { useFetcher, useRevalidator, useSubmit } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { locationLabel, WIDGET_LOCATIONS, WIDGET_STATUSES } from "../../lib/constants";
 import { formatCountdown, mergeLiveRows, useLivePublishPoll } from "../../lib/use-live-publish";
@@ -10,13 +10,13 @@ import { LivePublishedDialog } from "../common/LivePublishedDialog";
 const SECTIONS = [
   { location: WIDGET_LOCATIONS.PRODUCT, heading: "Product page widgets" },
   { location: WIDGET_LOCATIONS.CART, heading: "Cart page widgets" },
-  { location: WIDGET_LOCATIONS.CHECKOUT, heading: "Checkout page widgets" },
 ];
 
 export function DashboardHome({
   widgets,
   totals,
   liveNotices = [],
+  deliveryRequests = [],
   themeEditorEmbed,
   themeEditorBlock,
   saving,
@@ -30,6 +30,7 @@ export function DashboardHome({
   const notices = (livePoll.data?.liveNotices ?? liveNotices).filter(
     (notice) => !acked.has(`${notice.id}:${notice.at || ""}`),
   );
+  const checkoutItems = rows.filter((widget) => widget.location === WIDGET_LOCATIONS.CHECKOUT);
 
   return (
     <s-page heading="Estimated delivery">
@@ -47,16 +48,24 @@ export function DashboardHome({
       <div className="edd-page">
       {SECTIONS.map((section) => {
         const items = rows.filter((widget) => widget.location === section.location);
-        if (!items.length && section.location !== WIDGET_LOCATIONS.PRODUCT) return null;
         return (
           <WidgetList
             key={section.location}
             heading={section.heading}
+            location={section.location}
             widgets={items}
             now={livePoll.now}
           />
         );
       })}
+      {checkoutItems.length ? (
+        <WidgetList
+          heading="Checkout widgets (no longer offered)"
+          location={WIDGET_LOCATIONS.CHECKOUT}
+          widgets={checkoutItems}
+          now={livePoll.now}
+        />
+      ) : null}
 
       <div className="edd-card edd-impressions">
         <p className="edd-impressions__label">Impressions</p>
@@ -68,6 +77,8 @@ export function DashboardHome({
         <AppEmbedStatusCard embed={embed} fallbackEmbedUrl={themeEditorEmbed} />
         <AppBlockStatusCard fallbackBlockUrl={embed.blockUrl || themeEditorBlock} />
       </div>
+
+      <DeliveryRequestsList requests={deliveryRequests} saving={saving} />
       </div>
       <LivePublishedDialog
         notices={notices}
@@ -186,10 +197,114 @@ function AppBlockStatusCard({ fallbackBlockUrl }) {
   );
 }
 
-function WidgetList({ heading, widgets, now }) {
+function formatRequestWhen(value) {
+  const date = value instanceof Date ? value : new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function requestStatusTone(status) {
+  if (status === "ACCEPTED") return "success";
+  if (status === "REJECTED") return "neutral";
+  return "warning";
+}
+
+function requestStatusLabel(status) {
+  if (status === "ACCEPTED") return "Accepted";
+  if (status === "REJECTED") return "Rejected";
+  return "Pending";
+}
+
+function DeliveryRequestsList({ requests = [], saving }) {
+  const submit = useSubmit();
+  const revalidator = useRevalidator();
+  const refreshing = revalidator.state !== "idle";
+  const act = (item, intent) => {
+    submit({ intent, requestId: item.id, widgetId: item.widgetId }, { method: "post" });
+  };
+
   return (
     <section className="edd-widget-list">
-      <h2 className="edd-widget-list__heading">{heading}</h2>
+      <div className="edd-widget-list__toolbar">
+        <h2 className="edd-widget-list__heading">Delivery requests</h2>
+        <button
+          type="button"
+          className="edd-btn edd-btn--secondary"
+          disabled={refreshing || saving}
+          onClick={() => revalidator.revalidate()}
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+      <div className="edd-card edd-widget-list__table">
+        <div className="edd-widget-row edd-request-row edd-widget-row--head">
+          <span>Pincode</span>
+          <span>Location</span>
+          <span>Product / widget</span>
+          <span>Received</span>
+          <span>Status</span>
+        </div>
+        {requests.length ? (
+          requests.map((item) => {
+            const place = [item.city, item.state, item.country].filter(Boolean).join(", ");
+            const source = [item.productTitle, item.widgetName].filter(Boolean).join(" · ") || "Storefront request";
+            return (
+              <div key={item.id} className="edd-widget-row edd-request-row">
+                <strong>{item.pincode}</strong>
+                <span>{place || "—"}</span>
+                <span>{source}</span>
+                <span>{formatRequestWhen(item.createdAt)}</span>
+                <span className="edd-widget-row__status">
+                  <s-badge tone={requestStatusTone(item.status)}>{requestStatusLabel(item.status)}</s-badge>
+                  {item.status === "PENDING" ? (
+                    <span className="edd-request-actions">
+                      <button
+                        type="button"
+                        className="edd-btn edd-btn--primary"
+                        disabled={saving}
+                        onClick={() => act(item, "accept-delivery-request")}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        className="edd-pin-list__remove"
+                        disabled={saving}
+                        onClick={() => act(item, "reject-delivery-request")}
+                      >
+                        Reject
+                      </button>
+                    </span>
+                  ) : null}
+                </span>
+              </div>
+            );
+          })
+        ) : (
+          <div className="edd-widget-row edd-widget-row--empty">
+            <span>No delivery requests yet. When a customer requests delivery for an unavailable pincode, it appears here.</span>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function WidgetList({ heading, location, widgets, now }) {
+  const empty =
+    location === WIDGET_LOCATIONS.CART
+      ? "No cart widget yet. Create one to show estimated delivery above checkout."
+      : location === WIDGET_LOCATIONS.CHECKOUT
+        ? "Checkout widgets are no longer available. Unpublish or delete any leftover widgets."
+        : "No widgets yet. Create one to show estimated delivery dates.";
+  return (
+    <section className="edd-widget-list">
+      <div className="edd-widget-list__heading-row">
+        <h2 className="edd-widget-list__heading">{heading}</h2>
+        {location === WIDGET_LOCATIONS.PRODUCT || location === WIDGET_LOCATIONS.CHECKOUT ? null : (
+          <AppLink to="/app/widgets/new">{widgets.length ? "Create another" : "Create new widget"}</AppLink>
+        )}
+      </div>
       <div className="edd-card edd-widget-list__table">
         <div className="edd-widget-row edd-widget-row--head">
           <span>Estimated delivery name</span>
@@ -230,7 +345,7 @@ function WidgetList({ heading, widgets, now }) {
           })
         ) : (
           <div className="edd-widget-row edd-widget-row--empty">
-            <span>No widgets yet. Create one to show estimated delivery dates.</span>
+            <span>{empty}</span>
           </div>
         )}
       </div>

@@ -1,73 +1,58 @@
-import { authenticate } from "../shopify.server";
+import { authenticate, unauthenticated } from "../shopify.server";
 import { getActiveStorefrontWidgets } from "../services/widgets/widget.server";
-import { buildStorefrontDelivery } from "../services/delivery/delivery-calculator.server";
 import { publicStorefrontConfig } from "../services/analytics/analytics.server";
-import { pickStorefrontWidget } from "../lib/form.server";
-import { matchPincodeRule, publicPincodeState, shippingWithPincodeRule } from "../lib/pincode";
-import { WIDGET_LOCATIONS } from "../lib/constants";
+import { mergeIdLists, parseIdList, pickStorefrontWidget } from "../lib/form.server";
+import { getProductCollectionIds } from "../services/shopify/catalog.server";
+import { PLACEMENT_MODES, WIDGET_LOCATIONS } from "../lib/constants";
+import {
+  deliveriesFromCartItems,
+  parseCartItems,
+  safeEstimate,
+  storefrontOptions,
+  widgetPayload,
+} from "../services/widgets/storefront-payload.server";
 
 function parseCollectionIds(value) {
-  if (!value) return [];
-  return String(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return parseIdList(value);
 }
 
-function parseCartItems(value) {
-  if (!value) return [];
+async function resolveCollectionIds(shop, admin, productId, provided, widgets = []) {
+  const merged = mergeIdLists(provided);
+  const needsLookup = Boolean(
+    productId &&
+      widgets.some((widget) => (widget.placementConfig?.mode || "") === PLACEMENT_MODES.COLLECTIONS),
+  );
+  if (!needsLookup) return merged;
   try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : [];
+    const client = admin || (await unauthenticated.admin(shop)).admin;
+    return mergeIdLists(merged, await getProductCollectionIds(client, productId));
   } catch {
-    return [];
+    return merged;
   }
 }
 
-function dateSettingsFrom(widget) {
-  return {
-    dateFormat: widget.messageConfig.dateFormat,
-    dateSeparator: widget.messageConfig.dateSeparator,
-    includeYear: widget.messageConfig.includeYear,
-  };
+async function requestUrl(request) {
+  const url = new URL(request.url);
+  if (request.method === "GET" || request.method === "HEAD") return url;
+  try {
+    const text = await request.text();
+    const params = new URLSearchParams(text);
+    params.forEach((value, key) => {
+      if (value) url.searchParams.set(key, value);
+    });
+  } catch {
+    // Keep query-string params when the body is empty or not form-encoded.
+  }
+  return url;
 }
 
-function estimateFor(widget, extras = {}) {
-  const shipping = extras.pincodeRule
-    ? shippingWithPincodeRule(widget.shippingRules, extras.pincodeRule)
-    : widget.shippingRules;
-  return buildStorefrontDelivery(shipping, widget.timezone, new Date(), {
-    dateSettings: dateSettingsFrom(widget),
-    ...extras,
-  });
-}
-
-function storefrontOptions(url, extras = {}) {
-  return {
-    locale: url.searchParams.get("locale") || "en",
-    pincode: url.searchParams.get("pincode") || "",
-    productWeight: url.searchParams.get("productWeight") || extras.productWeight || "",
-    ...extras,
-  };
-}
-
-function widgetPayload(widget, extras = {}) {
-  const pincodeValue = extras.pincode || "";
-  const pincodeState = publicPincodeState(widget.shippingRules?.pincodeRules, { code: pincodeValue });
-  const pincodeRule =
-    pincodeState.enabled && pincodeValue
-      ? matchPincodeRule(pincodeValue, widget.shippingRules?.pincodeRules)
-      : null;
-  const hideDelivery = Boolean(pincodeState.enabled && pincodeValue && pincodeState.available === false);
-  const delivery = hideDelivery ? null : estimateFor(widget, { ...extras, pincodeRule });
-  return publicStorefrontConfig(widget, delivery, extras);
-}
-
-export const loader = async ({ request }) => {
+async function handleConfig(request) {
   let shop;
+  let admin;
   try {
     const context = await authenticate.public.appProxy(request);
     shop = context.session?.shop;
+    admin = context.admin;
   } catch {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -77,10 +62,11 @@ export const loader = async ({ request }) => {
   }
 
   try {
-    const url = new URL(request.url);
+    const url = await requestUrl(request);
     const location = (url.searchParams.get("location") || WIDGET_LOCATIONS.PRODUCT).toUpperCase();
     const productId = url.searchParams.get("productId") || url.searchParams.get("product_id");
-    const collectionIds = parseCollectionIds(
+    const pageType = String(url.searchParams.get("page") || url.searchParams.get("template") || "").toLowerCase();
+    const collectionIdsFromRequest = parseCollectionIds(
       url.searchParams.get("collectionIds") || url.searchParams.get("collection_ids"),
     );
     const marketHandle = url.searchParams.get("market") || url.searchParams.get("marketHandle");
@@ -91,6 +77,10 @@ export const loader = async ({ request }) => {
     const options = storefrontOptions(url, { productName, stockLeft });
 
     const widgets = await getActiveStorefrontWidgets(shop, location);
+    const collectionIds =
+      location === WIDGET_LOCATIONS.PRODUCT
+        ? await resolveCollectionIds(shop, admin, productId, collectionIdsFromRequest, widgets)
+        : collectionIdsFromRequest;
 
     if (location === WIDGET_LOCATIONS.PRODUCT) {
       const widget = pickStorefrontWidget(widgets, {
@@ -98,59 +88,45 @@ export const loader = async ({ request }) => {
         collectionIds,
         marketHandle,
         country,
+        pageType,
       });
       if (!widget) return Response.json({ widget: null });
-      return Response.json({ widget: widgetPayload(widget, options) });
+      return Response.json({ widget: await widgetPayload(widget, options) });
     }
 
-    const displayWidget = pickStorefrontWidget(widgets, { marketHandle, country });
+    const displayWidget = pickStorefrontWidget(widgets, { marketHandle, country }) || widgets[0];
     if (!displayWidget) return Response.json({ widget: null });
 
-    const cartDelivery = estimateFor(displayWidget, options);
-    if (displayWidget.cartConfig?.displayMode !== "PER_PRODUCT" || !cartItems.length) {
-      return Response.json({
-        widget: publicStorefrontConfig(displayWidget, cartDelivery, options),
-      });
-    }
-
     const productWidgets = await getActiveStorefrontWidgets(shop, WIDGET_LOCATIONS.PRODUCT);
-    const sourceItems = cartItems.length ? cartItems : [{ id: productId, collectionIds }];
-    const matched = sourceItems
-      .map((item) => ({
-        item,
-        widget: pickStorefrontWidget(productWidgets, {
-          productId: item.id || item.productId,
-          collectionIds: item.collectionIds || collectionIds,
-          marketHandle,
-          country,
-        }),
-      }))
-      .filter((entry) => entry.widget);
-
-    if (!matched.length) {
-      return Response.json({
-        widget: publicStorefrontConfig(displayWidget, cartDelivery, options),
-      });
-    }
-
-    const withDelivery = matched.map((entry) => ({
-      ...entry,
-      delivery: estimateFor(entry.widget, { ...options, productName: entry.item.title || productName }),
-    }));
-    withDelivery.sort((a, b) => String(b.delivery.deliveryDateMax).localeCompare(String(a.delivery.deliveryDateMax)));
+    const withDelivery = await deliveriesFromCartItems({
+      productWidgets,
+      cartItems,
+      options,
+      marketHandle,
+      country,
+      collectionIds,
+      fallbackWidget: displayWidget,
+    });
+    const cartDelivery = withDelivery[0]?.delivery || safeEstimate(displayWidget, options);
+    const perProduct = displayWidget.cartConfig?.displayMode === "PER_PRODUCT" && withDelivery.length;
 
     return Response.json({
-      widget: publicStorefrontConfig(displayWidget, withDelivery[0]?.delivery || cartDelivery, {
+      widget: publicStorefrontConfig(displayWidget, cartDelivery, {
         ...options,
-        items: withDelivery.map((entry) => ({
-          id: entry.item.id,
-          title: entry.item.title,
-          delivery: entry.delivery,
-        })),
+        items: perProduct
+          ? withDelivery.map((entry) => ({
+              id: entry.item.id,
+              title: entry.item.title,
+              delivery: entry.delivery,
+            }))
+          : [],
       }),
     });
   } catch (error) {
     console.warn("[edd] storefront config failed", error?.message || error);
     return Response.json({ widget: null });
   }
-};
+}
+
+export const loader = async ({ request }) => handleConfig(request);
+export const action = async ({ request }) => handleConfig(request);

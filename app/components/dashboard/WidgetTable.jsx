@@ -45,7 +45,7 @@ export function WidgetTable({ widgets, metrics }) {
             <s-stack alignItems="center">
               <s-heading>Create your first delivery widget</s-heading>
               <s-paragraph>
-                Show customers when they can expect their order on product, cart, and checkout pages.
+                Show customers when they can expect their order on product and cart pages.
               </s-paragraph>
             </s-stack>
             <ActionButton variant="primary" onClick={() => navigate("/app/widgets/new")}>

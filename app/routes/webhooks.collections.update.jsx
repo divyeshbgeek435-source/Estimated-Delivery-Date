@@ -18,26 +18,36 @@ export const action = async ({ request }) => {
   });
   if (!merchant) return new Response();
 
-  const placements = await prisma.placementConfig.findMany({
+  const widgets = await prisma.widget.findMany({
     where: {
-      widget: { merchantId: merchant.id },
-      collectionIds: { has: collectionGid },
+      merchantId: merchant.id,
+      placementConfig: {
+        is: {
+          collectionIds: { has: collectionGid },
+        },
+      },
     },
+    select: { id: true, placementConfig: true },
   });
 
   await Promise.all(
-    placements.map((placement) =>
-      prisma.placementConfig.update({
-        where: { id: placement.id },
+    widgets.map((widget) => {
+      const placement = widget.placementConfig || {};
+      return prisma.widget.update({
+        where: { id: widget.id },
         data: {
-          collections: (placement.collections || []).map((item) =>
-            item.id === collectionGid
-              ? { ...item, title: payload.title || item.title }
-              : item,
-          ),
+          placementConfig: {
+            update: {
+              collections: (placement.collections || []).map((item) =>
+                item.id === collectionGid
+                  ? { ...item, title: payload.title || item.title }
+                  : item,
+              ),
+            },
+          },
         },
-      }),
-    ),
+      });
+    }),
   );
 
   return new Response();

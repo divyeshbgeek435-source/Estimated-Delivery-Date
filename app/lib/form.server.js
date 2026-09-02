@@ -1,4 +1,4 @@
-import { WORKING_DAYS } from "./constants";
+import { PLACEMENT_MODES, WORKING_DAYS } from "./constants";
 
 export function readWorkingDays(formData, prefix = "workingDay_") {
   return WORKING_DAYS.filter((day) => {
@@ -17,19 +17,76 @@ export function readJsonField(formData, name, fallback) {
   }
 }
 
+export function shopifyNumericId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const match = raw.match(/(\d+)\s*$/);
+  return match ? match[1] : raw;
+}
+
+export function parseIdList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function idKeys(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  const numeric = shopifyNumericId(raw);
+  return numeric && numeric !== raw ? [raw, numeric] : [raw];
+}
+
+export function idsIntersect(left = [], right = []) {
+  const wanted = new Set((right || []).flatMap(idKeys));
+  return (left || []).some((id) => idKeys(id).some((key) => wanted.has(key)));
+}
+
+export function mergeIdLists(...lists) {
+  const seen = new Set();
+  const result = [];
+  for (const list of lists) {
+    for (const value of parseIdList(list)) {
+      const key = shopifyNumericId(value) || value;
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      result.push(value);
+    }
+  }
+  return result;
+}
+
+function placementIds(placement, idKey, listKey) {
+  return mergeIdLists(
+    placement?.[idKey],
+    (placement?.[listKey] || []).map((item) => item?.id),
+  );
+}
+
+export function syncedPlacementIds(placement = {}) {
+  return {
+    productIds: placementIds(placement, "productIds", "products"),
+    collectionIds: placementIds(placement, "collectionIds", "collections"),
+  };
+}
+
 export function widgetAppliesToProduct(widget, productId, collectionIds = []) {
   const placement = widget.placementConfig || {};
-  const mode = placement.mode || "ALL_PRODUCTS";
-  const productIds = placement.productIds || [];
-  const collectionIdsForWidget = placement.collectionIds || [];
-  if (!productId || mode === "ALL_PRODUCTS") return true;
-  if (mode === "PRODUCTS") {
-    if (!productIds.length) return true;
-    return productIds.includes(productId);
+  const mode = placement.mode || PLACEMENT_MODES.ALL_PRODUCTS;
+  if (mode === PLACEMENT_MODES.ALL_PRODUCTS) return true;
+  if (mode === PLACEMENT_MODES.PRODUCTS) {
+    const productIds = placementIds(placement, "productIds", "products");
+    if (!productIds.length || !productId) return false;
+    return idsIntersect([productId], productIds);
   }
-  if (mode === "COLLECTIONS") {
-    if (!collectionIdsForWidget.length) return true;
-    return (collectionIds || []).some((id) => collectionIdsForWidget.includes(id));
+  if (mode === PLACEMENT_MODES.COLLECTIONS) {
+    const wanted = placementIds(placement, "collectionIds", "collections");
+    if (!wanted.length || !(collectionIds || []).length) return false;
+    return idsIntersect(collectionIds, wanted);
   }
   return true;
 }
@@ -46,13 +103,18 @@ export function widgetAppliesToMarket(widget, marketHandle, country) {
   return false;
 }
 
-export function pickStorefrontWidget(widgets, { productId, collectionIds = [], marketHandle, country } = {}) {
+export function pickStorefrontWidget(widgets, { productId, collectionIds = [], marketHandle, country, pageType } = {}) {
   const list = widgets || [];
-  const matching = list.filter((widget) => widgetAppliesToProduct(widget, productId, collectionIds));
-  const pool = matching.length ? matching : list;
-  const specific = pool.filter(
+  let matching = list.filter((widget) => widgetAppliesToProduct(widget, productId, collectionIds));
+  if (pageType === "collection") {
+    const collectionWidgets = matching.filter(
+      (widget) => (widget.placementConfig?.mode || PLACEMENT_MODES.ALL_PRODUCTS) === PLACEMENT_MODES.COLLECTIONS,
+    );
+    if (collectionWidgets.length) matching = collectionWidgets;
+  }
+  const specific = matching.filter(
     (widget) => widget.marketMode === "SPECIFIC" && widgetAppliesToMarket(widget, marketHandle, country),
   );
   if (specific.length) return specific[0];
-  return pool.find((widget) => widget.marketMode !== "SPECIFIC") || pool[0] || null;
+  return matching.find((widget) => widget.marketMode !== "SPECIFIC") || matching[0] || null;
 }

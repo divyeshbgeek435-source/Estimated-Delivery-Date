@@ -42,6 +42,38 @@ const COLLECTION_SEARCH_QUERY = `#graphql
   }
 `;
 
+const PRODUCT_COLLECTIONS_QUERY = `#graphql
+  query DeliveryDateProductCollections($id: ID!, $first: Int!) {
+    product(id: $id) {
+      collections(first: $first) {
+        nodes {
+          id
+        }
+      }
+    }
+  }
+`;
+
+const COLLECTION_PRODUCT_QUERY = `#graphql
+  query DeliveryDateCollectionProduct($id: ID!) {
+    collection(id: $id) {
+      products(first: 1) {
+        nodes {
+          handle
+        }
+      }
+    }
+  }
+`;
+
+function toGid(type, value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("gid://")) return raw;
+  const numeric = (raw.match(/(\d+)\s*$/) || [])[1];
+  return numeric ? `gid://shopify/${type}/${numeric}` : raw;
+}
+
 async function graphqlJson(admin, query, variables) {
   const response = await admin.graphql(query, { variables });
   const payload = await response.json();
@@ -107,6 +139,28 @@ const MARKETS_QUERY = `#graphql
 function isMarketsAccessDenied(error) {
   const message = String(error?.message || error || "");
   return /access denied/i.test(message) && /markets/i.test(message);
+}
+
+export async function getProductCollectionIds(admin, productId) {
+  const id = toGid("Product", productId);
+  if (!id) return [];
+  try {
+    const data = await graphqlJson(admin, PRODUCT_COLLECTIONS_QUERY, { id, first: 250 });
+    return (data.product?.collections?.nodes || []).map((node) => node.id).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export async function getCollectionProductHandle(admin, collectionId) {
+  const id = toGid("Collection", collectionId);
+  if (!id) return "";
+  try {
+    const data = await graphqlJson(admin, COLLECTION_PRODUCT_QUERY, { id });
+    return data.collection?.products?.nodes?.[0]?.handle || "";
+  } catch {
+    return "";
+  }
 }
 
 export async function searchMarkets(admin, { q = "", first = 50 } = {}) {

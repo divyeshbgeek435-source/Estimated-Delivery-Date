@@ -8,6 +8,8 @@ import { joinCutoff, splitCutoff } from "../../lib/delivery-calculator";
 import { widgetProfile } from "../../lib/widget-profiles";
 import { ActionButton, HostChoiceList } from "../common/ActionButton";
 import { PincodeRulesEditor } from "./PincodeRulesEditor";
+import { WeightDisplayPicker } from "./WeightDisplayPicker";
+import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
 
 const DAY_SHORT = {
   MONDAY: "M",
@@ -19,7 +21,7 @@ const DAY_SHORT = {
   SUNDAY: "S",
 };
 
-export function ConditionsTab({ widget, draft, onChange, errors = {} }) {
+export function ConditionsTab({ widget, draft, onChange, errors = {}, deliveryRequests = [] }) {
   const shipping = draft.shippingRules;
   const profile = widgetProfile(widget.location);
   const setShipping = (patch) =>
@@ -36,6 +38,19 @@ export function ConditionsTab({ widget, draft, onChange, errors = {} }) {
           error={errors.name}
           onInput={(event) => onChange({ ...draft, name: event.currentTarget.value })}
         ></s-text-field>
+        {profile.inheritProductConditions ? (
+          <>
+            <s-banner>
+              Delivery logic is automatically used from your Product Page conditions.
+            </s-banner>
+            {widget.location === WIDGET_LOCATIONS.CHECKOUT ? (
+              <s-paragraph color="subdued">
+                Checkout shows one estimate from the products in the order. If no matching product-page widget is
+                found, the checkout widget stays hidden.
+              </s-paragraph>
+            ) : null}
+          </>
+        ) : null}
         {profile.showCartMode ? (
           <>
             <input type="hidden" name="displayMode" value={draft.cartConfig.displayMode} />
@@ -53,12 +68,17 @@ export function ConditionsTab({ widget, draft, onChange, errors = {} }) {
               }
             >
               <s-choice value="GENERAL" selected={draft.cartConfig.displayMode === "GENERAL"}>
-                General — one estimate for the whole cart
+                General
               </s-choice>
               <s-choice value="PER_PRODUCT" selected={draft.cartConfig.displayMode === "PER_PRODUCT"}>
-                Per product — a compact line under each item
+                Per product
               </s-choice>
             </HostChoiceList>
+            <s-paragraph color="subdued">
+              {draft.cartConfig.displayMode === "PER_PRODUCT"
+                ? "Show specific delivery dates for every item. This displays a dedicated delivery line for each product in the basket."
+                : "Show one delivery date for the whole order. This summarizes the entire cart into a single estimate based on the item with the longest delivery time."}
+            </s-paragraph>
           </>
         ) : null}
       </s-section>
@@ -80,7 +100,28 @@ export function ConditionsTab({ widget, draft, onChange, errors = {} }) {
 
       {profile.showMarkets ? <MarketsSection draft={draft} onChange={onChange} errors={errors} /> : null}
       {widget.location === WIDGET_LOCATIONS.PRODUCT ? (
-        <PincodeRulesEditor shipping={shipping} onChange={setShipping} errors={errors} />
+        <>
+          <WeightDisplayPicker
+            shipping={shipping}
+            autoOpen={!draft.shippingRules?.weightRules?.displayMode}
+            onChange={setShipping}
+          />
+          <PincodeRulesEditor shipping={shipping} onChange={setShipping} errors={errors} />
+          <DeliveryRequestsPanel
+            requests={deliveryRequests}
+            onAccepted={(saved) => {
+              if (!saved?.shippingRules) return;
+              onChange({
+                ...draft,
+                shippingRules: {
+                  ...shipping,
+                  pincodeRules: saved.shippingRules.pincodeRules,
+                  weightRules: saved.shippingRules.weightRules || shipping.weightRules,
+                },
+              });
+            }}
+          />
+        </>
       ) : null}
     </s-stack>
   );
@@ -97,6 +138,8 @@ function HiddenShipping({ shipping, timezone }) {
       <input type="hidden" name="transitMaxDays" value={String(shipping.transitMaxDays)} />
       <input type="hidden" name="blockedDates" value={JSON.stringify(shipping.blockedDates || [])} />
       <input type="hidden" name="transitBlockedDates" value={JSON.stringify(shipping.transitBlockedDates || [])} />
+      <input type="hidden" name="pincodeRules" value={JSON.stringify(shipping.pincodeRules || {})} />
+      <input type="hidden" name="weightRules" value={JSON.stringify(shipping.weightRules || {})} />
       {(shipping.workingDays || []).map((day) => (
         <input key={`wd-${day}`} type="hidden" name={`workingDay_${day}`} value="on" />
       ))}

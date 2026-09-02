@@ -36,7 +36,7 @@ export const action = async ({ request }) => {
     });
     return redirect(`/app/widgets/${widget.id}?tab=conditions`);
   } catch (error) {
-    if (error?.code === "CART_MODE_EXISTS" || error?.code === "CHECKOUT_EXISTS") {
+    if (error?.code === "CART_MODE_EXISTS" || error?.code === "CHECKOUT_UNAVAILABLE") {
       return { errors: { form: error.message } };
     }
     return {

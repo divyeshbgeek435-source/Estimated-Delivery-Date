@@ -1,11 +1,14 @@
 {
   "name": "Estimated Delivery Date",
   "blocks": {
+    "app_embed": {
+      "name": "Estimated delivery embed"
+    },
     "estimated_delivery": {
-      "name": "Estimated delivery"
+      "name": "Product delivery date"
     },
     "cart_estimated_delivery": {
-      "name": "Cart estimated delivery"
+      "name": "Cart delivery date"
     }
   }
 }

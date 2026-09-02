@@ -1,5 +1,6 @@
 import { publicStorefrontConfig } from "../analytics/analytics.server";
 import { buildStorefrontDelivery } from "../delivery/delivery-calculator.server";
+import prisma from "../../lib/prisma.server";
 import { WIDGET_STATUSES } from "../../lib/constants";
 
 export async function syncCheckoutMetafield(admin, widget) {
@@ -20,7 +21,15 @@ export async function syncCheckoutMetafield(admin, widget) {
     const live = widget.status === WIDGET_STATUSES.ACTIVE;
     let value = "null";
     if (live) {
-      const delivery = buildStorefrontDelivery(widget.shippingRules, widget.timezone, new Date(), {
+      const product = widget.merchantId
+        ? await prisma.widget.findFirst({
+            where: { merchantId: widget.merchantId, location: "PRODUCT", status: WIDGET_STATUSES.ACTIVE },
+            orderBy: { updatedAt: "desc" },
+          })
+        : null;
+      const shipping = product?.shippingRules || widget.shippingRules;
+      const timezone = product?.timezone || widget.timezone;
+      const delivery = buildStorefrontDelivery(shipping, timezone, new Date(), {
         dateSettings: {
           dateFormat: widget.messageConfig?.dateFormat,
           dateSeparator: widget.messageConfig?.dateSeparator,

@@ -80,26 +80,22 @@ export async function backfillProductData(merchantId) {
   if (!merchantId) return 0;
 
   const existing = await prisma.productData.count({ where: { merchantId } });
-  const placements = await prisma.placementConfig.findMany({
-    where: { widget: { merchantId } },
+  const widgets = await prisma.widget.findMany({
+    where: { merchantId },
     select: {
-      widgetId: true,
-      products: true,
-      widget: {
-        select: {
-          shippingRules: { select: { weightRules: true } },
-        },
-      },
+      id: true,
+      placementConfig: { select: { products: true } },
+      shippingRules: { select: { weightRules: true } },
     },
   });
 
   let saved = 0;
-  for (const placement of placements) {
-    const products = Array.isArray(placement.products) ? placement.products : [];
+  for (const widget of widgets) {
+    const products = Array.isArray(widget.placementConfig?.products) ? widget.placementConfig.products : [];
     if (!products.length) continue;
     saved += await upsertMerchantProducts(merchantId, products, {
-      widgetId: placement.widgetId,
-      weightRules: placement.widget?.shippingRules?.weightRules,
+      widgetId: widget.id,
+      weightRules: widget.shippingRules?.weightRules,
     });
   }
 

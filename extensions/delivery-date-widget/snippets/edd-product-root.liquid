@@ -1,20 +1,38 @@
 {% doc %}
-Estimated delivery root for the product page. Rendered by the app embed and the product app block.
-@param {object} product - The current product
+Estimated delivery root for the product page. Rendered only by the product app block.
+@param {product} [product] - The current product
+@param {collection} [collection] - The current collection
 @param {string} [shopify_attributes] - Theme editor block attributes
 {% enddoc %}
+{% liquid
+  assign edd_product = product
+  if edd_product == blank and collection
+    assign edd_product = collection.products | first
+  endif
+%}
+{% capture edd_collection_ids -%}
+{%- if collection -%}{{ collection.id }},{%- endif -%}
+{%- if edd_product -%}
+  {%- for col in edd_product.collections limit: 100 -%}{{ col.id }}{% unless forloop.last %},{% endunless %}{%- endfor -%}
+{%- endif -%}
+{%- endcapture %}
 <div
   class="edd-root"
   data-edd-root
   data-location="PRODUCT"
-  data-product-id="gid://shopify/Product/{{ product.id }}"
-  data-product-name="{{ product.title | escape }}"
-  data-stock-left="{{ product.selected_or_first_available_variant.inventory_quantity | default: '' }}"
+  data-page="{{ template.name }}"
+  {% if edd_product %}
+    data-product-id="{{ edd_product.id }}"
+    data-product-name="{{ edd_product.title | escape }}"
+    data-stock-left="{{ edd_product.selected_or_first_available_variant.inventory_quantity | default: '' }}"
+    data-product-weight="{% if edd_product.selected_or_first_available_variant %}{{ edd_product.selected_or_first_available_variant.weight | weight_with_unit | escape }}{% endif %}"
+  {% endif %}
   data-locale="{{ request.locale.iso_code }}"
   data-country="{{ localization.country.iso_code }}"
   data-market="{{ localization.market.handle }}"
-  data-collection-ids="{% for collection in product.collections %}gid://shopify/Collection/{{ collection.id }}{% unless forloop.last %},{% endunless %}{% endfor %}"
+  data-collection-ids="{{ edd_collection_ids | strip }}"
   data-config-url="/apps/delivery-date/config"
   data-events-url="/apps/delivery-date/events"
+  data-request-url="/apps/delivery-date/delivery-request"
   {{ shopify_attributes }}
 ></div>

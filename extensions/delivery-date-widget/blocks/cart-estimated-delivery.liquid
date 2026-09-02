@@ -1,12 +1,12 @@
 {% doc %}
-Renders the estimated delivery date widget on the cart page.
+Renders the estimated delivery date widget on the cart page only.
 {% enddoc %}
 
 {% render "edd-cart-root", shopify_attributes: block.shopify_attributes %}
 
 {% schema %}
 {
-  "name": "Cart estimated delivery",
+  "name": "Cart delivery date",
   "target": "section",
   "stylesheet": "delivery-widget.css",
   "javascript": "delivery-widget.js",
@@ -16,7 +16,7 @@ Renders the estimated delivery date widget on the cart page.
   "settings": [
     {
       "type": "paragraph",
-      "content": "Shows estimated delivery on the cart page. Saving Publish or Schedule in the app adds this block to the cart page automatically."
+      "content": "Cart page only. Use Product delivery date for product pages."
     }
   ]
 }

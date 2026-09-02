@@ -2,18 +2,45 @@
   display: block;
   width: 100%;
   max-width: 100%;
+  min-width: 0;
   margin: 12px 0;
+  container-type: inline-size;
+  container-name: edd;
+}
+
+.shopify-block:has(> .edd-root),
+.shopify-app-block:has(.edd-root) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
+.edd-root--cart,
+.edd-root[data-location="CART"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
+  flex: 1 1 100%;
+  align-self: stretch;
+  container-type: normal;
+}
+
+.shopify-block:has(.edd-root[data-location="CART"]),
+.shopify-app-block:has(.edd-root[data-location="CART"]) {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 1 100%;
+  align-self: stretch;
 }
 
 .edd-root[hidden] {
   display: none !important;
 }
 
-.edd-widget {
-  font-family: inherit;
-  color: inherit;
-  box-sizing: border-box;
+.edd-widget--cart {
   width: 100%;
+  max-width: 100%;
 }
 
 .edd-widget *,
@@ -23,22 +50,22 @@
 }
 
 .edd-widget__heading {
-  font-size: 0.8rem;
+  font-size: 1em;
   font-weight: 650;
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.55rem;
 }
 
 .edd-widget__message-row {
   display: flex;
   align-items: flex-start;
-  gap: 0.5rem;
+  gap: 0.55rem;
 }
 
 .edd-widget__clock {
   flex: 0 0 auto;
-  width: 1.2rem;
-  height: 1.2rem;
-  margin-top: 0.12rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  margin-top: 0.15rem;
   color: inherit;
 }
 
@@ -53,38 +80,44 @@
 .edd-widget__item,
 .edd-widget__minimal {
   margin: 0;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .edd-widget__message {
   flex: 1;
   min-width: 0;
+  font-size: 1em;
+  overflow-wrap: anywhere;
 }
 
 .edd-widget__message strong {
   font-weight: 700;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .edd-widget__timeline {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(1.25rem, 0.7fr) minmax(0, 1fr) minmax(1.25rem, 0.7fr) minmax(0, 1fr);
   align-items: start;
-  column-gap: 0.15rem;
+  column-gap: 0.2rem;
+  row-gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  margin-top: 0.15rem;
 }
 
 .edd-widget__connector {
   display: flex;
   align-items: center;
-  height: var(--edd-icon-box, 22px);
-  min-width: 2.4rem;
+  height: var(--edd-icon-box, 24px);
+  min-width: 1.1rem;
   width: 100%;
 }
 
 .edd-widget__connector-line {
   display: block;
   flex: 1;
-  min-width: 0.75rem;
+  min-width: 0.5rem;
   background: #111;
 }
 
@@ -101,20 +134,26 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.4rem;
   text-align: center;
+  min-width: 0;
 }
 
 .edd-widget__meta {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.05rem;
+  gap: 0.12rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .edd-widget__date {
-  font-size: 0.72rem;
+  font-size: var(--edd-date-size, 0.82rem);
   font-weight: 550;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .edd-widget__icon {
@@ -123,6 +162,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
 }
 
 .edd-widget__icon .edd-icon {
@@ -138,23 +178,50 @@
 }
 
 .edd-widget__label {
-  font-size: 0.78rem;
+  font-size: var(--edd-status-size, 0.85rem);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 .edd-widget__items {
   display: grid;
-  gap: 0.35rem;
-  margin-top: 0.75rem;
+  gap: 0.55rem;
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(32, 34, 35, 0.12);
+}
+
+.edd-widget__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.92em;
+  line-height: 1.4;
+}
+
+.edd-widget__item-title {
+  font-weight: 650;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.edd-widget__item-dates {
+  flex: 0 0 auto;
+  opacity: 0.82;
+  text-align: right;
 }
 
 .edd-widget__timeline--stacked {
   grid-template-columns: 1fr;
+  gap: 0.7rem;
 }
 
 .edd-widget__timeline--stacked .edd-widget__step {
   flex-direction: row;
   text-align: left;
-  gap: 0.7rem;
+  gap: 0.75rem;
 }
 
 .edd-widget__timeline--stacked .edd-widget__meta {
@@ -170,8 +237,8 @@
 .edd-widget__pill {
   border: 1px solid currentColor;
   border-radius: 999px;
-  padding: 0.2rem 0.65rem;
-  font-size: 0.75rem;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
 }
 
 .edd-widget__rows {
@@ -191,26 +258,46 @@
   font-style: normal;
 }
 
-@media (max-width: 749px) {
+.edd-widget__row b {
+  font-size: var(--edd-status-size, 0.85rem);
+}
+
+.edd-widget__row i {
+  font-size: var(--edd-date-size, 0.82rem);
+}
+
+@container edd (max-width: 28rem) {
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    gap: 0.7rem;
   }
 
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__connector {
     display: none;
   }
+
+  .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__step {
+    flex-direction: row;
+    justify-content: flex-start;
+    text-align: left;
+    gap: 0.75rem;
+  }
+
+  .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__meta {
+    align-items: flex-start;
+  }
 }
 
 .edd-check {
-  margin: 0.9rem 0 0;
-  padding: 0.85rem 0 0;
+  margin: 0.95rem 0 0;
+  padding: 0.9rem 0 0;
   border-top: 1px solid rgba(32, 34, 35, 0.12);
   font-family: inherit;
 }
 
 .edd-check__title {
-  margin: 0 0 0.45rem;
-  font-size: 0.8rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.95em;
   font-weight: 650;
   color: inherit;
 }
@@ -218,16 +305,16 @@
 .edd-check__row {
   display: flex;
   align-items: stretch;
-  gap: 0.5rem;
+  gap: 0.55rem;
 }
 
 .edd-check__input,
 .edd-check__button {
-  height: 2.5rem;
+  height: 2.65rem;
   margin: 0;
   border-radius: 8px;
   font: inherit;
-  font-size: 0.9rem;
+  font-size: 0.95em;
   line-height: 1;
 }
 
@@ -238,7 +325,7 @@
   border: 1px solid #c9cccf;
   background: #fff;
   color: #202223;
-  padding: 0 0.85rem;
+  padding: 0 0.9rem;
 }
 
 .edd-check__input:focus {
@@ -248,8 +335,8 @@
 
 .edd-check__button {
   flex: 0 0 auto;
-  min-width: 4.75rem;
-  padding: 0 1rem;
+  min-width: 5.25rem;
+  padding: 0 1.1rem;
   border: 0;
   background: var(--edd-theme, #111);
   color: #fff;
@@ -258,10 +345,11 @@
 }
 
 .edd-check__status {
-  margin: 0.45rem 0 0;
-  min-height: 1.1em;
-  font-size: 0.8rem;
-  line-height: 1.35;
+  margin: 0.5rem 0 0;
+  min-height: 1.2em;
+  font-size: 0.9em;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .edd-check__status[data-tone="error"] {
@@ -272,6 +360,32 @@
 .edd-check__status[data-tone="ok"] {
   color: #0c6b3d;
   font-weight: 550;
+}
+
+.edd-widget__weight {
+  margin: 0 0 0.55rem;
+  font-size: 0.95em;
+  font-weight: 650;
+}
+
+.edd-request-btn {
+  appearance: none;
+  margin: 0.65rem 0 0;
+  height: 2.45rem;
+  padding: 0 1rem;
+  border: 1px solid #c9cccf;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9em;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.edd-request-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
 }
 
 [data-edd-body]:empty + [data-edd-extras] .edd-check {

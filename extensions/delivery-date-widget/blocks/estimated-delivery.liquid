@@ -1,23 +1,28 @@
 {% doc %}
-Renders the estimated delivery date widget on product pages.
+Renders the estimated delivery date widget on product and collection pages only.
 @param {product} [product] - The current product
+@param {collection} [collection] - The current collection
 {% enddoc %}
 
-{% render "edd-product-root", shopify_attributes: block.shopify_attributes, product: product %}
+{% if product %}
+  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, product: product, collection: collection %}
+{% elsif collection %}
+  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, collection: collection %}
+{% endif %}
 
 {% schema %}
 {
-  "name": "Estimated delivery",
+  "name": "Product delivery date",
   "target": "section",
   "stylesheet": "delivery-widget.css",
   "javascript": "delivery-widget.js",
   "enabled_on": {
-    "templates": ["product"]
+    "templates": ["product", "collection"]
   },
   "settings": [
     {
       "type": "paragraph",
-      "content": "Shows estimated delivery dates from the app. Saving Publish or Schedule in the app adds this block to the product page automatically."
+      "content": "Product page only. Use Cart delivery date for the cart."
     }
   ]
 }

@@ -53,8 +53,19 @@ export function PlacementTab({ widget, draft, onChange, errors = {} }) {
       </s-section>
 
       {widget.location === "CHECKOUT" ? (
-        <s-banner heading="Checkout display">
-          Once published, this widget appears once on checkout at the selected location. Draft and scheduled widgets stay hidden until they go live.
+        <s-banner tone="warning" heading="Checkout placement is no longer available">
+          Shopify only supports checkout UI extensions on Plus. Unpublish or delete this widget. Product and cart widgets still work on all plans.
+        </s-banner>
+      ) : position === "CUSTOM" ? (
+        <s-section heading="Code snippet">
+          <s-paragraph color="subdued">
+            Paste this snippet in your theme where the widget should appear.
+          </s-paragraph>
+          <s-text-field label="Snippet" name="snippet" value={snippet} readOnly></s-text-field>
+        </s-section>
+      ) : widget.location === "CART" ? (
+        <s-banner>
+          Publishing adds this widget to the cart page automatically, above the checkout button.
         </s-banner>
       ) : (
         <s-section heading="Code snippet">

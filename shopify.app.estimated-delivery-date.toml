@@ -1,6 +1,6 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
-client_id = "428f3d88064e44c926da9dbde635d831"
+client_id = "b6ee452490636fdabe1c0381d99da8d2"
 name = "Estimated Delivery Date"
 application_url = "https://example.com"
 embedded = true

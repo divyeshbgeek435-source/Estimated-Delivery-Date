@@ -1,14 +1,17 @@
 {% doc %}
-Estimated delivery root for the cart page. Rendered by the app embed and the cart app block.
+Estimated delivery root for the cart page. Rendered only by the cart app block.
 @param {string} [shopify_attributes] - Theme editor block attributes
 {% enddoc %}
 {% capture cart_items %}
-[{% for item in cart.items %}{"id":"gid://shopify/Product/{{ item.product.id }}","title":{{ item.product.title | json }}}{% unless forloop.last %},{% endunless %}{% endfor %}]
+[{% for item in cart.items %}{"id":{{ item.product.id | json }},"title":{{ item.product.title | json }},"collectionIds":"{% for col in item.product.collections limit: 15 %}{{ col.id }}{% unless forloop.last %},{% endunless %}{% endfor %}"}{% unless forloop.last %},{% endunless %}{% endfor %}]
 {% endcapture %}
+{{ 'delivery-widget.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'delivery-widget.js' | asset_url }}" defer></script>
 <div
-  class="edd-root"
+  class="edd-root edd-root--cart"
   data-edd-root
   data-location="CART"
+  data-page="cart"
   data-cart-items="{{ cart_items | strip_newlines | escape }}"
   data-locale="{{ request.locale.iso_code }}"
   data-country="{{ localization.country.iso_code }}"
@@ -16,4 +19,12 @@ Estimated delivery root for the cart page. Rendered by the app embed and the car
   data-config-url="/apps/delivery-date/config"
   data-events-url="/apps/delivery-date/events"
   {{ shopify_attributes }}
-></div>
+>
+  <div class="edd-widget edd-widget--cart essential-estimated-delivery-widget essential-estimated-delivery-card" data-edd-card>
+    <div data-edd-body>
+      <p class="edd-widget__heading">Estimated delivery</p>
+      <p class="edd-widget__message">Delivery dates for this cart will appear here.</p>
+    </div>
+    <div data-edd-extras hidden></div>
+  </div>
+</div>

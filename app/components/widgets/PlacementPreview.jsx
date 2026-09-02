@@ -61,7 +61,8 @@ function ProductChrome({ slot, children }) {
 }
 
 function CartChrome({ slot, children }) {
-  const beforeCheckout = slot === PLACEMENT_POSITIONS.BEFORE_CHECKOUT;
+  const beforeCheckout =
+    slot === PLACEMENT_POSITIONS.BEFORE_CHECKOUT || slot === PLACEMENT_POSITIONS.CART_PAGE;
   const afterItems = slot === PLACEMENT_POSITIONS.AFTER_ITEMS || slot === PLACEMENT_POSITIONS.CART_DRAWER;
   return (
     <div className={`edd-chrome edd-chrome--cart ${slot === PLACEMENT_POSITIONS.CART_DRAWER ? "edd-chrome--drawer" : ""}`}>

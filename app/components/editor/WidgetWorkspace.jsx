@@ -37,7 +37,13 @@ function tabFromUrl() {
   return EDITOR_TABS.some((item) => item.id === value) ? value : "conditions";
 }
 
-export function WidgetWorkspace({ widget, errors }) {
+export function WidgetWorkspace({
+  widget,
+  errors,
+  deliveryRequests = [],
+  themeEditorUrl = "",
+  storefrontUrl = "",
+}) {
   const saveFetcher = useFetcher();
   const autoFetcher = useFetcher();
   const shopify = useAppBridge();
@@ -188,6 +194,7 @@ export function WidgetWorkspace({ widget, errors }) {
 
   const previewMessage = draft.messageConfig;
   const position = normalizePosition(widget.location, draft.placementConfig?.position);
+  const editorUrl = widget.location === "CHECKOUT" ? "" : themeEditorUrl;
 
   return (
     <s-page heading={draft.name || widget.name} inlineSize="large">
@@ -220,9 +227,31 @@ export function WidgetWorkspace({ widget, errors }) {
           <s-badge>Draft</s-badge>
         )}
       </p>
-      {widget.location !== "CHECKOUT" ? <EmbedActivateBanner /> : null}
+      {widget.location === "CHECKOUT" ? (
+        <s-banner tone="warning" heading="Checkout placement is no longer available">
+          Shopify only supports checkout UI extensions on Plus. Product and cart widgets still work on all plans. Unpublish or delete this widget.
+        </s-banner>
+      ) : (
+        <EmbedActivateBanner />
+      )}
       {published ? (
-        <s-banner tone="success">This widget is live on the {pageLabel}.</s-banner>
+        <s-banner tone="success">
+          Estimated delivery widget was successfully published in your store.
+          {storefrontUrl || editorUrl ? (
+            <s-stack direction="inline" gap="base">
+              {storefrontUrl ? (
+                <s-link href={storefrontUrl} target="_blank">
+                  Preview in store
+                </s-link>
+              ) : null}
+              {editorUrl ? (
+                <s-link href={editorUrl} target="_blank">
+                  Reposition in theme editor
+                </s-link>
+              ) : null}
+            </s-stack>
+          ) : null}
+        </s-banner>
       ) : scheduled ? (
         <s-banner tone="info">
           {remainingMs != null && remainingMs <= 0
@@ -252,7 +281,13 @@ export function WidgetWorkspace({ widget, errors }) {
         <div className="edd-editor__form">
           {visitedTabs.has("conditions") ? (
             <div className="edd-editor__panel" hidden={tab !== "conditions"}>
-              <ConditionsTab widget={widget} draft={draft} onChange={setDraft} errors={errors} />
+              <ConditionsTab
+                widget={widget}
+                draft={draft}
+                onChange={setDraft}
+                errors={errors}
+                deliveryRequests={deliveryRequests}
+              />
             </div>
           ) : null}
           {visitedTabs.has("content") ? (
@@ -267,7 +302,12 @@ export function WidgetWorkspace({ widget, errors }) {
           ) : null}
           {visitedTabs.has("placement") ? (
             <div className="edd-editor__panel" hidden={tab !== "placement"}>
-              <PlacementTab widget={widget} draft={draft} onChange={setDraft} errors={errors} />
+              <PlacementTab
+                widget={widget}
+                draft={draft}
+                onChange={setDraft}
+                errors={errors}
+              />
             </div>
           ) : null}
           <div className="edd-editor__footer">

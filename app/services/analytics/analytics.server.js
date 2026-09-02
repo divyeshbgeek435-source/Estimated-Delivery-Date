@@ -1,6 +1,6 @@
 import prisma from "../../lib/prisma.server";
 import { EVENT_TYPES } from "../../lib/constants";
-import { publicPincodeState } from "../../lib/pincode";
+import { publicPincodeState, resolveWeightDisplayMode } from "../../lib/pincode";
 
 export async function recordWidgetEvent({
   widgetId,
@@ -18,16 +18,21 @@ export async function recordWidgetEvent({
     if (existing) return existing;
   }
 
-  return prisma.widgetEvent.create({
-    data: {
-      widgetId,
-      merchantId,
-      type,
-      productId: productId || null,
-      metadata: metadata || undefined,
-      eventKey: eventKey || undefined,
-    },
-  });
+  try {
+    return await prisma.widgetEvent.create({
+      data: {
+        widgetId,
+        merchantId,
+        type,
+        productId: productId || null,
+        metadata: metadata || undefined,
+        eventKey: eventKey || undefined,
+      },
+    });
+  } catch (error) {
+    if (error?.code === "P2002") return { id: null };
+    throw error;
+  }
 }
 
 export async function getWidgetMetrics(widgetIds) {
@@ -92,7 +97,17 @@ export async function getMerchantTotals(merchantId) {
 export function publicStorefrontConfig(widget, delivery, options = {}) {
   const locale = String(options.locale || "en").slice(0, 2).toLowerCase();
   const translation = widget.messageConfig.translations?.[locale] || {};
-  const pincode = publicPincodeState(widget.shippingRules?.pincodeRules, { code: options.pincode });
+  const pincodeRaw = publicPincodeState(widget.shippingRules?.pincodeRules, {
+    code: options.pincode,
+    weightRules: widget.shippingRules?.weightRules,
+    place: options.place,
+    productWeight: options.productWeight,
+    shipping: widget.shippingRules,
+  });
+  const pincode = widget.location === "CART" || widget.location === "CHECKOUT"
+    ? { ...pincodeRaw, enabled: false }
+    : pincodeRaw;
+  const displayMode = resolveWeightDisplayMode(widget.shippingRules?.weightRules, widget.shippingRules?.pincodeRules);
 
   return {
     id: widget.id,
@@ -103,6 +118,10 @@ export function publicStorefrontConfig(widget, delivery, options = {}) {
     design: widget.messageConfig.designTemplate || "TIMELINE",
     descriptionEnabled: widget.messageConfig.descriptionEnabled !== false,
     pincode,
+    weight: {
+      displayMode,
+      value: pincode.weight || "",
+    },
     icons: {
       ...widget.iconConfig,
       purchasedTitle: translation.purchasedTitle || widget.iconConfig.purchasedTitle,

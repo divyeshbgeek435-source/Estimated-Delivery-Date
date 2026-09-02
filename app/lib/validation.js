@@ -13,6 +13,8 @@ import {
 import {
   DEFAULT_PINCODE_RULES,
   DEFAULT_WEIGHT_RULES,
+  LOCATION_SELECTION,
+  WEIGHT_DISPLAY_MODES,
   normalizePincodeRules,
   normalizeWeightRules,
 } from "./pincode";
@@ -41,7 +43,6 @@ export const locationSchema = z.object({
   location: z.enum([
     WIDGET_LOCATIONS.PRODUCT,
     WIDGET_LOCATIONS.CART,
-    WIDGET_LOCATIONS.CHECKOUT,
   ]),
   name: asOptionalString.pipe(z.string().trim().max(80).optional()),
 });
@@ -86,6 +87,58 @@ export const shippingSchema = z
             z.boolean(),
           ),
           country: asString("IN").pipe(z.string().trim().toUpperCase().min(2).max(2)),
+          countries: z.array(asString("").pipe(z.string().trim().toUpperCase().min(2).max(2))).max(40).default([]),
+          locations: z
+            .array(
+              z.object({
+                country: asString("IN").pipe(z.string().trim().toUpperCase().min(2).max(2)),
+                city: asString("").pipe(z.string().trim().max(80)),
+                state: asOptionalString.pipe(z.string().trim().max(80).optional()),
+                weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
+                unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
+                pincodes: z
+                  .array(
+                    z.union([
+                      asString("").pipe(z.string().trim().max(16)),
+                      z.object({
+                        code: asOptionalString.pipe(z.string().trim().max(16).optional()),
+                        label: asOptionalString.pipe(z.string().trim().max(80).optional()),
+                        minDays: z.coerce.number().int().min(0).max(60).optional(),
+                        maxDays: z.coerce.number().int().min(0).max(90).optional(),
+                        weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
+                        unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
+                      }),
+                    ]),
+                  )
+                  .max(400)
+                  .default([]),
+              }),
+            )
+            .max(80)
+            .default([]),
+          stateMode: z.preprocess(
+            (value) => value || LOCATION_SELECTION.SPECIFIC,
+            z.enum([LOCATION_SELECTION.ALL, LOCATION_SELECTION.SPECIFIC]),
+          ),
+          states: z.array(asString("").pipe(z.string().trim().max(80))).max(80).default([]),
+          cityMode: z.preprocess(
+            (value) => value || LOCATION_SELECTION.SPECIFIC,
+            z.enum([LOCATION_SELECTION.ALL, LOCATION_SELECTION.SPECIFIC]),
+          ),
+          cities: z
+            .array(
+              z.union([
+                asString("").pipe(z.string().trim().max(80)),
+                z.object({
+                  name: asString("").pipe(z.string().trim().max(80)),
+                  state: asOptionalString.pipe(z.string().trim().max(80).optional()),
+                  weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
+                  unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
+                }),
+              ]),
+            )
+            .max(400)
+            .default([]),
           pincodes: z
             .array(
               z.object({
@@ -95,9 +148,13 @@ export const shippingSchema = z
                 minDays: z.coerce.number().int().min(0).max(60),
                 maxDays: z.coerce.number().int().min(0).max(90),
                 label: asOptionalString.pipe(z.string().trim().max(80).optional()),
+                city: asOptionalString.pipe(z.string().trim().max(80).optional()),
+                state: asOptionalString.pipe(z.string().trim().max(80).optional()),
+                weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
+                unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
               }),
             )
-            .max(500)
+            .max(2500)
             .default([]),
         })
         .transform((value) => normalizePincodeRules(value)),
@@ -112,6 +169,10 @@ export const shippingSchema = z
             (value) => value === true || value === "true" || value === "on" || value === "1",
             z.boolean(),
           ),
+          displayMode: z.preprocess(
+            (value) => value || "",
+            z.enum(["", WEIGHT_DISPLAY_MODES.PINCODE, WEIGHT_DISPLAY_MODES.DIRECT]),
+          ),
         })
         .transform((value) => normalizeWeightRules(value)),
     ),
@@ -123,6 +184,13 @@ export const shippingSchema = z
   .refine((value) => value.transitMaxDays >= value.transitMinDays, {
     message: "Longest transit time must be greater than or equal to the shortest.",
     path: ["transitMaxDays"],
+  })
+  .transform((value) => {
+    if (value.weightRules?.displayMode !== WEIGHT_DISPLAY_MODES.DIRECT) return value;
+    return {
+      ...value,
+      pincodeRules: { ...value.pincodeRules, enabled: false },
+    };
   });
 
 export const messageSchema = z.object({
@@ -234,8 +302,13 @@ export const placementSchema = z.object({
       z.object({
         id: asString(),
         title: asString("Collection"),
+        handle: asOptionalString,
         image: z.preprocess((value) => value ?? null, z.string().nullable().optional()),
-        productsCount: z.preprocess((value) => (value == null ? undefined : value), z.number().optional()),
+        productsCount: z.preprocess((value) => {
+          if (value == null || value === "") return undefined;
+          const count = Number(value);
+          return Number.isFinite(count) ? count : undefined;
+        }, z.number().optional()),
       }),
     )
     .default([]),

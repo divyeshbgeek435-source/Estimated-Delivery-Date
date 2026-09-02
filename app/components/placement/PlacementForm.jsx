@@ -3,6 +3,14 @@ import { useFetcher } from "react-router";
 import { PLACEMENT_MODES } from "../../lib/constants";
 import { ActionButton, HostChoiceList } from "../common/ActionButton";
 
+function selectedChoice(event) {
+  const values = event.currentTarget.values;
+  if (typeof values === "string" && values) return values;
+  if (Array.isArray(values) && values[0]) return String(values[0]);
+  if (values && typeof values.length === "number" && values.length) return String(values[0]);
+  return String(event.currentTarget.value || "");
+}
+
 export function PlacementForm({ placement, onChange, errors = {} }) {
   return (
     <s-stack gap="large">
@@ -11,10 +19,11 @@ export function PlacementForm({ placement, onChange, errors = {} }) {
         <HostChoiceList
           label="Apply to"
           name="modeField"
+          values={[placement.mode || PLACEMENT_MODES.ALL_PRODUCTS]}
           onChange={(event) =>
             onChange({
               ...placement,
-              mode: event.currentTarget.values?.[0] || event.currentTarget.value,
+              mode: selectedChoice(event) || placement.mode,
             })
           }
         >
@@ -45,17 +54,22 @@ export function PlacementForm({ placement, onChange, errors = {} }) {
       ) : null}
 
       {placement.mode === PLACEMENT_MODES.COLLECTIONS ? (
-        <ResourceSearch
+        <s-stack gap="small-200">
+          <s-paragraph color="subdued">
+            The widget appears on products in the collections you select, and on those collection pages.
+          </s-paragraph>
+          <ResourceSearch
           kind="collections"
           selected={placement.collections || []}
           onSelected={(collections) =>
             onChange({
               ...placement,
               collections,
-              collectionIds: collections.map((item) => item.id),
+              collectionIds: collections.map((item) => item.id).filter(Boolean),
             })
           }
         />
+        </s-stack>
       ) : null}
 
       <input type="hidden" name="productIds" value={JSON.stringify(placement.productIds || [])} />
@@ -114,7 +128,7 @@ function ResourceSearch({ kind, selected, onSelected }) {
               {item.image ? (
                 <s-thumbnail src={item.image} alt={item.title} size="small"></s-thumbnail>
               ) : (
-                <s-icon type={kind === "products" ? "product" : "collection"}></s-icon>
+              <s-icon type={kind === "products" ? "product" : "catalog"}></s-icon>
               )}
               <s-stack gap="none">
                 <s-text>{item.title}</s-text>

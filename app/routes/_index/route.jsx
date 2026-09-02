@@ -20,7 +20,7 @@ export default function App() {
       <div className={styles.content}>
         <h1 className={styles.heading}>Estimated Delivery Date</h1>
         <p className={styles.text}>
-          Show customers when their order will arrive — on product, cart, and checkout pages.
+          Show customers when their order will arrive — on product and cart pages.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -40,9 +40,6 @@ export default function App() {
           </li>
           <li>
             <strong>Theme editor ready.</strong> Merchants add the widget with a Theme App Extension — no theme code editing.
-          </li>
-          <li>
-            <strong>Checkout Extensibility.</strong> Checkout uses a supported UI extension, not unsupported scripts.
           </li>
         </ul>
       </div>

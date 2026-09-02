@@ -1,3 +1,5 @@
+import { countryLabel, namesMatch, normalizePlaceName, uniqueNames } from "./geo";
+
 export const PINCODE_COUNTRIES = [
   { value: "IN", label: "India" },
   { value: "US", label: "United States" },
@@ -44,9 +46,25 @@ export const WEIGHT_UNITS = [
   { value: "oz", label: "oz" },
 ];
 
+export const WEIGHT_DISPLAY_MODES = {
+  PINCODE: "PINCODE",
+  DIRECT: "DIRECT",
+};
+
+export const LOCATION_SELECTION = {
+  ALL: "ALL",
+  SPECIFIC: "SPECIFIC",
+};
+
 export const DEFAULT_PINCODE_RULES = {
   enabled: false,
   country: "IN",
+  countries: [],
+  locations: [],
+  stateMode: LOCATION_SELECTION.SPECIFIC,
+  states: [],
+  cityMode: LOCATION_SELECTION.SPECIFIC,
+  cities: [],
   pincodes: [],
 };
 
@@ -54,9 +72,15 @@ export const DEFAULT_WEIGHT_RULES = {
   value: "",
   unit: "kg",
   useProductWeight: false,
+  displayMode: "",
 };
 
-export const PINCODE_UNAVAILABLE_MESSAGE = "Delivery not available for this pincode.";
+export const PINCODE_UNAVAILABLE_MESSAGE = "Delivery unavailable";
+export const PINCODE_AVAILABLE_MESSAGE = "Delivery available";
+
+export function digitsOnly(value) {
+  return String(value || "").replace(/\D/g, "");
+}
 
 export function normalizePincode(value) {
   return String(value || "")
@@ -79,12 +103,33 @@ function clampDays(value, fallback) {
   return Math.min(90, Math.max(0, Math.round(number)));
 }
 
+function normalizeSelection(value, fallback = LOCATION_SELECTION.SPECIFIC) {
+  return value === LOCATION_SELECTION.ALL ? LOCATION_SELECTION.ALL : fallback;
+}
+
+function normalizeCityEntry(entry) {
+  if (typeof entry === "string") {
+    const name = String(entry).trim().slice(0, 80);
+    return name ? { name, state: "", weight: "", unit: "kg" } : null;
+  }
+  const name = String(entry?.name || "").trim().slice(0, 80);
+  if (!name) return null;
+  const unit = WEIGHT_UNITS.some((item) => item.value === entry?.unit) ? entry.unit : "kg";
+  return {
+    name,
+    state: String(entry?.state || "").trim().slice(0, 80),
+    weight: String(entry?.weight || "").trim().slice(0, 32),
+    unit,
+  };
+}
+
 export function normalizePincodeEntry(entry = {}, fallbackMin = 1, fallbackMax = 2) {
   const minDays = clampDays(entry.minDays, fallbackMin);
   const maxDays = Math.max(minDays, clampDays(entry.maxDays, fallbackMax));
   const code = normalizePincode(entry.code);
   const from = normalizePincode(entry.from);
   const to = normalizePincode(entry.to);
+  const unit = WEIGHT_UNITS.some((item) => item.value === entry?.unit) ? entry.unit : "kg";
   return {
     code: code || undefined,
     from: from || undefined,
@@ -92,32 +137,157 @@ export function normalizePincodeEntry(entry = {}, fallbackMin = 1, fallbackMax =
     minDays,
     maxDays,
     label: String(entry.label || "").trim().slice(0, 80),
+    city: String(entry.city || "").trim().slice(0, 80),
+    state: String(entry.state || "").trim().slice(0, 80),
+    weight: String(entry.weight || "").trim().slice(0, 32),
+    unit,
+  };
+}
+
+function normalizeLocation(entry = {}, shipping = {}) {
+  const city = String(entry.city || entry.name || "").trim().slice(0, 80);
+  if (!city) return null;
+  const fallbackMin = Number(shipping.transitMinDays) || 1;
+  const fallbackMax = Number(shipping.transitMaxDays) || fallbackMin;
+  const unit = WEIGHT_UNITS.some((item) => item.value === entry?.unit) ? entry.unit : "kg";
+  const pincodes = Array.isArray(entry.pincodes)
+    ? entry.pincodes
+        .map((item) => {
+          if (typeof item === "string" || typeof item === "number") {
+            return normalizePincodeEntry(
+              { code: item, city, state: entry.state, minDays: fallbackMin, maxDays: fallbackMax },
+              fallbackMin,
+              fallbackMax,
+            );
+          }
+          return normalizePincodeEntry(
+            { ...item, city: item.city || city, state: item.state || entry.state },
+            fallbackMin,
+            fallbackMax,
+          );
+        })
+        .filter((item) => item.code)
+        .slice(0, 2000)
+    : [];
+  return {
+    country: normalizeCountry(entry.country),
+    city,
+    state: String(entry.state || "").trim().slice(0, 80),
+    pincodes,
+    weight: String(entry.weight || "").trim().slice(0, 32),
+    unit,
   };
 }
 
 export function normalizePincodeRules(rules = {}, shipping = {}) {
   const fallbackMin = Number(shipping.transitMinDays) || 1;
   const fallbackMax = Number(shipping.transitMaxDays) || fallbackMin;
-  const pincodes = Array.isArray(rules?.pincodes)
+  const extraPincodes = Array.isArray(rules?.pincodes)
     ? rules.pincodes
         .map((entry) => normalizePincodeEntry(entry, fallbackMin, fallbackMax))
         .filter((entry) => entry.code || (entry.from && entry.to))
-        .slice(0, 500)
     : [];
+  let locations = Array.isArray(rules?.locations)
+    ? rules.locations.map((entry) => normalizeLocation(entry, shipping)).filter(Boolean).slice(0, 80)
+    : [];
+  if (!locations.length && Array.isArray(rules?.cities) && rules.cities.length) {
+    locations = rules.cities
+      .map((city) => {
+        const entry = normalizeCityEntry(city);
+        if (!entry) return null;
+        return normalizeLocation(
+          {
+            country: rules?.country,
+            city: entry.name,
+            state: entry.state,
+            weight: entry.weight,
+            unit: entry.unit,
+            pincodes: extraPincodes.filter((item) => namesMatch(item.city, entry.name)),
+          },
+          shipping,
+        );
+      })
+      .filter(Boolean);
+  }
+  const locationPincodes = locations.flatMap((location) =>
+    location.pincodes.map((entry) => ({
+      ...entry,
+      city: entry.city || location.city,
+      state: entry.state || location.state,
+      weight: entry.weight || location.weight,
+      unit: entry.unit || location.unit,
+    })),
+  );
+  const pincodes = (locations.length ? locationPincodes : extraPincodes).slice(0, 8000);
+  const cities = locations.map((location) => ({
+    name: location.city,
+    state: location.state,
+    weight: location.weight,
+    unit: location.unit,
+  }));
+  const countries = uniqueNames([
+    ...(Array.isArray(rules?.countries) ? rules.countries.map(normalizeCountry) : []),
+    ...locations.map((location) => location.country),
+  ]).slice(0, 40);
 
   return {
     enabled: Boolean(rules?.enabled),
-    country: normalizeCountry(rules?.country),
+    country: normalizeCountry(rules?.country || countries[0]),
+    countries,
+    locations,
+    stateMode: normalizeSelection(rules?.stateMode),
+    states: uniqueNames([
+      ...(Array.isArray(rules?.states) ? rules.states : []),
+      ...locations.map((location) => location.state),
+    ]).slice(0, 80),
+    cityMode: normalizeSelection(rules?.cityMode),
+    cities,
     pincodes,
   };
 }
 
+export function groupDeliveryLocations(rules = {}) {
+  const normalized = normalizePincodeRules(rules);
+  return normalized.countries.map((country) => ({
+    country,
+    label: countryLabel(country),
+    cities: normalized.locations.filter((location) => location.country === country),
+  }));
+}
+
+export function hasLocation(rules, country, city, state = "") {
+  return (rules?.locations || []).some((location) => {
+    if (String(location.country || "").toUpperCase() !== String(country || "").toUpperCase()) return false;
+    if (!namesMatch(location.city, city)) return false;
+    if (!state || !location.state) return true;
+    return namesMatch(location.state, state);
+  });
+}
+
 export function normalizeWeightRules(rules = {}) {
   const unit = WEIGHT_UNITS.some((item) => item.value === rules?.unit) ? rules.unit : "kg";
+  const displayMode =
+    rules?.displayMode === WEIGHT_DISPLAY_MODES.DIRECT || rules?.displayMode === WEIGHT_DISPLAY_MODES.PINCODE
+      ? rules.displayMode
+      : "";
   return {
     value: String(rules?.value || "").trim().slice(0, 32),
     unit,
     useProductWeight: Boolean(rules?.useProductWeight),
+    displayMode,
+  };
+}
+
+export function toCountryRules(pincodeRules = {}) {
+  const normalized = normalizePincodeRules(pincodeRules);
+  return {
+    country: normalized.country,
+    countries: normalized.countries,
+    locations: normalized.locations,
+    stateMode: normalized.stateMode,
+    states: normalized.states,
+    cityMode: normalized.cityMode,
+    cities: normalized.cities,
   };
 }
 
@@ -154,6 +324,198 @@ export function matchPincodeRule(code, rules = {}) {
   return null;
 }
 
+export function hasAreaCoverage(rules = {}) {
+  const normalized = normalizePincodeRules(rules);
+  if (normalized.locations.length > 0) return true;
+  if (normalized.countries.length > 0) return false;
+  return (
+    normalized.stateMode === LOCATION_SELECTION.ALL ||
+    normalized.cityMode === LOCATION_SELECTION.ALL ||
+    normalized.states.length > 0 ||
+    normalized.cities.length > 0
+  );
+}
+
+export function placeFromLookup(payload = {}) {
+  return {
+    ok: payload?.ok !== false,
+    country: normalizeCountry(payload.country),
+    city: String(payload.city || "").trim(),
+    state: String(payload.state || "").trim(),
+    label: String(payload.label || "").trim(),
+  };
+}
+
+export function selectionAllowsPlace(rules = {}, place = {}) {
+  const normalized = normalizePincodeRules(rules);
+  const resolved = placeFromLookup(place);
+  if (!resolved.ok) return false;
+
+  if (normalized.locations.length) {
+    return normalized.locations.some((location) => {
+      if (location.country !== resolved.country) return false;
+      if (location.state && resolved.state && !namesMatch(location.state, resolved.state)) return false;
+      return namesMatch(location.city, resolved.city);
+    });
+  }
+
+  if (resolved.country !== normalized.country) return false;
+
+  if (normalized.stateMode === LOCATION_SELECTION.SPECIFIC && normalized.states.length) {
+    const allowed = normalized.states.some((state) => namesMatch(state, resolved.state));
+    if (!allowed) return false;
+  }
+
+  if (normalized.cityMode === LOCATION_SELECTION.SPECIFIC && normalized.cities.length) {
+    const allowed = normalized.cities.some((city) => namesMatch(city.name, resolved.city));
+    if (!allowed) return false;
+  }
+
+  return true;
+}
+
+function weightFromParts(value, unit, weightRules, productWeight) {
+  return formatWeightDisplay(
+    {
+      value: value || weightRules.value,
+      unit: unit || weightRules.unit,
+      useProductWeight: weightRules.useProductWeight,
+    },
+    productWeight,
+  );
+}
+
+function cityWeight(rules, cityName) {
+  const match = (rules.cities || []).find((city) => namesMatch(city.name, cityName));
+  return match?.weight ? match : null;
+}
+
+function unavailableState(code, rules) {
+  return {
+    enabled: true,
+    available: false,
+    country: rules.country,
+    code,
+    message: PINCODE_UNAVAILABLE_MESSAGE,
+    canRequest: true,
+  };
+}
+
+export function resolveWeightDisplayMode(weightRules = {}, pincodeRules = {}) {
+  const normalized = normalizeWeightRules(weightRules);
+  if (normalized.displayMode) return normalized.displayMode;
+  if (pincodeRules?.enabled) return WEIGHT_DISPLAY_MODES.PINCODE;
+  if (normalized.value || normalized.useProductWeight) return WEIGHT_DISPLAY_MODES.DIRECT;
+  return "";
+}
+
+export function asksForPincode(weightRules = {}, pincodeRules = {}) {
+  if (resolveWeightDisplayMode(weightRules, pincodeRules) === WEIGHT_DISPLAY_MODES.DIRECT) return false;
+  return Boolean(normalizePincodeRules(pincodeRules).enabled);
+}
+
+export function resolveDeliveryAvailability({
+  code,
+  rules,
+  weightRules,
+  place,
+  productWeight,
+  shipping,
+} = {}) {
+  const pincodeRules = normalizePincodeRules(rules, shipping);
+  const weights = normalizeWeightRules(weightRules);
+  const displayMode = resolveWeightDisplayMode(weights, pincodeRules);
+  const fallbackWeight = formatWeightDisplay(weights, productWeight);
+
+  if (displayMode === WEIGHT_DISPLAY_MODES.DIRECT) {
+    return {
+      enabled: false,
+      displayMode,
+      weight: fallbackWeight,
+    };
+  }
+
+  if (!pincodeRules.enabled) {
+    return {
+      enabled: false,
+      displayMode,
+      weight: "",
+    };
+  }
+
+  const requested = normalizePincode(code);
+  if (!requested) {
+    return {
+      enabled: true,
+      country: pincodeRules.country,
+      displayMode,
+      weight: displayMode === WEIGHT_DISPLAY_MODES.DIRECT ? fallbackWeight : "",
+    };
+  }
+
+  const entry = matchPincodeRule(requested, pincodeRules);
+  if (entry) {
+    const weight = weightFromParts(entry.weight, entry.unit, weights, productWeight);
+    return {
+      enabled: true,
+      available: true,
+      country: pincodeRules.country,
+      code: requested,
+      label: entry.label || [entry.city, entry.state].filter(Boolean).join(", "),
+      city: entry.city || "",
+      state: entry.state || "",
+      minDays: entry.minDays,
+      maxDays: entry.maxDays,
+      weight,
+      displayMode,
+      message: PINCODE_AVAILABLE_MESSAGE,
+    };
+  }
+
+  if (!hasAreaCoverage(pincodeRules)) {
+    return { ...unavailableState(requested, pincodeRules), displayMode };
+  }
+
+  if (!place) {
+    return {
+      enabled: true,
+      needsLookup: true,
+      country: pincodeRules.country,
+      code: requested,
+      displayMode,
+    };
+  }
+
+  const resolvedPlace = placeFromLookup(place);
+  if (!selectionAllowsPlace(pincodeRules, resolvedPlace)) {
+    return { ...unavailableState(requested, pincodeRules), displayMode };
+  }
+
+  const cityRule = cityWeight(pincodeRules, resolvedPlace.city);
+  const weight = weightFromParts(cityRule?.weight, cityRule?.unit, weights, productWeight);
+  return {
+    enabled: true,
+    available: true,
+    country: pincodeRules.country,
+    code: requested,
+    label: resolvedPlace.label || [resolvedPlace.city, resolvedPlace.state].filter(Boolean).join(", "),
+    city: resolvedPlace.city,
+    state: resolvedPlace.state,
+    minDays: Number(shipping?.transitMinDays) || 1,
+    maxDays: Number(shipping?.transitMaxDays) || 2,
+    weight,
+    displayMode,
+    message: PINCODE_AVAILABLE_MESSAGE,
+  };
+}
+
+export async function resolveDeliveryAvailabilityAsync(options = {}, lookup) {
+  const first = resolveDeliveryAvailability(options);
+  if (!first.needsLookup || typeof lookup !== "function") return first;
+  const place = await lookup(first.country, first.code);
+  return resolveDeliveryAvailability({ ...options, place });
+}
+
 export function shippingWithPincodeRule(shipping = {}, rule) {
   if (!rule) return shipping;
   return {
@@ -175,34 +537,22 @@ export function formatWeightDisplay(rules = {}, productWeight = "") {
 }
 
 export function publicPincodeState(rules, options = {}) {
-  const normalized = normalizePincodeRules(rules);
-  if (!normalized.enabled) {
-    return { enabled: false };
-  }
-
-  const requested = normalizePincode(options.code);
-  if (!requested) {
-    return { enabled: true, country: normalized.country };
-  }
-
-  const rule = matchPincodeRule(requested, normalized);
-  if (!rule) {
+  const state = resolveDeliveryAvailability({
+    code: options.code,
+    rules,
+    weightRules: options.weightRules,
+    place: options.place,
+    productWeight: options.productWeight,
+    shipping: options.shipping,
+  });
+  if (state.displayMode === WEIGHT_DISPLAY_MODES.DIRECT) {
     return {
-      enabled: true,
-      country: normalized.country,
-      available: false,
-      code: requested,
-      message: PINCODE_UNAVAILABLE_MESSAGE,
+      ...state,
+      enabled: false,
+      weight: state.weight || formatWeightDisplay(options.weightRules, options.productWeight),
     };
   }
-
-  return {
-    enabled: true,
-    country: normalized.country,
-    available: true,
-    code: requested,
-    label: rule.label || "",
-    minDays: rule.minDays,
-    maxDays: rule.maxDays,
-  };
+  return state;
 }
+
+export { normalizePlaceName };

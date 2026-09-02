@@ -13,22 +13,36 @@ import {
   defaultWidgetName,
   WIDGET_STATUSES,
 } from "../../lib/constants";
-import { normalizePincodeRules, normalizeWeightRules } from "../../lib/pincode";
+import { normalizePincodeRules, normalizeWeightRules, toCountryRules } from "../../lib/pincode";
+import { syncedPlacementIds } from "../../lib/form.server";
 import { normalizePosition } from "../../lib/widget-profiles";
 import { syncWidgetStorefrontByShop } from "../shopify/store-block.server";
 
-const widgetInclude = {
-  shippingRules: true,
-  messageConfig: true,
-  iconConfig: true,
-  styleConfig: true,
-  placementConfig: true,
-  cartConfig: true,
-  checkoutConfig: true,
-};
-
 function compact(value = {}) {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item != null));
+}
+
+function embedSet(value) {
+  return { set: value };
+}
+
+function definedFields(value = {}) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+
+async function replaceWidgetFields(widgetId, fields) {
+  const $set = definedFields(fields);
+  $set.updatedAt = { $date: new Date().toISOString() };
+  await prisma.$runCommandRaw({
+    update: "Widget",
+    updates: [
+      {
+        q: { _id: { $oid: String(widgetId) } },
+        u: { $set },
+      },
+    ],
+  });
+  return prisma.widget.findUnique({ where: { id: widgetId } });
 }
 
 const DESIGN_KEY = "__design";
@@ -95,6 +109,7 @@ function withDefaults(widget) {
         widget.shippingRules,
       ),
       weightRules: normalizeWeightRules(widget.shippingRules?.weightRules || DEFAULT_WEIGHT_RULES),
+      countryRules: widget.shippingRules?.countryRules || toCountryRules(widget.shippingRules?.pincodeRules),
     },
     messageConfig: messageFromRecord(widget.messageConfig),
     iconConfig: {
@@ -108,6 +123,7 @@ function withDefaults(widget) {
     placementConfig: {
       ...DEFAULT_PLACEMENT,
       ...compact(widget.placementConfig || {}),
+      ...syncedPlacementIds(widget.placementConfig || {}),
       products: widget.placementConfig?.products || [],
       collections: widget.placementConfig?.collections || [],
       position: normalizePosition(widget.location, widget.placementConfig?.position),
@@ -127,7 +143,7 @@ export async function activateDueWidgets(merchantId) {
     select: {
       id: true,
       name: true,
-      messageConfig: { select: { translations: true } },
+      messageConfig: true,
     },
   });
   const now = Date.now();
@@ -143,16 +159,16 @@ export async function activateDueWidgets(merchantId) {
     due.map((widget) => {
       const translations = { ...(widget.messageConfig?.translations || {}) };
       translations[LIVE_NOTICE_KEY] = publishedAt;
-      return Promise.all([
-        prisma.widget.update({
-          where: { id: widget.id },
-          data: { status: WIDGET_STATUSES.ACTIVE },
-        }),
-        prisma.messageConfig.update({
-          where: { widgetId: widget.id },
-          data: { translations },
-        }),
-      ]);
+      return prisma.widget.update({
+        where: { id: widget.id },
+        data: {
+          status: WIDGET_STATUSES.ACTIVE,
+          messageConfig: embedSet({
+            ...(widget.messageConfig || prismaMessageData()),
+            translations,
+          }),
+        },
+      });
     }),
   );
 
@@ -165,7 +181,6 @@ export async function activateDueWidgets(merchantId) {
       due.map(async (item) => {
         const widget = await prisma.widget.findFirst({
           where: { id: item.id, merchantId },
-          include: widgetInclude,
         });
         if (!widget) return;
         await syncWidgetStorefrontByShop(merchant.shopDomain, withDefaults(widget));
@@ -200,14 +215,18 @@ export async function listLiveNotices(merchantId) {
 export async function acknowledgeLiveNotice(merchantId, widgetId) {
   const widget = await prisma.widget.findFirst({
     where: { id: widgetId, merchantId },
-    include: { messageConfig: true },
   });
   if (!widget?.messageConfig) return false;
   const translations = { ...(widget.messageConfig.translations || {}) };
   delete translations[LIVE_NOTICE_KEY];
-  await prisma.messageConfig.update({
-    where: { widgetId },
-    data: { translations },
+  await prisma.widget.update({
+    where: { id: widgetId },
+    data: {
+      messageConfig: embedSet({
+        ...widget.messageConfig,
+        translations,
+      }),
+    },
   });
   return true;
 }
@@ -277,7 +296,6 @@ export async function getPublishStatus(merchantId, widgetId = null) {
 export async function listWidgets(merchantId) {
   const widgets = await prisma.widget.findMany({
     where: { merchantId },
-    include: widgetInclude,
     orderBy: { updatedAt: "desc" },
   });
   return widgets.map(withDefaults);
@@ -287,21 +305,97 @@ export async function getWidgetForMerchant(merchantId, widgetId) {
   await activateDueWidgets(merchantId);
   const widget = await prisma.widget.findFirst({
     where: { id: widgetId, merchantId },
-    include: widgetInclude,
   });
-  return withDefaults(widget);
+  return inheritCartShipping(withDefaults(widget), merchantId);
+}
+
+async function inheritCartShipping(widget, merchantId) {
+  if (!widget || widget.location !== "CART" || !merchantId) return widget;
+  const product = await prisma.widget.findFirst({
+    where: { merchantId, location: "PRODUCT", status: WIDGET_STATUSES.ACTIVE },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (!product) return widget;
+  const sourced = withDefaults(product);
+  return {
+    ...widget,
+    timezone: sourced.timezone || widget.timezone,
+    shippingRules: sourced.shippingRules,
+  };
+}
+
+function shippingCreateData(rules) {
+  if (!rules) {
+    return {
+      ...DEFAULT_SHIPPING,
+      blockedDates: [],
+      transitBlockedDates: [],
+    };
+  }
+  return {
+    processingMinDays: rules.processingMinDays,
+    processingMaxDays: rules.processingMaxDays,
+    cutoffTime: rules.cutoffTime,
+    workingDays: rules.workingDays || DEFAULT_SHIPPING.workingDays,
+    blockedDates: rules.blockedDates || [],
+    transitMinDays: rules.transitMinDays,
+    transitMaxDays: rules.transitMaxDays,
+    transitWorkingDays: rules.transitWorkingDays || rules.workingDays || DEFAULT_SHIPPING.transitWorkingDays,
+    transitBlockedDates: rules.transitBlockedDates || [],
+    pincodeRules: rules.pincodeRules || DEFAULT_PINCODE_RULES,
+    weightRules: rules.weightRules || DEFAULT_WEIGHT_RULES,
+    countryRules: rules.countryRules || toCountryRules(rules.pincodeRules),
+  };
+}
+
+function iconCreateData(icon = {}) {
+  const merged = { ...DEFAULT_ICONS, ...compact(icon) };
+  return {
+    purchased: merged.purchased,
+    processing: merged.processing,
+    delivered: merged.delivered,
+    purchasedTitle: merged.purchasedTitle,
+    processingTitle: merged.processingTitle,
+    deliveredTitle: merged.deliveredTitle,
+    purchasedColor: merged.purchasedColor || "",
+    processingColor: merged.processingColor || "",
+    deliveredColor: merged.deliveredColor || "",
+  };
+}
+
+function styleCreateData(style = {}) {
+  return { ...DEFAULT_STYLE, ...compact(style) };
+}
+
+function placementCreateData(placement = {}, location) {
+  const merged = { ...DEFAULT_PLACEMENT, ...compact(placement) };
+  return {
+    mode: merged.mode,
+    productIds: merged.productIds || [],
+    collectionIds: merged.collectionIds || [],
+    products: merged.products || [],
+    collections: merged.collections || [],
+    position: merged.position || defaultPosition(location),
+  };
+}
+
+function cartCreateData(cart = {}, displayMode) {
+  return { displayMode: displayMode || cart.displayMode || DEFAULT_CART.displayMode };
+}
+
+function checkoutCreateData(checkout = {}) {
+  return { ...DEFAULT_CHECKOUT, ...compact(checkout) };
 }
 
 export async function createDraftWidget(merchantId, options = {}) {
   const location = options.location || "PRODUCT";
   const displayMode = options.displayMode || "GENERAL";
-  const timezone = options.timezone || "UTC";
+  let timezone = options.timezone || "UTC";
   const name = String(options.name || "").trim() || defaultWidgetName(location);
 
   if (location === "CART") {
     const existing = await prisma.widget.findMany({
       where: { merchantId, location: "CART" },
-      include: { cartConfig: true },
     });
     if (existing.some((item) => (item.cartConfig?.displayMode || "GENERAL") === displayMode)) {
       const error = new Error("You can only have one cart widget per mode (General or Per product).");
@@ -311,13 +405,20 @@ export async function createDraftWidget(merchantId, options = {}) {
   }
 
   if (location === "CHECKOUT") {
-    const existing = await prisma.widget.findFirst({
-      where: { merchantId, location: "CHECKOUT" },
+    const error = new Error("Checkout widgets are not available. Shopify only supports checkout UI extensions on Plus.");
+    error.code = "CHECKOUT_UNAVAILABLE";
+    throw error;
+  }
+
+  let shippingCreate = shippingCreateData();
+  if (location === "CART" || location === "CHECKOUT") {
+    const product = await prisma.widget.findFirst({
+      where: { merchantId, location: "PRODUCT", status: WIDGET_STATUSES.ACTIVE },
+      orderBy: { updatedAt: "desc" },
     });
-    if (existing) {
-      const error = new Error("You can only have one checkout widget.");
-      error.code = "CHECKOUT_EXISTS";
-      throw error;
+    if (product?.shippingRules) {
+      shippingCreate = shippingCreateData(product.shippingRules);
+      timezone = product.timezone || timezone;
     }
   }
 
@@ -332,28 +433,14 @@ export async function createDraftWidget(merchantId, options = {}) {
       marketMode: "ALL",
       marketIds: [],
       markets: [],
-      shippingRules: {
-        create: {
-          ...DEFAULT_SHIPPING,
-          blockedDates: [],
-          transitBlockedDates: [],
-        },
-      },
-      messageConfig: { create: prismaMessageData(DEFAULT_MESSAGE) },
-      iconConfig: { create: DEFAULT_ICONS },
-      styleConfig: { create: DEFAULT_STYLE },
-      placementConfig: {
-        create: {
-          ...DEFAULT_PLACEMENT,
-          products: [],
-          collections: [],
-          position: defaultPosition(location),
-        },
-      },
-      cartConfig: { create: { displayMode } },
-      checkoutConfig: { create: DEFAULT_CHECKOUT },
+      shippingRules: embedSet(shippingCreate),
+      messageConfig: embedSet(prismaMessageData(DEFAULT_MESSAGE)),
+      iconConfig: embedSet(iconCreateData()),
+      styleConfig: embedSet(styleCreateData()),
+      placementConfig: embedSet(placementCreateData({}, location)),
+      cartConfig: embedSet(cartCreateData({}, displayMode)),
+      checkoutConfig: embedSet(checkoutCreateData()),
     },
-    include: widgetInclude,
   });
 }
 
@@ -367,7 +454,6 @@ export async function updateWidget(merchantId, widgetId, data) {
   return prisma.widget.update({
     where: { id: widgetId },
     data,
-    include: widgetInclude,
   });
 }
 
@@ -390,25 +476,17 @@ export async function saveShippingRules(merchantId, widgetId, shipping) {
     transitBlockedDates: shipping.transitBlockedDates,
     pincodeRules: shipping.pincodeRules || DEFAULT_PINCODE_RULES,
     weightRules: shipping.weightRules || DEFAULT_WEIGHT_RULES,
+    countryRules: shipping.countryRules || toCountryRules(shipping.pincodeRules),
   };
 
-  await prisma.shippingRules.upsert({
-    where: { widgetId },
-    update: payload,
-    create: { widgetId, ...payload },
+  await prisma.widget.update({
+    where: { id: widgetId },
+    data: {
+      shippingRules: embedSet(payload),
+      timezone: shipping.timezone || undefined,
+      currentStep: "shipping",
+    },
   });
-
-  if (shipping.timezone) {
-    await prisma.widget.update({
-      where: { id: widgetId },
-      data: { timezone: shipping.timezone, currentStep: "shipping" },
-    });
-  } else {
-    await prisma.widget.update({
-      where: { id: widgetId },
-      data: { currentStep: "shipping" },
-    });
-  }
 
   return getWidgetForMerchant(merchantId, widgetId);
 }
@@ -420,34 +498,13 @@ export async function saveMessageAndIcons(merchantId, widgetId, values) {
   });
   if (!widget) return null;
 
-  await prisma.messageConfig.upsert({
-    where: { widgetId },
-    update: { heading: values.heading, template: values.template },
-    create: { widgetId, heading: values.heading, template: values.template },
-  });
-  await prisma.iconConfig.upsert({
-    where: { widgetId },
-    update: {
-      purchased: values.purchased,
-      processing: values.processing,
-      delivered: values.delivered,
-      purchasedTitle: values.purchasedTitle,
-      processingTitle: values.processingTitle,
-      deliveredTitle: values.deliveredTitle,
-    },
-    create: {
-      widgetId,
-      purchased: values.purchased,
-      processing: values.processing,
-      delivered: values.delivered,
-      purchasedTitle: values.purchasedTitle,
-      processingTitle: values.processingTitle,
-      deliveredTitle: values.deliveredTitle,
-    },
-  });
   await prisma.widget.update({
     where: { id: widgetId },
-    data: { currentStep: "message" },
+    data: {
+      messageConfig: embedSet(prismaMessageData({ heading: values.heading, template: values.template })),
+      iconConfig: embedSet(iconCreateData(values)),
+      currentStep: "message",
+    },
   });
   return getWidgetForMerchant(merchantId, widgetId);
 }
@@ -469,14 +526,12 @@ export async function saveStyle(merchantId, widgetId, values) {
     themeColor: values.themeColor,
   };
 
-  await prisma.styleConfig.upsert({
-    where: { widgetId },
-    update: payload,
-    create: { widgetId, ...payload },
-  });
   await prisma.widget.update({
     where: { id: widgetId },
-    data: { currentStep: "style" },
+    data: {
+      styleConfig: embedSet(styleCreateData(payload)),
+      currentStep: "style",
+    },
   });
   return getWidgetForMerchant(merchantId, widgetId);
 }
@@ -484,26 +539,23 @@ export async function saveStyle(merchantId, widgetId, values) {
 export async function savePlacement(merchantId, widgetId, values) {
   const widget = await prisma.widget.findFirst({
     where: { id: widgetId, merchantId },
-    select: { id: true },
+    select: { id: true, location: true, placementConfig: true },
   });
   if (!widget) return null;
 
   const payload = {
     mode: values.mode,
-    productIds: values.productIds || [],
-    collectionIds: values.collectionIds || [],
+    ...syncedPlacementIds(values),
     products: values.products || [],
     collections: values.collections || [],
   };
 
-  await prisma.placementConfig.upsert({
-    where: { widgetId },
-    update: payload,
-    create: { widgetId, ...payload },
-  });
   await prisma.widget.update({
     where: { id: widgetId },
-    data: { currentStep: "placement" },
+    data: {
+      placementConfig: embedSet(placementCreateData({ ...widget.placementConfig, ...payload }, widget.location)),
+      currentStep: "placement",
+    },
   });
   return getWidgetForMerchant(merchantId, widgetId);
 }
@@ -515,14 +567,12 @@ export async function saveCartConfig(merchantId, widgetId, values) {
   });
   if (!widget) return null;
 
-  await prisma.cartConfig.upsert({
-    where: { widgetId },
-    update: { displayMode: values.displayMode },
-    create: { widgetId, displayMode: values.displayMode },
-  });
   await prisma.widget.update({
     where: { id: widgetId },
-    data: { currentStep: "display" },
+    data: {
+      cartConfig: embedSet(cartCreateData({}, values.displayMode)),
+      currentStep: "display",
+    },
   });
   return getWidgetForMerchant(merchantId, widgetId);
 }
@@ -549,14 +599,12 @@ export async function saveCheckoutConfig(merchantId, widgetId, values) {
     themeColor: values.themeColor,
   };
 
-  await prisma.checkoutConfig.upsert({
-    where: { widgetId },
-    update: payload,
-    create: { widgetId, ...payload },
-  });
   await prisma.widget.update({
     where: { id: widgetId },
-    data: { currentStep: "display" },
+    data: {
+      checkoutConfig: embedSet(checkoutCreateData(payload)),
+      currentStep: "display",
+    },
   });
   return getWidgetForMerchant(merchantId, widgetId);
 }
@@ -568,6 +616,11 @@ export async function setWidgetStatus(merchantId, widgetId, status) {
 export async function duplicateWidget(merchantId, widgetId) {
   const widget = await getWidgetForMerchant(merchantId, widgetId);
   if (!widget) return null;
+  if (widget.location === "CHECKOUT") {
+    const error = new Error("Checkout widgets are not available.");
+    error.code = "CHECKOUT_UNAVAILABLE";
+    throw error;
+  }
 
   const { shippingRules, messageConfig, iconConfig, styleConfig, placementConfig, cartConfig, checkoutConfig } =
     widget;
@@ -580,76 +633,17 @@ export async function duplicateWidget(merchantId, widgetId) {
       status: WIDGET_STATUSES.DRAFT,
       currentStep: widget.currentStep,
       timezone: widget.timezone,
-      shippingRules: {
-        create: {
-          processingMinDays: shippingRules.processingMinDays,
-          processingMaxDays: shippingRules.processingMaxDays,
-          cutoffTime: shippingRules.cutoffTime,
-          workingDays: shippingRules.workingDays,
-          blockedDates: shippingRules.blockedDates || [],
-          transitMinDays: shippingRules.transitMinDays,
-          transitMaxDays: shippingRules.transitMaxDays,
-          transitWorkingDays: shippingRules.transitWorkingDays,
-          transitBlockedDates: shippingRules.transitBlockedDates || [],
-          pincodeRules: shippingRules.pincodeRules || undefined,
-          weightRules: shippingRules.weightRules || undefined,
-          countryRules: shippingRules.countryRules || undefined,
-        },
-      },
-      messageConfig: {
-        create: prismaMessageData({ ...messageConfig, scheduledPublishAt: null }),
-      },
-      iconConfig: {
-        create: {
-          purchased: iconConfig.purchased,
-          processing: iconConfig.processing,
-          delivered: iconConfig.delivered,
-          purchasedTitle: iconConfig.purchasedTitle,
-          processingTitle: iconConfig.processingTitle,
-          deliveredTitle: iconConfig.deliveredTitle,
-        },
-      },
-      styleConfig: {
-        create: {
-          backgroundType: styleConfig.backgroundType,
-          backgroundColor: styleConfig.backgroundColor,
-          gradientStart: styleConfig.gradientStart,
-          gradientEnd: styleConfig.gradientEnd,
-          gradientDirection: styleConfig.gradientDirection,
-          borderRadius: styleConfig.borderRadius,
-          themeColor: styleConfig.themeColor,
-        },
-      },
-      placementConfig: {
-        create: {
-          mode: placementConfig.mode,
-          productIds: placementConfig.productIds || [],
-          collectionIds: placementConfig.collectionIds || [],
-          products: placementConfig.products || [],
-          collections: placementConfig.collections || [],
-        },
-      },
-      cartConfig: {
-        create: { displayMode: cartConfig.displayMode },
-      },
-      checkoutConfig: {
-        create: {
-          heading: checkoutConfig.heading,
-          template: checkoutConfig.template,
-          purchasedIcon: checkoutConfig.purchasedIcon,
-          processingIcon: checkoutConfig.processingIcon,
-          deliveredIcon: checkoutConfig.deliveredIcon,
-          backgroundType: checkoutConfig.backgroundType,
-          backgroundColor: checkoutConfig.backgroundColor,
-          gradientStart: checkoutConfig.gradientStart,
-          gradientEnd: checkoutConfig.gradientEnd,
-          gradientDirection: checkoutConfig.gradientDirection,
-          borderRadius: checkoutConfig.borderRadius,
-          themeColor: checkoutConfig.themeColor,
-        },
-      },
+      marketMode: widget.marketMode || "ALL",
+      marketIds: widget.marketIds || [],
+      markets: widget.markets || [],
+      shippingRules: embedSet(shippingCreateData(shippingRules)),
+      messageConfig: embedSet(prismaMessageData({ ...messageConfig, scheduledPublishAt: null })),
+      iconConfig: embedSet(iconCreateData(iconConfig)),
+      styleConfig: embedSet(styleCreateData(styleConfig)),
+      placementConfig: embedSet(placementCreateData(placementConfig, widget.location)),
+      cartConfig: embedSet(cartCreateData(cartConfig)),
+      checkoutConfig: embedSet(checkoutCreateData(checkoutConfig)),
     },
-    include: widgetInclude,
   });
 }
 
@@ -661,14 +655,8 @@ export async function deleteWidget(merchantId, widgetId) {
   if (!widget) return false;
 
   await Promise.all([
+    prisma.deliveryRequest.deleteMany({ where: { widgetId } }),
     prisma.widgetEvent.deleteMany({ where: { widgetId } }),
-    prisma.shippingRules.deleteMany({ where: { widgetId } }),
-    prisma.messageConfig.deleteMany({ where: { widgetId } }),
-    prisma.iconConfig.deleteMany({ where: { widgetId } }),
-    prisma.styleConfig.deleteMany({ where: { widgetId } }),
-    prisma.placementConfig.deleteMany({ where: { widgetId } }),
-    prisma.cartConfig.deleteMany({ where: { widgetId } }),
-    prisma.checkoutConfig.deleteMany({ where: { widgetId } }),
   ]);
   await prisma.widget.delete({ where: { id: widgetId } });
 
@@ -698,10 +686,11 @@ export async function getActiveStorefrontWidgets(shopDomain, location) {
       status: WIDGET_STATUSES.ACTIVE,
       location,
     },
-    include: widgetInclude,
   });
 
-  return widgets.map(withDefaults);
+  const mapped = widgets.map(withDefaults);
+  if (location !== "CART") return mapped;
+  return Promise.all(mapped.map((widget) => inheritCartShipping(widget, merchant.id)));
 }
 
 export async function getWidgetByShop(shopDomain, widgetId) {
@@ -732,6 +721,7 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     transitBlockedDates: values.transitBlockedDates,
     pincodeRules: values.pincodeRules || DEFAULT_PINCODE_RULES,
     weightRules: values.weightRules || DEFAULT_WEIGHT_RULES,
+    countryRules: values.countryRules || toCountryRules(values.pincodeRules),
   };
 
   const messagePayload = prismaMessageData(values);
@@ -777,87 +767,47 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     customCss: values.customCss || "",
   };
 
+  const placementIds = syncedPlacementIds(values);
   const placementPayload = {
     mode: values.mode,
-    productIds: values.productIds || [],
-    collectionIds: values.collectionIds || [],
+    productIds: placementIds.productIds,
+    collectionIds: placementIds.collectionIds,
     products: values.products || [],
     collections: values.collections || [],
     position: values.position || defaultPosition(widget.location),
   };
 
-  const writes = [
-    prisma.shippingRules.upsert({
-      where: { widgetId },
-      update: shippingPayload,
-      create: { widgetId, ...shippingPayload },
-    }),
-    prisma.messageConfig.upsert({
-      where: { widgetId },
-      update: messagePayload,
-      create: { widgetId, ...messagePayload },
-    }),
-    prisma.iconConfig.upsert({
-      where: { widgetId },
-      update: iconPayload,
-      create: { widgetId, ...iconPayload },
-    }),
-    prisma.styleConfig.upsert({
-      where: { widgetId },
-      update: stylePayload,
-      create: { widgetId, ...stylePayload },
-    }),
-    prisma.placementConfig.upsert({
-      where: { widgetId },
-      update: placementPayload,
-      create: { widgetId, ...placementPayload },
-    }),
-  ];
-
-  if (widget.location === "CART" && values.displayMode) {
-    writes.push(
-      prisma.cartConfig.upsert({
-        where: { widgetId },
-        update: { displayMode: values.displayMode },
-        create: { widgetId, displayMode: values.displayMode },
-      }),
-    );
-  }
-
-  if (widget.location === "CHECKOUT") {
-    const checkoutPayload = {
-      heading: values.heading || "Estimated Delivery",
-      template: values.template,
-      themeColor: values.themeColor,
-      backgroundType: values.backgroundType,
-      backgroundColor: values.backgroundColor,
-      borderRadius: values.borderRadius,
-    };
-    writes.push(
-      prisma.checkoutConfig.upsert({
-        where: { widgetId },
-        update: checkoutPayload,
-        create: { widgetId, ...DEFAULT_CHECKOUT, ...checkoutPayload },
-      }),
-    );
-  }
-
-  await Promise.all(writes);
-
-  const saved = await prisma.widget.update({
-    where: { id: widgetId },
-    data: {
-      name: values.name,
-      timezone: values.timezone || undefined,
-      marketMode: values.marketMode,
-      marketIds: values.marketIds || [],
-      markets: values.markets || [],
-      currentStep: values.currentStep || "conditions",
-      status: values.status,
-    },
-    ...(options.returnWidget === false ? {} : { include: widgetInclude }),
+  const saved = await replaceWidgetFields(widgetId, {
+    name: values.name,
+    timezone: values.timezone || undefined,
+    marketMode: values.marketMode,
+    marketIds: values.marketIds || [],
+    markets: values.markets || [],
+    currentStep: values.currentStep || "conditions",
+    status: values.status,
+    shippingRules: shippingPayload,
+    messageConfig: messagePayload,
+    iconConfig: iconPayload,
+    styleConfig: stylePayload,
+    placementConfig: placementPayload,
+    ...(widget.location === "CART" && values.displayMode
+      ? { cartConfig: cartCreateData({}, values.displayMode) }
+      : {}),
+    ...(widget.location === "CHECKOUT"
+      ? {
+          checkoutConfig: checkoutCreateData({
+            heading: values.heading || "Estimated Delivery",
+            template: values.template,
+            themeColor: values.themeColor,
+            backgroundType: values.backgroundType,
+            backgroundColor: values.backgroundColor,
+            borderRadius: values.borderRadius,
+          }),
+        }
+      : {}),
   });
 
+  if (!saved) return null;
   if (options.returnWidget === false) return true;
   return withDefaults(saved);
 }

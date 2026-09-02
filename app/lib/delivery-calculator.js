@@ -14,7 +14,23 @@ function pad(value) {
   return String(value).padStart(2, "0");
 }
 
-export function getZonedParts(date, timeZone) {
+const TIMEZONE_CACHE = new Map();
+
+export function resolveTimeZone(timeZone) {
+  const value = String(timeZone || "").trim() || "UTC";
+  const cached = TIMEZONE_CACHE.get(value);
+  if (cached) return cached;
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
+    TIMEZONE_CACHE.set(value, value);
+    return value;
+  } catch {
+    TIMEZONE_CACHE.set(value, "UTC");
+    return "UTC";
+  }
+}
+
+function partsFromDate(date, timeZone) {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
@@ -26,11 +42,9 @@ export function getZonedParts(date, timeZone) {
     hourCycle: "h23",
     weekday: "short",
   });
-
   const parts = Object.fromEntries(
     formatter.formatToParts(date).map((part) => [part.type, part.value]),
   );
-
   return {
     year: Number(parts.year),
     month: Number(parts.month),
@@ -40,6 +54,16 @@ export function getZonedParts(date, timeZone) {
     second: Number(parts.second),
     dateStr: `${parts.year}-${parts.month}-${parts.day}`,
   };
+}
+
+export function getZonedParts(date, timeZone) {
+  const when = date instanceof Date ? date : new Date(date);
+  const safeDate = Number.isNaN(when.getTime()) ? new Date() : when;
+  try {
+    return partsFromDate(safeDate, resolveTimeZone(timeZone));
+  } catch {
+    return partsFromDate(safeDate, "UTC");
+  }
 }
 
 export function parseCutoffMinutes(cutoffTime) {

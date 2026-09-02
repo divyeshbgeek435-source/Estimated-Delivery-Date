@@ -13,6 +13,11 @@ import {
   setWidgetStatus,
   acknowledgeLiveNotice,
 } from "../services/widgets/widget.server";
+import {
+  listMerchantDeliveryRequests,
+  REQUEST_STATUSES,
+  setDeliveryRequestStatus,
+} from "../services/widgets/delivery-requests.server";
 import { WIDGET_STATUSES } from "../lib/constants";
 import { syncWidgetStorefront } from "../services/shopify/store-block.server";
 import { appBlockEditorUrl, appEmbedEditorUrl } from "../lib/theme-editor";
@@ -20,10 +25,11 @@ import { DashboardHome } from "../components/dashboard/DashboardHome";
 
 export const loader = async ({ request }) => {
   const { admin, merchant, shop } = await requireAdmin(request);
-  const [widgets, totals, liveNotices] = await Promise.all([
+  const [widgets, totals, liveNotices, deliveryRequests] = await Promise.all([
     listWidgetSummaries(merchant.id),
     loadDashboardAnalytics(merchant.id),
     listLiveNotices(merchant.id),
+    listMerchantDeliveryRequests(merchant.id),
   ]);
 
   let productHandle = "";
@@ -47,6 +53,7 @@ export const loader = async ({ request }) => {
     widgets,
     totals,
     liveNotices,
+    deliveryRequests,
     shop,
     productHandle,
     themeEditorEmbed: appEmbedEditorUrl(shop),
@@ -63,6 +70,24 @@ export const action = async ({ request }) => {
     .map((value) => String(value || ""))
     .filter(Boolean);
   const widgetId = widgetIds[0] || String(formData.get("widgetId") || "");
+
+  if (intent === "accept-delivery-request" || intent === "reject-delivery-request") {
+    const requestId = String(formData.get("requestId") || "");
+    if (!widgetId || !requestId) return { error: "Missing request" };
+    try {
+      const status = intent === "accept-delivery-request" ? REQUEST_STATUSES.ACCEPTED : REQUEST_STATUSES.REJECTED;
+      const saved = await setDeliveryRequestStatus(merchant.id, widgetId, requestId, status);
+      if (!saved) return { error: "Could not update that delivery request." };
+      if (status === REQUEST_STATUSES.ACCEPTED) {
+        await syncWidgetStorefront(admin, session, saved);
+      }
+      return {
+        toast: status === REQUEST_STATUSES.ACCEPTED ? "Pincode added as an eligible location" : "Delivery request declined",
+      };
+    } catch (error) {
+      return { error: error?.message || "Could not update that delivery request." };
+    }
+  }
 
   if (!widgetId && !widgetIds.length) return { error: "Missing widget" };
 
@@ -118,6 +143,7 @@ export default function Dashboard() {
       widgets={data.widgets}
       totals={data.totals}
       liveNotices={data.liveNotices}
+      deliveryRequests={data.deliveryRequests || []}
       shop={data.shop}
       productHandle={data.productHandle}
       themeEditorEmbed={data.themeEditorEmbed}

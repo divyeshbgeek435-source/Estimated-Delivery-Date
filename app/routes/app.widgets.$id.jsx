@@ -10,22 +10,34 @@ import {
   shippingSchema,
   styleSchema,
 } from "../lib/validation";
-import { readJsonField } from "../lib/form.server";
+import { readJsonField, syncedPlacementIds } from "../lib/form.server";
 import {
   acknowledgeLiveNotice,
   saveWidgetEditor,
   serializeWidget,
 } from "../services/widgets/widget.server";
+import {
+  listDeliveryRequests,
+  REQUEST_STATUSES,
+  setDeliveryRequestStatus,
+} from "../services/widgets/delivery-requests.server";
 import { WidgetWorkspace } from "../components/editor/WidgetWorkspace";
 import { DEFAULT_STYLE, DEFAULT_WORKING_DAYS, WIDGET_STATUSES, WORKING_DAYS } from "../lib/constants";
 import { normalizePosition } from "../lib/widget-profiles";
 import { confirmKindForStatus, resolveEditorStatus } from "../lib/widget-status";
-import { productThemeEditorUrl, storefrontPageUrl } from "../lib/theme-editor";
+import { getCollectionProductHandle } from "../services/shopify/catalog.server";
+import { storefrontPageUrl, widgetThemeEditorUrl } from "../lib/theme-editor";
 import { syncWidgetStorefront } from "../services/shopify/store-block.server";
 
 async function firstProductHandle(admin, widget) {
   const fromPlacement = widget.placementConfig?.products?.[0]?.handle;
   if (fromPlacement) return fromPlacement;
+  const collectionId =
+    widget.placementConfig?.collectionIds?.[0] || widget.placementConfig?.collections?.[0]?.id;
+  if (admin && collectionId) {
+    const fromCollection = await getCollectionProductHandle(admin, collectionId);
+    if (fromCollection) return fromCollection;
+  }
   if (!admin) return "";
   try {
     const response = await admin.graphql(`#graphql
@@ -49,7 +61,10 @@ export const loader = async ({ request, params }) => {
   const productHandle = await firstProductHandle(admin, widget);
   return {
     widget: serializeWidget(widget),
-    themeEditorUrl: productThemeEditorUrl(shop),
+    deliveryRequests: await listDeliveryRequests(widget.merchantId, widget.id),
+    themeEditorUrl: widgetThemeEditorUrl(shop, widget.location, {
+      position: widget.placementConfig?.position,
+    }),
     shop,
     storefrontUrl: storefrontPageUrl(shop, widget.location, productHandle),
   };
@@ -109,8 +124,7 @@ function flattenDraft(widget, draft = {}) {
     style,
     placement: {
       mode: placement.mode,
-      productIds: placement.productIds || [],
-      collectionIds: placement.collectionIds || [],
+      ...syncedPlacementIds(placement),
       products: placement.products || [],
       collections: placement.collections || [],
       position: normalizePosition(widget.location, placement.position),
@@ -142,6 +156,22 @@ export const action = async ({ request, params }) => {
   const intent = String(formData.get("intent") || "save");
   const draft = readJsonField(formData, "editorState", {});
   const values = flattenDraft(widget, draft);
+
+  if (intent === "accept-delivery-request" || intent === "reject-delivery-request") {
+    const requestId = String(formData.get("requestId") || "");
+    const status = intent === "accept-delivery-request" ? REQUEST_STATUSES.ACCEPTED : REQUEST_STATUSES.REJECTED;
+    const saved = await setDeliveryRequestStatus(merchant.id, widget.id, requestId, status);
+    const deliveryRequests = await listDeliveryRequests(merchant.id, widget.id);
+    if (!saved) return { errors: { form: "Could not update that delivery request." } };
+    if (status === REQUEST_STATUSES.ACCEPTED) {
+      await syncWidgetStorefront(admin, session, saved);
+    }
+    return {
+      widget: serializeWidget(saved),
+      deliveryRequests,
+      toast: status === REQUEST_STATUSES.ACCEPTED ? "Pincode added as an eligible location" : "Delivery request declined",
+    };
+  }
 
   if (intent === "ack-live") {
     await acknowledgeLiveNotice(merchant.id, widget.id);
@@ -274,6 +304,7 @@ export default function WidgetEditorRoute() {
     <WidgetWorkspace
       widget={widget}
       errors={actionData?.errors}
+      deliveryRequests={actionData?.deliveryRequests || loaderData.deliveryRequests || []}
       themeEditorUrl={loaderData.themeEditorUrl}
       shop={loaderData.shop}
       storefrontUrl={loaderData.storefrontUrl}

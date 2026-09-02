@@ -1,6 +1,11 @@
-import { DEFAULT_PINCODE_RULES, DEFAULT_WEIGHT_RULES } from "./pincode";
+import {
+  DEFAULT_PINCODE_RULES,
+  DEFAULT_WEIGHT_RULES,
+  LOCATION_SELECTION,
+  WEIGHT_DISPLAY_MODES,
+} from "./pincode";
 
-export { DEFAULT_PINCODE_RULES, DEFAULT_WEIGHT_RULES };
+export { DEFAULT_PINCODE_RULES, DEFAULT_WEIGHT_RULES, LOCATION_SELECTION, WEIGHT_DISPLAY_MODES };
 
 export const WIDGET_LOCATIONS = {
   PRODUCT: "PRODUCT",
@@ -124,6 +129,15 @@ export const DEFAULT_SHIPPING = {
   transitBlockedDates: [],
   pincodeRules: DEFAULT_PINCODE_RULES,
   weightRules: DEFAULT_WEIGHT_RULES,
+  countryRules: {
+    country: "IN",
+    countries: [],
+    locations: [],
+    stateMode: "SPECIFIC",
+    states: [],
+    cityMode: "SPECIFIC",
+    cities: [],
+  },
 };
 
 export const DEFAULT_MESSAGE = {
@@ -153,10 +167,9 @@ export const DEFAULT_ICONS = {
 
 export const WIDGET_DESIGNS = [
   { value: "TIMELINE", label: "Timeline", help: "Classic three-step dates" },
-  { value: "COMPACT", label: "Compact", help: "One delivery line" },
+  // { value: "COMPACT", label: "Compact", help: "One delivery line" },
   { value: "STACKED", label: "Stacked", help: "Vertical steps for mobile" },
   { value: "PILL", label: "Pills", help: "Rounded date chips" },
-  { value: "CARD", label: "Details", help: "Labeled rows with icons" },
 ];
 
 export const EDITOR_TABS = [
@@ -205,11 +218,11 @@ export const DEFAULT_STYLE = {
   progressWidth: 2,
   progressColor: "#000000",
   fontFamily: "inherit",
-  fontSize: 14,
+  fontSize: 15,
   textColor: "#202223",
-  statusFontSize: 12,
+  statusFontSize: 13,
   statusColor: "#202223",
-  dateFontSize: 11,
+  dateFontSize: 13,
   dateColor: "#202223",
   dynamicColor: "#202223",
   customCss: "",

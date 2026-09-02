@@ -53,4 +53,32 @@ export function productThemeEditorUrl(shop, options = {}) {
   return appBlockEditorUrl(shop, { ...options, activate: true });
 }
 
+export function cartBlockEditorUrl(shop, { themeId, activate = true } = {}) {
+  const params = new URLSearchParams({
+    template: "cart",
+    previewPath: "/cart",
+  });
+  if (activate) {
+    params.set("addAppBlockId", `${APP_CLIENT_ID}/${APP_CART_BLOCK_HANDLE}`);
+  }
+  return `https://${shopDomain(shop)}/admin/themes/${themeSegment(themeId)}/editor?${params.toString()}`;
+}
+
+export function checkoutEditorUrl(shop, { page, position } = {}) {
+  const handle = storeHandle(shop);
+  if (!handle) return "";
+  const editorPage = page || (position === "THANK_YOU" ? "thank-you" : "checkout");
+  const params = new URLSearchParams({
+    page: editorPage,
+    context: "apps",
+  });
+  return `https://admin.shopify.com/store/${handle}/settings/checkout/editor?${params.toString()}`;
+}
+
+export function widgetThemeEditorUrl(shop, location, options = {}) {
+  if (location === "CART") return cartBlockEditorUrl(shop, options);
+  if (location === "CHECKOUT") return checkoutEditorUrl(shop, options);
+  return productThemeEditorUrl(shop, options);
+}
+
 export { storefrontPageUrl } from "./widget-status";

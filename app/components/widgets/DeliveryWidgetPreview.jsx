@@ -8,7 +8,40 @@ import {
   messageValues,
   widgetBackground,
 } from "../../lib/delivery-calculator";
+import {
+  WEIGHT_DISPLAY_MODES,
+  asksForPincode,
+  digitsOnly,
+  formatWeightDisplay,
+  resolveDeliveryAvailability,
+  resolveWeightDisplayMode,
+  shippingWithPincodeRule,
+} from "../../lib/pincode";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
+
+async function checkDelivery(code, shipping, productWeight = "") {
+  const options = {
+    code,
+    rules: shipping.pincodeRules,
+    weightRules: shipping.weightRules,
+    productWeight,
+    shipping,
+  };
+  const first = resolveDeliveryAvailability(options);
+  if (!first.needsLookup) return first;
+  const countries = [...new Set([...(shipping.pincodeRules?.countries || []), shipping.pincodeRules?.country, first.country].filter(Boolean))];
+  let place = { ok: false };
+  for (const country of countries) {
+    const params = new URLSearchParams({ country, code });
+    const response = await fetch(`/app/pincode-lookup?${params.toString()}`);
+    const payload = await response.json();
+    if (payload?.ok) {
+      place = payload;
+      break;
+    }
+  }
+  return resolveDeliveryAvailability({ ...options, place });
+}
 
 export function DeliveryWidgetPreview({
   heading = "",
@@ -21,9 +54,13 @@ export function DeliveryWidgetPreview({
   layout = "FULL",
   design = "TIMELINE",
   showDescription = true,
+  productWeight = "",
 }) {
   const [now, setNow] = useState(() => new Date());
   const [tick, setTick] = useState(() => new Date());
+  const [pincodeValue, setPincodeValue] = useState("");
+  const [check, setCheck] = useState(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     const countdown = setInterval(() => setTick(new Date()), 1000);
@@ -34,22 +71,37 @@ export function DeliveryWidgetPreview({
     };
   }, []);
 
+  useEffect(() => {
+    if (asksForPincode(shipping.weightRules, shipping.pincodeRules)) return;
+    setCheck(null);
+    setPincodeValue("");
+  }, [shipping.weightRules, shipping.pincodeRules]);
+
+  const pincode = shipping.pincodeRules || {};
+  const displayMode = resolveWeightDisplayMode(shipping.weightRules, pincode);
+  const askPincode = asksForPincode(shipping.weightRules, pincode);
+  const directWeight = formatWeightDisplay(shipping.weightRules, productWeight);
+  const matchedShipping = check?.available ? shippingWithPincodeRule(shipping, check) : shipping;
+  const showDates =
+    !askPincode ||
+    (displayMode === WEIGHT_DISPLAY_MODES.PINCODE ? check?.available === true : check?.available !== false);
+
   const delivery = useMemo(
     () =>
       calculateDeliveryDate({
         orderDate: now,
-        processingMinDays: shipping.processingMinDays,
-        processingMaxDays: shipping.processingMaxDays,
-        cutoffTime: shipping.cutoffTime,
-        workingDays: shipping.workingDays,
-        blockedDates: shipping.blockedDates,
-        transitMinDays: shipping.transitMinDays,
-        transitMaxDays: shipping.transitMaxDays,
-        transitWorkingDays: shipping.transitWorkingDays,
-        transitBlockedDates: shipping.transitBlockedDates,
+        processingMinDays: matchedShipping.processingMinDays,
+        processingMaxDays: matchedShipping.processingMaxDays,
+        cutoffTime: matchedShipping.cutoffTime,
+        workingDays: matchedShipping.workingDays,
+        blockedDates: matchedShipping.blockedDates,
+        transitMinDays: matchedShipping.transitMinDays,
+        transitMaxDays: matchedShipping.transitMaxDays,
+        transitWorkingDays: matchedShipping.transitWorkingDays,
+        transitBlockedDates: matchedShipping.transitBlockedDates,
         timezone,
       }),
-    [now, shipping, timezone],
+    [now, matchedShipping, timezone],
   );
 
   const countdown = useMemo(
@@ -68,7 +120,10 @@ export function DeliveryWidgetPreview({
   const theme = style.themeColor || "#202223";
   const progress = style.progressColor || "#202223";
   const textColor = style.textColor || "#202223";
-  const iconSize = style.iconSize || 22;
+  const iconSize = Math.max(22, Number(style.iconSize) || 24);
+  const fontSize = Math.max(14, Number(style.fontSize) || 15);
+  const dateSize = Math.max(12, Number(style.dateFontSize) || 13);
+  const statusSize = Math.max(12, Number(style.statusFontSize) || 13);
   const cardBackground =
     style.backgroundType === "TRANSPARENT" ? "#ffffff" : style.backgroundColor || "#E8E8E8";
   const purchasedDate = formatTimelineLabel(getZonedParts(now, timezone).dateStr);
@@ -103,7 +158,27 @@ export function DeliveryWidgetPreview({
   const paddingLeft = style.paddingLeft ?? 16;
   const gap = style.paddingMiddle ?? 12;
   const designName = design || (layout === "MINIMAL" ? "COMPACT" : "TIMELINE");
-  const pincode = shipping.pincodeRules || {};
+  const shownWeight = check?.available ? check.weight : displayMode === WEIGHT_DISPLAY_MODES.DIRECT ? directWeight : "";
+
+  const onCheck = async (event) => {
+    event.preventDefault();
+    const code = digitsOnly(pincodeValue);
+    if (!code) return;
+    setChecking(true);
+    try {
+      const result = await checkDelivery(code, shipping, productWeight);
+      setCheck(result);
+    } catch {
+      setCheck({
+        enabled: true,
+        available: false,
+        message: "Could not check this pincode. Try again.",
+        canRequest: false,
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
 
   return (
     <div
@@ -115,16 +190,24 @@ export function DeliveryWidgetPreview({
         padding: `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`,
         color: textColor,
         fontFamily: style.fontFamily || "inherit",
-        fontSize: `${style.fontSize || 14}px`,
+        fontSize: `${fontSize}px`,
         ["--edd-theme"]: theme,
         ["--edd-progress"]: progress,
         ["--edd-gap"]: `${gap}px`,
         ["--edd-card-bg"]: cardBackground,
         ["--edd-icon-box"]: `${iconSize}px`,
+        ["--edd-font"]: `${fontSize}px`,
+        ["--edd-date-size"]: `${dateSize}px`,
+        ["--edd-status-size"]: `${statusSize}px`,
       }}
     >
       {heading ? <p className="edd-preview__heading">{heading}</p> : null}
-      {showDescription ? (
+      {displayMode === WEIGHT_DISPLAY_MODES.DIRECT ? (
+        <p className="edd-preview__weight">
+          Weight: {shownWeight || (shipping.weightRules?.useProductWeight ? "product weight" : "—")}
+        </p>
+      ) : null}
+      {showDates && showDescription ? (
         <div
           className="edd-preview__message-row essential-estimated-delivery-description"
           style={{ color: style.dynamicColor || textColor, marginBottom: gap }}
@@ -139,11 +222,11 @@ export function DeliveryWidgetPreview({
           </p>
         </div>
       ) : null}
-      {designName === "COMPACT" ? (
-        <p className="edd-preview__minimal" style={{ color: style.dateColor || textColor, fontSize: `${style.dateFontSize || 11}px` }}>
+      {showDates && designName === "COMPACT" ? (
+        <p className="edd-preview__minimal" style={{ color: style.dateColor || textColor }}>
           Delivery {deliveredDate}
         </p>
-      ) : designName === "PILL" ? (
+      ) : showDates && designName === "PILL" ? (
         <div className="edd-preview__pills">
           {steps.map((step) => (
             <span key={step.key} className="edd-preview__pill" style={{ color: step.color, borderColor: step.color }}>
@@ -151,7 +234,7 @@ export function DeliveryWidgetPreview({
             </span>
           ))}
         </div>
-      ) : designName === "CARD" ? (
+      ) : showDates && designName === "CARD" ? (
         <div className="edd-preview__rows">
           {steps.map((step) => (
             <div key={step.key} className="edd-preview__row">
@@ -159,13 +242,13 @@ export function DeliveryWidgetPreview({
                 <DeliveryIcon name={step.icon} color={step.color} />
               </span>
               <span>
-                <strong style={{ color: style.statusColor || textColor, fontSize: `${style.statusFontSize || 12}px` }}>{step.title}</strong>
-                <em style={{ color: style.dateColor || textColor, fontSize: `${style.dateFontSize || 11}px` }}>{step.date}</em>
+                <strong style={{ color: style.statusColor || textColor }}>{step.title}</strong>
+                <em style={{ color: style.dateColor || textColor }}>{step.date}</em>
               </span>
             </div>
           ))}
         </div>
-      ) : (
+      ) : showDates ? (
         <div className={`edd-preview__timeline ${designName === "STACKED" ? "edd-preview__timeline--stacked" : ""}`} role="list">
           {steps.map((step, index) => (
             <Fragment key={step.key}>
@@ -192,13 +275,13 @@ export function DeliveryWidgetPreview({
                 <span className="edd-preview__timeline-meta">
                   <span
                     className="edd-preview__timeline-date"
-                    style={{ color: style.dateColor || textColor, fontSize: `${style.dateFontSize || 11}px` }}
+                    style={{ color: style.dateColor || textColor }}
                   >
                     {step.date}
                   </span>
                   <span
                     className="edd-preview__timeline-label"
-                    style={{ color: style.statusColor || textColor, fontSize: `${style.statusFontSize || 12}px` }}
+                    style={{ color: style.statusColor || textColor }}
                   >
                     {step.title}
                   </span>
@@ -207,17 +290,42 @@ export function DeliveryWidgetPreview({
             </Fragment>
           ))}
         </div>
-      )}
-      {pincode.enabled ? (
-        <form className="edd-check" onSubmit={(event) => event.preventDefault()}>
+      ) : null}
+      {askPincode ? (
+        <div className="edd-check">
           <p className="edd-check__title">Check delivery</p>
           <div className="edd-check__row">
-            <input className="edd-check__input" type="text" placeholder="Enter pincode" readOnly />
-            <button className="edd-check__button" type="button" tabIndex={-1}>
-              Check
+            <input
+              className="edd-check__input"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="Enter pincode"
+              value={pincodeValue}
+              onChange={(event) => setPincodeValue(digitsOnly(event.currentTarget.value))}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+                onCheck(event);
+              }}
+            />
+            <button className="edd-check__button" type="button" disabled={checking} onClick={onCheck}>
+              {checking ? "Checking" : "Check"}
             </button>
           </div>
-        </form>
+          {check?.message ? (
+            <p className="edd-check__status" data-tone={check.available ? "ok" : "error"}>
+              {check.available
+                ? `${check.message}${check.label ? ` — ${check.label}` : ""}${check.weight ? ` · ${check.weight}` : ""}`
+                : check.message}
+            </p>
+          ) : null}
+          {check?.available === false ? (
+            <button type="button" className="edd-request-btn" disabled>
+              Request delivery
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

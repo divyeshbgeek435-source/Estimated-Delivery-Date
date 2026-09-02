@@ -31,21 +31,9 @@ export async function deleteMerchantData(shopDomain) {
 
   if (!merchant) return;
 
-  const widgets = await prisma.widget.findMany({
-    where: { merchantId: merchant.id },
-    select: { id: true },
-  });
-  const widgetIds = widgets.map((widget) => widget.id);
-
   await prisma.$transaction([
     prisma.widgetEvent.deleteMany({ where: { merchantId: merchant.id } }),
-    prisma.shippingRules.deleteMany({ where: { widgetId: { in: widgetIds } } }),
-    prisma.messageConfig.deleteMany({ where: { widgetId: { in: widgetIds } } }),
-    prisma.iconConfig.deleteMany({ where: { widgetId: { in: widgetIds } } }),
-    prisma.styleConfig.deleteMany({ where: { widgetId: { in: widgetIds } } }),
-    prisma.placementConfig.deleteMany({ where: { widgetId: { in: widgetIds } } }),
-    prisma.cartConfig.deleteMany({ where: { widgetId: { in: widgetIds } } }),
-    prisma.checkoutConfig.deleteMany({ where: { widgetId: { in: widgetIds } } }),
+    prisma.deliveryRequest.deleteMany({ where: { merchantId: merchant.id } }),
     prisma.widget.deleteMany({ where: { merchantId: merchant.id } }),
     prisma.session.deleteMany({ where: { shop: shopDomain } }),
     prisma.merchant.delete({ where: { id: merchant.id } }),

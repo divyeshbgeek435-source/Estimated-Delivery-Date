@@ -1,5 +1,8 @@
 import { unauthenticated, apiVersion } from "../../shopify.server";
-import { APP_EMBED_HANDLE, appBlockEditorUrl, appEmbedEditorUrl } from "../../lib/theme-editor";
+import { appBlockEditorUrl, appEmbedEditorUrl } from "../../lib/theme-editor";
+import { defaultEmbedIdentifiers, parseAppEmbedEnabled } from "../../lib/theme-embed";
+
+export { parseAppEmbedEnabled };
 
 const CACHE_MS = 45_000;
 const METAFIELD_SYNC_MS = 60_000;
@@ -79,17 +82,7 @@ function graphqlApiVersion() {
 }
 
 function staticIdentifiers() {
-  return [
-    process.env.SHOPIFY_API_KEY,
-    process.env.SHOPIFY_DELIVERY_DATE_WIDGET_ID,
-    "428f3d88064e44c926da9dbde635d831",
-    "delivery-date-widget",
-    "estimated-delivery-date",
-    "estimated-delivery",
-    "edd-theme-app-extension-001",
-  ]
-    .filter(Boolean)
-    .map((value) => String(value).toLowerCase());
+  return defaultEmbedIdentifiers();
 }
 
 function buildIdentifiers(installation) {
@@ -99,54 +92,6 @@ function buildIdentifiers(installation) {
       .filter(Boolean)
       .map((value) => String(value).toLowerCase()),
   )];
-}
-
-function parseSettingsJson(raw) {
-  const stripped = String(raw || "")
-    .replace(/^\uFEFF/, "")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-  return JSON.parse(stripped);
-}
-
-function collectTypedBlocks(node, found = []) {
-  if (!node || typeof node !== "object") return found;
-  if (Array.isArray(node)) {
-    for (const item of node) collectTypedBlocks(item, found);
-    return found;
-  }
-  if (typeof node.type === "string") found.push(node);
-  for (const value of Object.values(node)) collectTypedBlocks(value, found);
-  return found;
-}
-
-function isAppEmbedType(type) {
-  const value = String(type || "").toLowerCase();
-  if (value.includes("/blocks/app-embed")) return true;
-  if (value.includes(`/${APP_EMBED_HANDLE}/`) || value.endsWith(`/${APP_EMBED_HANDLE}`)) return true;
-  return value.includes("/blocks/") && value.includes("embed") && value.includes("delivery");
-}
-
-function isEnabledBlock(block) {
-  return block?.disabled !== true && String(block?.disabled).toLowerCase() !== "true";
-}
-
-function isOurEnabledEmbed(block, identifiers) {
-  const type = String(block?.type || "");
-  if (!isAppEmbedType(type) || !isEnabledBlock(block)) return false;
-  const lower = type.toLowerCase();
-  return identifiers.some((hint) => hint && lower.includes(hint));
-}
-
-export function parseAppEmbedEnabled(settingsContent, identifiers = staticIdentifiers()) {
-  try {
-    const settings = parseSettingsJson(settingsContent);
-    const blocks = collectTypedBlocks(settings);
-    if (blocks.some((block) => isOurEnabledEmbed(block, identifiers))) return true;
-    return blocks.some((block) => isAppEmbedType(block.type) && isEnabledBlock(block));
-  } catch {
-    return false;
-  }
 }
 
 function remember(shop, result) {
@@ -218,6 +163,11 @@ export function markAppEmbedPing(shop) {
   if (shop) embedPings.set(shop, Date.now());
 }
 
+export function clearAppEmbedStatusCache(shop) {
+  if (shop) cache.delete(shop);
+  else cache.clear();
+}
+
 export async function readAppEmbedEnabled(admin, session, shop) {
   const installationData = await graphqlData(admin, INSTALLATION_QUERY);
   const installation = installationData?.currentAppInstallation;
@@ -228,37 +178,19 @@ export async function readAppEmbedEnabled(admin, session, shop) {
     try {
       const themeData = await graphqlData(admin, THEME_SETTINGS_QUERY);
       const themes = themeData?.themes?.nodes || [];
-      const ordered = [
-        ...themes.filter((theme) => theme.role === "MAIN"),
-        ...themes.filter((theme) => theme.role !== "MAIN"),
-      ];
-      for (const theme of ordered) {
-        const content = await settingsForTheme(theme, session);
-        if (!content) continue;
-        if (parseAppEmbedEnabled(content, identifiers)) {
-          return {
-            enabled: true,
-            checked: true,
-            missingThemeAccess: false,
-            themeId: theme.id,
-          };
-        }
-      }
-      if (ordered.length) {
+      const main = themes.find((theme) => theme.role === "MAIN") || themes[0];
+      if (main) {
+        const content = await settingsForTheme(main, session);
         return {
-          enabled: false,
-          checked: true,
+          enabled: Boolean(content) && parseAppEmbedEnabled(content, identifiers),
+          checked: Boolean(content),
           missingThemeAccess: false,
-          themeId: ordered[0]?.id,
+          themeId: main.id,
         };
       }
     } catch (error) {
       console.warn("[edd-app-embed] theme read failed", error?.message || error);
     }
-  }
-
-  if (recentEmbedPing(shop || session?.shop)) {
-    return { enabled: true, checked: true, missingThemeAccess };
   }
 
   return { enabled: false, checked: !missingThemeAccess, missingThemeAccess };
@@ -330,7 +262,7 @@ export async function loadLiveAppEmbedStatus(admin, shop, session) {
   } catch (error) {
     console.warn("[edd-app-embed] status failed", error?.message || error);
     return {
-      enabled: cached?.enabled ?? recentEmbedPing(shop),
+      enabled: cached?.enabled ?? false,
       checked: false,
       missingThemeAccess: true,
     };
@@ -346,9 +278,9 @@ export async function isAppEmbedEnabledForShop(shop) {
   try {
     const { admin, session } = await unauthenticated.admin(shop);
     const result = await loadLiveAppEmbedStatus(admin, shop, session);
-    if (result.missingThemeAccess) return true;
+    if (result.missingThemeAccess) return recentEmbedPing(shop);
     return result.enabled;
   } catch {
-    return cached?.enabled ?? true;
+    return cached?.enabled ?? recentEmbedPing(shop);
   }
 }

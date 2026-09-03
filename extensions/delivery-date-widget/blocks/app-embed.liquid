@@ -1,29 +1,28 @@
 {% doc %}
-App embed that loads estimated delivery scripts and shows the widget when the page block is missing.
+Lightweight app embed fallback. Assets load only on product and cart pages.
 {% enddoc %}
 
-<script>
-  fetch("/apps/delivery-date/embed-ping", { keepalive: true }).catch(function () {});
-</script>
-
-{% if template.name == "product" %}
-  {% render "edd-product-root", product: product, collection: collection %}
-{% elsif template.name == "collection" %}
-  {% render "edd-product-root", collection: collection %}
-{% elsif template.name == "cart" %}
-  {% render "edd-cart-root" %}
+{% if template.name == "product" or template.name == "cart" %}
+  {{ 'delivery-widget.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'delivery-widget.js' | asset_url }}" defer></script>
+  <script>
+    fetch("/apps/delivery-date/embed-ping", { keepalive: true }).catch(function () {});
+  </script>
+  {% if template.name == "product" %}
+    {% render "edd-product-root", product: product, collection: collection %}
+  {% else %}
+    {% render "edd-cart-root" %}
+  {% endif %}
 {% endif %}
 
 {% schema %}
 {
   "name": "Estimated delivery embed",
   "target": "body",
-  "stylesheet": "delivery-widget.css",
-  "javascript": "delivery-widget.js",
   "settings": [
     {
       "type": "paragraph",
-      "content": "Loads scripts and shows the widget if the page block is missing. Use Product delivery date on product pages and Cart delivery date on the cart page to choose placement."
+      "content": "Shows estimated delivery on product and cart pages if the app block is not placed. Prefer Product delivery date and Cart delivery date blocks for exact placement."
     }
   ]
 }

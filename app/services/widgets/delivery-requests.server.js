@@ -121,6 +121,24 @@ export async function listMerchantDeliveryRequests(merchantId) {
   return rows.map(fromRaw);
 }
 
+export async function countPendingDeliveryRequests(merchantId) {
+  if (!merchantId) return 0;
+  try {
+    if (canUseModel()) {
+      return prisma.deliveryRequest.count({
+        where: { merchantId, status: REQUEST_STATUSES.PENDING },
+      });
+    }
+  } catch (error) {
+    console.error("countPendingDeliveryRequests failed", error);
+  }
+  const rows = await rawFind(
+    { merchantId: oid(merchantId), status: REQUEST_STATUSES.PENDING },
+    { limit: 200 },
+  );
+  return rows.length;
+}
+
 export function serializeDeliveryRequest(row) {
   return {
     id: asId(row.id || row._id),

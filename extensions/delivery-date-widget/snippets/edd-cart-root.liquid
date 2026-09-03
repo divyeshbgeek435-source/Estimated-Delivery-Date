@@ -5,8 +5,6 @@ Estimated delivery root for the cart page. Rendered only by the cart app block.
 {% capture cart_items %}
 [{% for item in cart.items %}{"id":{{ item.product.id | json }},"title":{{ item.product.title | json }},"collectionIds":"{% for col in item.product.collections limit: 15 %}{{ col.id }}{% unless forloop.last %},{% endunless %}{% endfor %}"}{% unless forloop.last %},{% endunless %}{% endfor %}]
 {% endcapture %}
-{{ 'delivery-widget.css' | asset_url | stylesheet_tag }}
-<script src="{{ 'delivery-widget.js' | asset_url }}" defer></script>
 <div
   class="edd-root edd-root--cart"
   data-edd-root

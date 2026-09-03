@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { useFetcher } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { EDITOR_TABS, locationLabel, WIDGET_STATUSES } from "../../lib/constants";
 import { applyLiveStatus, formatCountdown, useLivePublishPoll } from "../../lib/use-live-publish";
+import { SAVE_STATUS, useEditorSave } from "../../lib/use-editor-save";
 import { normalizePosition, widgetProfile } from "../../lib/widget-profiles";
 import {
   defaultScheduleValue,
@@ -37,6 +37,26 @@ function tabFromUrl() {
   return EDITOR_TABS.some((item) => item.id === value) ? value : "conditions";
 }
 
+function SaveStatus({ status, onRetry }) {
+  if (status === SAVE_STATUS.SAVING) {
+    return <s-badge tone="info">Saving</s-badge>;
+  }
+  if (status === SAVE_STATUS.UNSAVED) {
+    return <s-badge tone="warning">Unsaved</s-badge>;
+  }
+  if (status === SAVE_STATUS.ERROR) {
+    return (
+      <span className="edd-save-status edd-save-status--error">
+        <s-badge tone="critical">Save failed</s-badge>
+        <ActionButton type="button" variant="tertiary" onClick={onRetry}>
+          Retry
+        </ActionButton>
+      </span>
+    );
+  }
+  return <s-badge tone="success">Saved</s-badge>;
+}
+
 export function WidgetWorkspace({
   widget,
   errors,
@@ -44,8 +64,6 @@ export function WidgetWorkspace({
   themeEditorUrl = "",
   storefrontUrl = "",
 }) {
-  const saveFetcher = useFetcher();
-  const autoFetcher = useFetcher();
   const shopify = useAppBridge();
   const [tab, setTab] = useState(tabFromUrl);
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([tabFromUrl()]));
@@ -55,16 +73,21 @@ export function WidgetWorkspace({
   const [scheduleAt, setScheduleAt] = useState(() =>
     toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
   );
-  const skipAutosave = useRef(true);
   const seenConfirm = useRef("");
   const [confirm, setConfirm] = useState(null);
-  const draftRef = useRef(draft);
-  const tabRef = useRef(tab);
-  const saveBusy = useRef(false);
-  draftRef.current = draft;
-  tabRef.current = tab;
-  saveBusy.current = saveFetcher.state !== "idle";
-  const saving = saveFetcher.state !== "idle";
+  const {
+    fetcher: saveFetcher,
+    status: saveStatus,
+    errors: saveErrors,
+    saving,
+    submitSave: queueSave,
+    retry,
+  } = useEditorSave({
+    draft,
+    tab,
+    widgetId: widget.id,
+    marker: `${saveAction}:${scheduleAt}`,
+  });
   const savedWidget =
     saveFetcher.data?.widget &&
     new Date(saveFetcher.data.widget.updatedAt || 0).getTime() >= new Date(widget.updatedAt || 0).getTime()
@@ -93,7 +116,6 @@ export function WidgetWorkspace({
     setScheduleAt(
       toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
     );
-    skipAutosave.current = true;
   }, [widget.id]);
 
   useEffect(() => {
@@ -105,6 +127,14 @@ export function WidgetWorkspace({
   useEffect(() => {
     if (saveFetcher.data?.toast) shopify.toast.show(saveFetcher.data.toast);
   }, [saveFetcher.data, shopify]);
+
+  useEffect(() => {
+    if (saveStatus !== SAVE_STATUS.ERROR || !saveErrors) return;
+    const token = JSON.stringify(saveErrors);
+    if (seenConfirm.current === `err:${token}`) return;
+    seenConfirm.current = `err:${token}`;
+    shopify.toast.show("Could not save. Your latest changes are still in the editor.", { isError: true });
+  }, [saveStatus, saveErrors, shopify]);
 
   useEffect(() => {
     if (saveFetcher.state !== "idle" || saveFetcher.data?.errors || !saveFetcher.data?.confirm) return;
@@ -131,27 +161,8 @@ export function WidgetWorkspace({
     });
   }, [liveWidget.id, liveWidget.status, liveWidget.messageConfig?.liveNotice, liveWidget.name, draft.name]);
 
-  useEffect(() => {
-    if (skipAutosave.current) {
-      skipAutosave.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      if (saveBusy.current) return;
-      autoFetcher.submit(
-        {
-          intent: "autosave",
-          currentStep: tabRef.current,
-          editorState: JSON.stringify(draftRef.current),
-        },
-        { method: "post", preventScrollReset: true },
-      );
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [draft]);
-
   const goTab = (id) => {
-    if (id === tabRef.current) return;
+    if (id === tab) return;
     setTab(id);
     setVisitedTabs((current) => {
       if (current.has(id)) return current;
@@ -165,15 +176,7 @@ export function WidgetWorkspace({
   };
 
   const submitIntent = (intent, extras = {}) => {
-    saveFetcher.submit(
-      {
-        intent,
-        currentStep: tabRef.current,
-        editorState: JSON.stringify(draftRef.current),
-        ...extras,
-      },
-      { method: "post" },
-    );
+    queueSave(intent, extras);
   };
 
   const submitSave = () => {
@@ -226,6 +229,7 @@ export function WidgetWorkspace({
         ) : (
           <s-badge>Draft</s-badge>
         )}
+        <SaveStatus status={saveStatus} onRetry={retry} />
       </p>
       {widget.location === "CHECKOUT" ? (
         <s-banner tone="warning" heading="Checkout placement is no longer available">
@@ -259,7 +263,17 @@ export function WidgetWorkspace({
             : `Scheduled to publish ${scheduledLabel ? `on ${scheduledLabel}` : "later"}${countdown && countdown !== "now" ? ` · goes live in ${countdown}` : ""}. It stays hidden on the ${pageLabel} until then.`}
         </s-banner>
       ) : null}
-      <ErrorBanner errors={errors || saveFetcher.data?.errors} />
+      {saveStatus === SAVE_STATUS.ERROR ? (
+        <s-banner tone="critical" heading="Changes were not saved">
+          The editor still shows your latest placement. The storefront will keep using the last saved value until this save succeeds.
+          <s-stack direction="inline" gap="base" paddingBlockStart="small-200">
+            <ActionButton type="button" variant="primary" onClick={retry}>
+              Retry save
+            </ActionButton>
+          </s-stack>
+        </s-banner>
+      ) : null}
+      <ErrorBanner errors={saveErrors || errors} />
 
       <div className="edd-tabs-row">
         <nav className="edd-tabs" aria-label="Widget settings">
@@ -285,19 +299,19 @@ export function WidgetWorkspace({
                 widget={widget}
                 draft={draft}
                 onChange={setDraft}
-                errors={errors}
+                errors={saveErrors || errors}
                 deliveryRequests={deliveryRequests}
               />
             </div>
           ) : null}
           {visitedTabs.has("content") ? (
             <div className="edd-editor__panel" hidden={tab !== "content"}>
-              <ContentTab widget={widget} draft={draft} onChange={setDraft} errors={errors} />
+              <ContentTab widget={widget} draft={draft} onChange={setDraft} errors={saveErrors || errors} />
             </div>
           ) : null}
           {visitedTabs.has("design") ? (
             <div className="edd-editor__panel" hidden={tab !== "design"}>
-              <DesignTab widget={widget} draft={draft} onChange={setDraft} errors={errors} />
+              <DesignTab widget={widget} draft={draft} onChange={setDraft} errors={saveErrors || errors} />
             </div>
           ) : null}
           {visitedTabs.has("placement") ? (
@@ -306,7 +320,7 @@ export function WidgetWorkspace({
                 widget={widget}
                 draft={draft}
                 onChange={setDraft}
-                errors={errors}
+                errors={saveErrors || errors}
               />
             </div>
           ) : null}

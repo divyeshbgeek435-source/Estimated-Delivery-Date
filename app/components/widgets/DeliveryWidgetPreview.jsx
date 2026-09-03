@@ -8,6 +8,8 @@ import {
   messageValues,
   widgetBackground,
 } from "../../lib/delivery-calculator";
+import { resolveTimeZone } from "../../lib/timezone";
+import { isIconEnabled } from "../../lib/icon-media";
 import {
   WEIGHT_DISPLAY_MODES,
   asksForPincode,
@@ -56,6 +58,7 @@ export function DeliveryWidgetPreview({
   showDescription = true,
   productWeight = "",
 }) {
+  const zone = resolveTimeZone(timezone);
   const [now, setNow] = useState(() => new Date());
   const [tick, setTick] = useState(() => new Date());
   const [pincodeValue, setPincodeValue] = useState("");
@@ -99,9 +102,9 @@ export function DeliveryWidgetPreview({
         transitMaxDays: matchedShipping.transitMaxDays,
         transitWorkingDays: matchedShipping.transitWorkingDays,
         transitBlockedDates: matchedShipping.transitBlockedDates,
-        timezone,
+        timezone: zone,
       }),
-    [now, matchedShipping, timezone],
+    [now, matchedShipping, zone],
   );
 
   const countdown = useMemo(
@@ -111,12 +114,12 @@ export function DeliveryWidgetPreview({
         cutoffTime: shipping.cutoffTime,
         workingDays: shipping.workingDays,
         blockedDates: shipping.blockedDates,
-        timezone,
+        timezone: zone,
       }),
-    [tick, shipping, timezone],
+    [tick, shipping, zone],
   );
 
-  const values = messageValues({ delivery, countdown, now: tick, timezone, dateSettings });
+  const values = messageValues({ delivery, countdown, now: tick, timezone: zone, dateSettings });
   const theme = style.themeColor || "#202223";
   const progress = style.progressColor || "#202223";
   const textColor = style.textColor || "#202223";
@@ -126,13 +129,14 @@ export function DeliveryWidgetPreview({
   const statusSize = Math.max(12, Number(style.statusFontSize) || 13);
   const cardBackground =
     style.backgroundType === "TRANSPARENT" ? "#ffffff" : style.backgroundColor || "#E8E8E8";
-  const purchasedDate = formatTimelineLabel(getZonedParts(now, timezone).dateStr);
+  const purchasedDate = formatTimelineLabel(getZonedParts(now, zone).dateStr);
   const processingDate = formatTimelineLabel(delivery.processingDateMin, delivery.processingDateMax);
   const deliveredDate = formatTimelineLabel(delivery.deliveryDateMin, delivery.deliveryDateMax);
   const steps = [
     {
       key: "purchased",
       icon: icons.purchased || "bag",
+      enabled: isIconEnabled(icons, "purchased"),
       title: icons.purchasedTitle || "Purchased",
       color: icons.purchasedColor || theme,
       date: purchasedDate,
@@ -140,6 +144,7 @@ export function DeliveryWidgetPreview({
     {
       key: "processing",
       icon: icons.processing || "truck",
+      enabled: isIconEnabled(icons, "processing"),
       title: icons.processingTitle || "Processing",
       color: icons.processingColor || theme,
       date: processingDate,
@@ -147,6 +152,7 @@ export function DeliveryWidgetPreview({
     {
       key: "delivered",
       icon: icons.delivered || "pin",
+      enabled: isIconEnabled(icons, "delivered"),
       title: icons.deliveredTitle || "Delivered",
       color: icons.deliveredColor || theme,
       date: deliveredDate,
@@ -159,6 +165,11 @@ export function DeliveryWidgetPreview({
   const gap = style.paddingMiddle ?? 12;
   const designName = design || (layout === "MINIMAL" ? "COMPACT" : "TIMELINE");
   const shownWeight = check?.available ? check.weight : displayMode === WEIGHT_DISPLAY_MODES.DIRECT ? directWeight : "";
+
+  const deliveredRange = deliveredDate;
+  const headerIcon = icons.headerIcon || "flag";
+  const headerEnabled = isIconEnabled(icons, "headerIcon");
+  const headingText = heading || "Estimated Delivery Date";
 
   const onCheck = async (event) => {
     event.preventDefault();
@@ -201,13 +212,70 @@ export function DeliveryWidgetPreview({
         ["--edd-status-size"]: `${statusSize}px`,
       }}
     >
-      {heading ? <p className="edd-preview__heading">{heading}</p> : null}
+      {heading && designName !== "TRACKER" && designName !== "BANNER" && designName !== "CARD" ? (
+        <p className="edd-preview__heading">{heading}</p>
+      ) : null}
       {displayMode === WEIGHT_DISPLAY_MODES.DIRECT ? (
         <p className="edd-preview__weight">
           Weight: {shownWeight || (shipping.weightRules?.useProductWeight ? "product weight" : "—")}
         </p>
       ) : null}
-      {showDates && showDescription ? (
+      {showDates && designName === "BANNER" ? (
+        <div className="edd-preview__banner">
+          {headerEnabled ? (
+            <span className="edd-preview__banner-icon">
+              <DeliveryIcon key={`banner-${headerIcon}`} name={headerIcon} color={theme} />
+            </span>
+          ) : null}
+          <p className="edd-preview__banner-text">
+            {headingText} <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
+          </p>
+        </div>
+      ) : showDates && designName === "CARD" ? (
+        <div className="edd-preview__highlight">
+          {headerEnabled ? (
+            <span className="edd-preview__highlight-icon">
+              <DeliveryIcon key={`card-${headerIcon}`} name={headerIcon || icons.delivered || "pin"} color={theme} />
+            </span>
+          ) : null}
+          <p>
+            {headingText}{" "}
+            <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
+          </p>
+        </div>
+      ) : showDates && designName === "TRACKER" ? (
+        <div className="edd-preview__tracker">
+          <div className="edd-preview__tracker-head">
+            {headerEnabled ? (
+              <span className="edd-preview__tracker-flag">
+                <DeliveryIcon key={`tracker-${headerIcon}`} name={headerIcon} color={theme} />
+              </span>
+            ) : null}
+            <p>
+              {headingText}{" "}
+              <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
+            </p>
+          </div>
+          <div className="edd-preview__tracker-steps">
+            {steps.map((step, index) => (
+              <Fragment key={step.key}>
+                {index > 0 ? <span className="edd-preview__tracker-dots" aria-hidden="true" style={{ backgroundImage: `radial-gradient(${progress} 1.4px, transparent 1.6px)` }} /> : null}
+                <div className="edd-preview__tracker-step">
+                  {step.enabled ? (
+                    <span className="edd-preview__tracker-icon" style={{ color: step.color }}>
+                      <DeliveryIcon key={step.icon} name={step.icon} color={step.color} />
+                    </span>
+                  ) : (
+                    <span className="edd-preview__tracker-icon edd-preview__tracker-icon--off" aria-hidden="true" />
+                  )}
+                  <strong style={{ color: style.statusColor || textColor }}>{step.title}</strong>
+                  <em style={{ color: style.dateColor || textColor }}>{step.date}</em>
+                </div>
+              </Fragment>
+            ))}
+          </div>
+        </div>
+      ) : showDates && showDescription ? (
         <div
           className="edd-preview__message-row essential-estimated-delivery-description"
           style={{ color: style.dynamicColor || textColor, marginBottom: gap }}
@@ -222,7 +290,7 @@ export function DeliveryWidgetPreview({
           </p>
         </div>
       ) : null}
-      {showDates && designName === "COMPACT" ? (
+      {showDates && ["BANNER", "CARD", "TRACKER"].includes(designName) ? null : showDates && designName === "COMPACT" ? (
         <p className="edd-preview__minimal" style={{ color: style.dateColor || textColor }}>
           Delivery {deliveredDate}
         </p>
@@ -232,20 +300,6 @@ export function DeliveryWidgetPreview({
             <span key={step.key} className="edd-preview__pill" style={{ color: step.color, borderColor: step.color }}>
               {step.title}: {step.date}
             </span>
-          ))}
-        </div>
-      ) : showDates && designName === "CARD" ? (
-        <div className="edd-preview__rows">
-          {steps.map((step) => (
-            <div key={step.key} className="edd-preview__row">
-              <span className="edd-preview__timeline-icon" style={{ color: step.color }}>
-                <DeliveryIcon name={step.icon} color={step.color} />
-              </span>
-              <span>
-                <strong style={{ color: style.statusColor || textColor }}>{step.title}</strong>
-                <em style={{ color: style.dateColor || textColor }}>{step.date}</em>
-              </span>
-            </div>
           ))}
         </div>
       ) : showDates ? (
@@ -262,16 +316,18 @@ export function DeliveryWidgetPreview({
                 </span>
               ) : null}
               <div className="edd-preview__timeline-item" role="listitem">
-                <span
-                  className="edd-preview__timeline-icon"
-                  style={{
-                    color: step.color,
-                    width: `${iconSize}px`,
-                    height: `${iconSize}px`,
-                  }}
-                >
-                  <DeliveryIcon name={step.icon} color={step.color} />
-                </span>
+                {step.enabled ? (
+                  <span
+                    className="edd-preview__timeline-icon"
+                    style={{
+                      color: step.color,
+                      width: `${iconSize}px`,
+                      height: `${iconSize}px`,
+                    }}
+                  >
+                    <DeliveryIcon name={step.icon} color={step.color} key={step.icon} />
+                  </span>
+                ) : null}
                 <span className="edd-preview__timeline-meta">
                   <span
                     className="edd-preview__timeline-date"

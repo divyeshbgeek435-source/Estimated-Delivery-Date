@@ -5,14 +5,30 @@ export function EmbedActivateBanner() {
   const fetcher = useFetcher();
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  const openedEditor = useRef(false);
   const [dismissed, setDismissed] = useState(false);
   const enabled = fetcher.data?.appEmbedEnabled;
   const activateUrl = fetcher.data?.themeEditorEmbed;
 
-  const refresh = () => fetcherRef.current.load("/app/embed-status");
+  const refresh = (fresh = false) => {
+    if (fetcherRef.current.state !== "idle") return;
+    fetcherRef.current.load(fresh ? "/app/embed-status?fresh=1" : "/app/embed-status");
+  };
 
   useEffect(() => {
     refresh();
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!openedEditor.current) return;
+      openedEditor.current = false;
+      refresh(true);
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   if (dismissed || enabled !== false) return null;
@@ -29,8 +45,8 @@ export function EmbedActivateBanner() {
           className="edd-embed-banner__activate"
           onClick={() => {
             if (!activateUrl) return;
+            openedEditor.current = true;
             window.open(activateUrl, "_blank", "noopener,noreferrer");
-            refresh();
           }}
         >
           Activate

@@ -7,7 +7,8 @@ export async function loadDashboardAnalytics(merchantId) {
 }
 
 export async function loadWidgetAnalytics(widgetIds) {
-  return getWidgetMetrics(widgetIds);
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  return getWidgetMetrics(widgetIds, { since });
 }
 
 export { prisma };

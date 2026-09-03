@@ -12,6 +12,16 @@ import {
   widgetPayload,
 } from "../services/widgets/storefront-payload.server";
 
+function json(data, status = 200) {
+  return Response.json(data, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+    },
+  });
+}
+
 function parseCollectionIds(value) {
   return parseIdList(value);
 }
@@ -54,11 +64,11 @@ async function handleConfig(request) {
     shop = context.session?.shop;
     admin = context.admin;
   } catch {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+    return json({ error: "Unauthorized" }, 401);
   }
 
   if (!shop) {
-    return Response.json({ widget: null });
+    return json({ widget: null });
   }
 
   try {
@@ -90,12 +100,12 @@ async function handleConfig(request) {
         country,
         pageType,
       });
-      if (!widget) return Response.json({ widget: null });
-      return Response.json({ widget: await widgetPayload(widget, options) });
+      if (!widget) return json({ widget: null });
+      return json({ widget: await widgetPayload(widget, options) });
     }
 
     const displayWidget = pickStorefrontWidget(widgets, { marketHandle, country }) || widgets[0];
-    if (!displayWidget) return Response.json({ widget: null });
+    if (!displayWidget) return json({ widget: null });
 
     const productWidgets = await getActiveStorefrontWidgets(shop, WIDGET_LOCATIONS.PRODUCT);
     const withDelivery = await deliveriesFromCartItems({
@@ -110,7 +120,7 @@ async function handleConfig(request) {
     const cartDelivery = withDelivery[0]?.delivery || safeEstimate(displayWidget, options);
     const perProduct = displayWidget.cartConfig?.displayMode === "PER_PRODUCT" && withDelivery.length;
 
-    return Response.json({
+    return json({
       widget: publicStorefrontConfig(displayWidget, cartDelivery, {
         ...options,
         items: perProduct
@@ -124,7 +134,7 @@ async function handleConfig(request) {
     });
   } catch (error) {
     console.warn("[edd] storefront config failed", error?.message || error);
-    return Response.json({ widget: null });
+    return json({ widget: null });
   }
 }
 

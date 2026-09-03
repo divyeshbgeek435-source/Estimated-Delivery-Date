@@ -12,8 +12,9 @@ export const action = async ({ request }) => {
   const orderGid = payload?.admin_graphql_api_id;
   if (!orderGid) return new Response();
 
-  const merchant = await prisma.merchant.findUnique({
+  const merchant = await prisma.merchant.findFirst({
     where: { shopDomain: shop },
+    select: { id: true, uninstalledAt: true },
   });
   if (!merchant || merchant.uninstalledAt) return new Response();
 

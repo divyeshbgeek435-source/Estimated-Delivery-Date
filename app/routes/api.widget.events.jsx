@@ -77,22 +77,29 @@ async function handleEvent(request) {
 
   const parsed = widgetEventSchema.safeParse(await readEventPayload(request));
   if (!parsed.success) {
+    console.warn("[edd] widget event rejected", parsed.error?.issues?.[0]?.message || "invalid");
     return jsonWithCors({ error: "Invalid event" }, 400, cors);
   }
 
-  const widget = await getWidgetByShop(shop, parsed.data.widgetId);
-  if (!widget) {
-    return jsonWithCors({ error: "Unknown widget" }, 404, cors);
-  }
+  try {
+    const widget = await getWidgetByShop(shop, parsed.data.widgetId);
+    if (!widget) {
+      console.warn("[edd] widget event unknown widget", parsed.data.widgetId, shop);
+      return jsonWithCors({ error: "Unknown widget" }, 404, cors);
+    }
 
-  await recordWidgetEvent({
-    widgetId: widget.id,
-    merchantId: widget.merchantId,
-    type: parsed.data.type,
-    productId: parsed.data.productId,
-    eventKey: parsed.data.eventKey,
-    metadata: { source: "storefront" },
-  });
+    await recordWidgetEvent({
+      widgetId: widget.id,
+      merchantId: widget.merchantId,
+      type: parsed.data.type,
+      productId: parsed.data.productId,
+      eventKey: parsed.data.eventKey,
+      metadata: { source: "storefront" },
+    });
+  } catch (error) {
+    console.warn("[edd] widget event failed", error?.message || error);
+    return jsonWithCors({ error: "Could not record event" }, 500, cors);
+  }
 
   return jsonWithCors({ ok: true }, 200, cors);
 }

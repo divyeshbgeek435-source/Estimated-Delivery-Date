@@ -1,4 +1,5 @@
 import { WORKING_DAYS } from "../../lib/constants";
+import { TimezonePicker } from "../editor/TimezonePicker";
 
 const DAY_LABELS = {
   MONDAY: "Monday",
@@ -48,12 +49,7 @@ export function ShippingRulesForm({ shipping, timezone, errors = {} }) {
           details="Example: 12:00 PM"
           error={errors.cutoffTime}
         ></s-text-field>
-        <s-text-field
-          label="Timezone"
-          name="timezone"
-          value={timezone}
-          details="IANA timezone, for example America/New_York"
-        ></s-text-field>
+        <TimezonePicker value={timezone} error={errors.timezone} />
         <WorkingDaySwitches
           days={shipping.workingDays}
           namePrefix="workingDay_"

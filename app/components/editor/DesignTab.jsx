@@ -1,39 +1,64 @@
-import { FONT_OPTIONS, GRADIENT_DIRECTIONS, WIDGET_DESIGNS } from "../../lib/constants";
+import { FONT_OPTIONS, GRADIENT_DIRECTIONS, TEMPLATE_COLORS, TEMPLATE_STYLE_PRESETS, TEMPLATE_TITLE_PRESETS, WIDGET_DESIGNS } from "../../lib/constants";
 import { widgetProfile } from "../../lib/widget-profiles";
 import { HostChoiceList } from "../common/ActionButton";
-
-const TEMPLATE_COLORS = ["#000000", "#E53935", "#43A047", "#1E88E5", "#3949AB", "#FDD835", "#757575"];
+import { IconMediaPicker } from "../common/IconMediaPicker";
 
 export function DesignTab({ widget, draft, onChange, errors = {} }) {
   const style = draft.styleConfig;
+  const icons = draft.iconConfig;
   const setStyle = (patch) => onChange({ ...draft, styleConfig: { ...style, ...patch } });
+  const setIcons = (patch) => onChange({ ...draft, iconConfig: { ...icons, ...patch } });
   const backgroundType = style.backgroundType || "SOLID";
   const profile = widgetProfile(widget?.location);
+  const design = draft.messageConfig?.designTemplate || "TIMELINE";
+  const themeColor = style.themeColor || "#000000";
+
+  const applyTemplate = (value) => {
+    const titles = TEMPLATE_TITLE_PRESETS[value];
+    const preset = TEMPLATE_STYLE_PRESETS[value] || {};
+    const defaultTitles = new Set(["Purchased", "Processing", "Delivered", "Order Confirmed", "Shipped", "At Your Doorstep"]);
+    const nextIcons = defaultTitles.has(icons.purchasedTitle)
+      ? { ...icons, ...(titles || { purchasedTitle: "Purchased", processingTitle: "Processing", deliveredTitle: "Delivered" }) }
+      : icons;
+    const namedTemplate = value === "TRACKER" || value === "BANNER" || value === "CARD";
+    onChange({
+      ...draft,
+      iconConfig: nextIcons,
+      messageConfig: {
+        ...draft.messageConfig,
+        designTemplate: value,
+        widgetLayout: value === "BANNER" || value === "COMPACT" ? "MINIMAL" : "FULL",
+        heading: draft.messageConfig?.heading || (namedTemplate ? "Estimated Delivery Date" : ""),
+      },
+      styleConfig: { ...style, ...preset },
+    });
+  };
+
+  const applyTheme = (color) =>
+    setStyle({
+      themeColor: color,
+      progressColor: color,
+      textColor: color,
+      statusColor: color,
+      dateColor: color,
+      dynamicColor: color,
+    });
 
   return (
     <s-stack gap="large">
       {profile.showFullDesign ? (
         <s-section heading="Widget templates">
-          <s-paragraph color="subdued">Pick a layout. The live preview updates immediately.</s-paragraph>
+          <s-paragraph color="subdued">Pick a layout, then customize colors and images. The live preview updates immediately.</s-paragraph>
           <div className="edd-design-grid">
             {WIDGET_DESIGNS.map((item) => {
-              const selected = (draft.messageConfig?.designTemplate || "TIMELINE") === item.value;
+              const selected = design === item.value;
               return (
                 <button
                   key={item.value}
                   type="button"
                   className={`edd-design-card ${selected ? "edd-design-card--selected" : ""}`}
                   aria-pressed={selected}
-                  onClick={() =>
-                    onChange({
-                      ...draft,
-                      messageConfig: {
-                        ...draft.messageConfig,
-                        designTemplate: item.value,
-                        widgetLayout: item.value === "COMPACT" ? "MINIMAL" : "FULL",
-                      },
-                    })
-                  }
+                  onClick={() => applyTemplate(item.value)}
                 >
                   <span className={`edd-design-thumb edd-design-thumb--${item.value.toLowerCase()}`} aria-hidden="true" />
                   <strong>{item.label}</strong>
@@ -42,7 +67,9 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
               );
             })}
           </div>
+          <input type="hidden" name="designTemplate" value={design} />
         <s-text type="strong">Template colors</s-text>
+        <s-paragraph color="subdued">Choose a preset or pick any color. It updates icons, dates, and the progress line.</s-paragraph>
         <div className="edd-swatches">
           {TEMPLATE_COLORS.map((color) => (
             <button
@@ -51,21 +78,17 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
               className="edd-swatch"
               style={{ background: color }}
               aria-label={`Use ${color}`}
-              aria-pressed={(style.themeColor || "").toLowerCase() === color.toLowerCase()}
-              onClick={() =>
-                setStyle({
-                  themeColor: color,
-                  progressColor: color,
-                  textColor: color,
-                  statusColor: color,
-                  dateColor: color,
-                  dynamicColor: color,
-                })
-              }
+              aria-pressed={themeColor.toLowerCase() === color.toLowerCase()}
+              onClick={() => applyTheme(color)}
             />
           ))}
         </div>
-        <input type="hidden" name="themeColor" value={style.themeColor || "#000000"} />
+        <s-color-field
+          label="Custom template color"
+          name="themeColor"
+          value={themeColor}
+          onInput={(event) => applyTheme(event.currentTarget.value)}
+        ></s-color-field>
       </s-section>
       ) : (
         <>
@@ -75,6 +98,84 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           <input type="hidden" name="themeColor" value={style.themeColor || "#000000"} />
         </>
       )}
+
+      {profile.showFullDesign ? (
+        <s-section heading="Template images">
+          <s-paragraph color="subdued">Upload an image, paste a URL, or choose a built-in icon. Changes apply to this widget only.</s-paragraph>
+          {(design === "TRACKER" || design === "BANNER" || design === "CARD") ? (
+            <>
+              <s-text-field
+                label="Template title"
+                name="heading"
+                value={draft.messageConfig?.heading || ""}
+                placeholder="Estimated Delivery Date"
+                onInput={(event) =>
+                  onChange({
+                    ...draft,
+                    messageConfig: { ...draft.messageConfig, heading: event.currentTarget.value },
+                  })
+                }
+              ></s-text-field>
+              <input type="hidden" name="headerIcon" value={icons.headerIcon || "flag"} />
+              <input type="hidden" name="headerIconEnabled" value={icons.headerIconEnabled !== false ? "true" : "false"} />
+            </>
+          ) : (
+            <>
+              <input type="hidden" name="heading" value={draft.messageConfig?.heading || ""} />
+              <input type="hidden" name="headerIcon" value={icons.headerIcon || "flag"} />
+              <input type="hidden" name="headerIconEnabled" value={icons.headerIconEnabled !== false ? "true" : "false"} />
+            </>
+          )}
+          <div className="edd-template-images">
+            {design === "TRACKER" || design === "BANNER" || design === "CARD" ? (
+              <IconMediaPicker
+                title="Header image"
+                label="Header image"
+                value={icons.headerIcon || "flag"}
+                fallback="flag"
+                color={themeColor}
+                enabled={icons.headerIconEnabled !== false}
+                onEnabledChange={(headerIconEnabled) => setIcons({ headerIconEnabled })}
+                onChange={(headerIcon) => setIcons({ headerIcon })}
+              />
+            ) : null}
+            {design === "BANNER" || design === "CARD" ? null : (
+              <>
+                <IconMediaPicker
+                  title={icons.purchasedTitle || "Purchased"}
+                  label={icons.purchasedTitle || "Purchased"}
+                  value={icons.purchased}
+                  fallback="bag"
+                  color={icons.purchasedColor || themeColor}
+                  enabled={icons.purchasedEnabled !== false}
+                  onEnabledChange={(purchasedEnabled) => setIcons({ purchasedEnabled })}
+                  onChange={(purchased) => setIcons({ purchased })}
+                />
+                <IconMediaPicker
+                  title={icons.processingTitle || "Processing"}
+                  label={icons.processingTitle || "Processing"}
+                  value={icons.processing}
+                  fallback="truck"
+                  color={icons.processingColor || themeColor}
+                  enabled={icons.processingEnabled !== false}
+                  onEnabledChange={(processingEnabled) => setIcons({ processingEnabled })}
+                  onChange={(processing) => setIcons({ processing })}
+                />
+                <IconMediaPicker
+                  title={icons.deliveredTitle || "Delivered"}
+                  label={icons.deliveredTitle || "Delivered"}
+                  value={icons.delivered}
+                  fallback="pin"
+                  color={icons.deliveredColor || themeColor}
+                  enabled={icons.deliveredEnabled !== false}
+                  onEnabledChange={(deliveredEnabled) => setIcons({ deliveredEnabled })}
+                  onChange={(delivered) => setIcons({ delivered })}
+                />
+              </>
+            )}
+          </div>
+        </s-section>
+      ) : null}
 
       <s-section heading="Card background">
         <input type="hidden" name="backgroundType" value={backgroundType} />
@@ -256,7 +357,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           label="Icon size"
           name="iconSize"
           min={12}
-          max={40}
+          max={72}
           suffix="px"
           value={String(style.iconSize ?? 22)}
           onInput={(event) => setStyle({ iconSize: Number(event.currentTarget.value) })}

@@ -1,29 +1,31 @@
 import { useLoaderData } from "react-router";
 import { requireAdmin } from "../lib/auth.server";
-import { listWidgetSummaries } from "../services/widgets/widget.server";
 import { loadDashboardAnalytics, loadWidgetAnalytics } from "../lib/analytics.server";
-import { AnalyticsCards, WidgetTable } from "../components/dashboard/WidgetTable";
+import { listWidgetSummaries } from "../services/widgets/widget.server";
+import { countPendingDeliveryRequests } from "../services/widgets/delivery-requests.server";
+import { AnalyticsHome } from "../components/dashboard/AnalyticsHome";
 
 export const loader = async ({ request }) => {
   const { merchant } = await requireAdmin(request);
-  const widgets = await listWidgetSummaries(merchant.id);
-  const [totals, metrics] = await Promise.all([
+  const [widgets, totals, pendingRequests] = await Promise.all([
+    listWidgetSummaries(merchant.id),
     loadDashboardAnalytics(merchant.id),
-    loadWidgetAnalytics(widgets.map((widget) => widget.id)),
+    countPendingDeliveryRequests(merchant.id),
   ]);
-  return { widgets, totals, metrics };
+  const metrics = await loadWidgetAnalytics(widgets.map((widget) => widget.id));
+
+  return { widgets, totals, metrics, pendingRequests };
 };
 
 export default function AnalyticsPage() {
-  const { widgets, totals, metrics } = useLoaderData();
+  const { widgets, totals, metrics, pendingRequests } = useLoaderData();
 
   return (
-    <s-page heading="Analytics">
-      <s-paragraph>
-        Widget impressions, clicks, add to cart, and conversion events. Events store no customer names, emails, phones, or addresses.
-      </s-paragraph>
-      <AnalyticsCards totals={totals} />
-      <WidgetTable widgets={widgets} metrics={metrics} />
-    </s-page>
+    <AnalyticsHome
+      widgets={widgets}
+      totals={totals}
+      metrics={metrics}
+      pendingRequests={pendingRequests}
+    />
   );
 }

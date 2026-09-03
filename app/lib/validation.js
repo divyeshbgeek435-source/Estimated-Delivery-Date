@@ -10,6 +10,7 @@ import {
   WIDGET_LOCATIONS,
   WORKING_DAYS,
 } from "./constants";
+import { isValidTimeZone } from "./timezone";
 import {
   DEFAULT_PINCODE_RULES,
   DEFAULT_WEIGHT_RULES,
@@ -37,7 +38,22 @@ const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
 const asString = (fallback = "") =>
   z.preprocess((value) => (value == null ? fallback : value), z.string());
 
+const asEnabled = z.preprocess((value) => {
+  if (value == null || value === "") return true;
+  return value === true || value === "true" || value === "on" || value === "1";
+}, z.boolean());
+
 const asOptionalString = z.preprocess((value) => (value == null || value === "" ? undefined : value), z.string().optional());
+
+const ianaTimezoneSchema = z.preprocess(
+  (value) => (value == null || value === "" ? undefined : String(value).trim()),
+  z
+    .string()
+    .min(1, "Choose a timezone")
+    .max(64)
+    .refine((value) => isValidTimeZone(value), { message: "Choose a valid timezone" })
+    .optional(),
+);
 
 export const locationSchema = z.object({
   location: z.enum([
@@ -77,7 +93,7 @@ export const shippingSchema = z
       .default([...DEFAULT_WORKING_DAYS])
       .transform((days) => (days.length ? days : [...DEFAULT_WORKING_DAYS])),
     transitBlockedDates: z.array(blockedDateSchema).default([]),
-    timezone: asOptionalString.pipe(z.string().min(1).max(64).optional()),
+    timezone: ianaTimezoneSchema,
     pincodeRules: z.preprocess(
       (value) => (value == null ? DEFAULT_PINCODE_RULES : value),
       z
@@ -210,7 +226,7 @@ export const messageSchema = z.object({
   widgetLayout: z.preprocess((value) => value || "FULL", z.enum(["FULL", "MINIMAL"])),
   designTemplate: z.preprocess(
     (value) => value || "TIMELINE",
-    z.enum(["TIMELINE", "COMPACT", "STACKED", "PILL", "CARD"]),
+    z.enum(["TIMELINE", "COMPACT", "STACKED", "PILL", "CARD", "TRACKER", "BANNER"]),
   ),
   descriptionEnabled: z.preprocess(
     (value) => value === true || value === "true" || value === "on" || value === "1" || value === undefined,
@@ -228,9 +244,14 @@ export const messageSchema = z.object({
     )
     .nullish()
     .transform((value) => value || {}),
-  purchased: asString("bag").pipe(z.string().min(1).max(40)),
-  processing: asString("truck").pipe(z.string().min(1).max(40)),
-  delivered: asString("pin").pipe(z.string().min(1).max(40)),
+  purchased: asString("bag").pipe(z.string().min(1).max(180000)),
+  processing: asString("truck").pipe(z.string().min(1).max(180000)),
+  delivered: asString("pin").pipe(z.string().min(1).max(180000)),
+  headerIcon: asString("flag").pipe(z.string().min(1).max(180000)),
+  headerIconEnabled: asEnabled,
+  purchasedEnabled: asEnabled,
+  processingEnabled: asEnabled,
+  deliveredEnabled: asEnabled,
   purchasedTitle: z.preprocess(
     (value) => (value == null || value === "" ? "Purchased" : value),
     z.string().trim().min(1).max(40),
@@ -266,7 +287,7 @@ export const styleSchema = z.object({
   paddingBottom: z.coerce.number().int().min(0).max(64).default(16),
   paddingLeft: z.coerce.number().int().min(0).max(64).default(16),
   paddingRight: z.coerce.number().int().min(0).max(64).default(16),
-  iconSize: z.coerce.number().int().min(12).max(40).default(18),
+  iconSize: z.coerce.number().int().min(12).max(72).default(18),
   progressWidth: z.coerce.number().int().min(1).max(8).default(2),
   progressColor: hexColor("#008060"),
   fontFamily: asString("inherit").pipe(z.string().min(1).max(80)),
@@ -328,7 +349,7 @@ export const cartSchema = z.object({
 
 export const editorSchema = z.object({
   name: asString("Delivery widget").pipe(z.string().trim().min(1).max(80)),
-  timezone: asOptionalString.pipe(z.string().min(1).max(64).optional()),
+  timezone: ianaTimezoneSchema,
   marketMode: z.preprocess(
     (value) => value || MARKET_MODES.ALL,
     z.enum([MARKET_MODES.ALL, MARKET_MODES.SPECIFIC]),

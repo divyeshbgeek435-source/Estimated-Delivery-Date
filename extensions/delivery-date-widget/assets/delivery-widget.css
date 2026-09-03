@@ -3,6 +3,7 @@
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  min-height: 5.5rem;
   margin: 12px 0;
   container-type: inline-size;
   container-name: edd;
@@ -241,6 +242,108 @@
   font-size: 0.85rem;
 }
 
+.edd-icon,
+.edd-icon svg,
+.edd-icon--image img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.edd-icon--image img {
+  object-fit: contain;
+}
+
+.edd-widget__banner,
+.edd-widget__highlight {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.edd-widget__banner-icon,
+.edd-widget__highlight-icon,
+.edd-widget__tracker-flag,
+.edd-widget__tracker-icon {
+  flex: 0 0 auto;
+  width: var(--edd-icon-box, 24px);
+  height: var(--edd-icon-box, 24px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edd-widget__banner-text,
+.edd-widget__highlight p,
+.edd-widget__tracker-head p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.edd-widget__tracker {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.edd-widget__tracker-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  text-align: center;
+}
+
+.edd-widget__tracker-flag {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.edd-widget__tracker-steps {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.2rem;
+}
+
+.edd-widget__tracker-dots {
+  flex: 1 1 auto;
+  min-width: 1.4rem;
+  height: 0.4rem;
+  margin-top: 1.05rem;
+  background-image: radial-gradient(var(--edd-progress, #111) 1.4px, transparent 1.6px);
+  background-size: 8px 4px;
+  background-repeat: repeat-x;
+  background-position: center;
+}
+
+.edd-widget__tracker-step {
+  display: grid;
+  justify-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+  flex: 1 1 0;
+  text-align: center;
+}
+
+.edd-widget__tracker-icon {
+  width: var(--edd-icon-box, 36px);
+  height: var(--edd-icon-box, 36px);
+}
+
+.edd-widget__tracker-icon--off {
+  height: 0.35rem;
+}
+
+.edd-widget__tracker-step b {
+  font-size: var(--edd-status-size, 0.85rem);
+  font-weight: 650;
+}
+
+.edd-widget__tracker-step i {
+  font-style: normal;
+  font-size: var(--edd-date-size, 0.82rem);
+}
+
 .edd-widget__rows {
   display: grid;
   gap: 0.55rem;
@@ -285,6 +388,20 @@
 
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__meta {
     align-items: flex-start;
+  }
+
+  .edd-widget__tracker-steps {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .edd-widget__tracker-dots {
+    width: 4px;
+    min-width: 4px;
+    height: 1.15rem;
+    margin: 0 auto;
+    background-size: 4px 8px;
+    background-repeat: repeat-y;
   }
 }
 

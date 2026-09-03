@@ -10,6 +10,8 @@ import { ActionButton, HostChoiceList } from "../common/ActionButton";
 import { PincodeRulesEditor } from "./PincodeRulesEditor";
 import { WeightDisplayPicker } from "./WeightDisplayPicker";
 import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
+import { resolveTimeZone } from "../../lib/timezone";
+import { TimezonePicker } from "./TimezonePicker";
 
 const DAY_SHORT = {
   MONDAY: "M",
@@ -130,7 +132,7 @@ export function ConditionsTab({ widget, draft, onChange, errors = {}, deliveryRe
 function HiddenShipping({ shipping, timezone }) {
   return (
     <>
-      <input type="hidden" name="timezone" value={timezone} />
+      <input type="hidden" name="timezone" value={resolveTimeZone(timezone)} />
       <input type="hidden" name="processingMinDays" value={String(shipping.processingMinDays)} />
       <input type="hidden" name="processingMaxDays" value={String(shipping.processingMaxDays)} />
       <input type="hidden" name="cutoffTime" value={shipping.cutoffTime} />
@@ -182,13 +184,11 @@ function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone })
         error={errors.cutoffTime}
         onChange={(cutoffTime) => onChange({ cutoffTime })}
       />
-      <s-text-field
-        label="Timezone"
-        name="timezone"
+      <TimezonePicker
         value={timezone}
-        details="IANA timezone, for example America/New_York"
-        onInput={(event) => onTimezone(event.currentTarget.value)}
-      ></s-text-field>
+        error={errors.timezone}
+        onChange={onTimezone}
+      />
       <DayPills
         label="Processing working days"
         help="Set which days you are processing orders"

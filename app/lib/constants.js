@@ -157,6 +157,11 @@ export const DEFAULT_ICONS = {
   purchased: "bag",
   processing: "truck",
   delivered: "pin",
+  headerIcon: "flag",
+  headerIconEnabled: true,
+  purchasedEnabled: true,
+  processingEnabled: true,
+  deliveredEnabled: true,
   purchasedTitle: "Purchased",
   processingTitle: "Processing",
   deliveredTitle: "Delivered",
@@ -167,10 +172,63 @@ export const DEFAULT_ICONS = {
 
 export const WIDGET_DESIGNS = [
   { value: "TIMELINE", label: "Timeline", help: "Classic three-step dates" },
-  // { value: "COMPACT", label: "Compact", help: "One delivery line" },
   { value: "STACKED", label: "Stacked", help: "Vertical steps for mobile" },
   { value: "PILL", label: "Pills", help: "Rounded date chips" },
+  { value: "TRACKER", label: "Tracker", help: "Header plus dotted milestones" },
+  { value: "BANNER", label: "Banner", help: "Compact delivery date bar" },
+  { value: "CARD", label: "Highlight", help: "Accent card with delivery range" },
 ];
+
+export const TEMPLATE_COLORS = ["#000000", "#E53935", "#43A047", "#1E88E5", "#3949AB", "#FDD835", "#757575", "#F57C00"];
+
+export const TEMPLATE_STYLE_PRESETS = {
+  TIMELINE: {
+    backgroundType: "SOLID",
+    backgroundColor: "#E8E8E8",
+    borderWidth: 0,
+    borderColor: "#E1E3E5",
+  },
+  STACKED: {
+    backgroundType: "SOLID",
+    backgroundColor: "#E8E8E8",
+    borderWidth: 0,
+    borderColor: "#E1E3E5",
+  },
+  PILL: {
+    backgroundType: "SOLID",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E1E3E5",
+  },
+  TRACKER: {
+    backgroundType: "SOLID",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E6E6E6",
+    iconSize: 36,
+    progressWidth: 3,
+  },
+  BANNER: {
+    backgroundType: "SOLID",
+    backgroundColor: "#FFF9E5",
+    borderWidth: 1,
+    borderColor: "#EBD8AD",
+  },
+  CARD: {
+    backgroundType: "SOLID",
+    backgroundColor: "#E8FBFC",
+    borderWidth: 1,
+    borderColor: "#3DCCC7",
+  },
+};
+
+export const TEMPLATE_TITLE_PRESETS = {
+  TRACKER: {
+    purchasedTitle: "Order Confirmed",
+    processingTitle: "Shipped",
+    deliveredTitle: "At Your Doorstep",
+  },
+};
 
 export const EDITOR_TABS = [
   { id: "conditions", label: "Conditions" },
@@ -189,6 +247,7 @@ export const ICON_OPTIONS = [
   { value: "home", label: "Home", polaris: "home" },
   { value: "pin", label: "Pin", polaris: "location" },
   { value: "bag", label: "Shopping bag", polaris: "cart" },
+  { value: "flag", label: "Flag", polaris: "flag" },
 ];
 
 export const GRADIENT_DIRECTIONS = [

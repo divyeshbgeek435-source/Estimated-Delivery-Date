@@ -61,9 +61,23 @@ const ICONS = {
       <path d="M9 8.2V7.1a3 3 0 0 1 6 0v1.1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   ),
+  flag: (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M5 20V5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M6 5h13l-2.4 3.6L19 12.2H6V5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  ),
 };
 
 export function DeliveryIcon({ name, color }) {
+  const src = /^(https?:\/\/|data:image\/|blob:|\/\/)/i.test(String(name || "").trim()) ? String(name).trim() : "";
+  if (src) {
+    return (
+      <span className="edd-icon edd-icon--image" style={{ color }}>
+        <img key={src} src={src} alt="" />
+      </span>
+    );
+  }
   return (
     <span className="edd-icon" style={{ color }}>
       {ICONS[name] || ICONS.package}

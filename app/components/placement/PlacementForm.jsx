@@ -37,6 +37,16 @@ export function PlacementForm({ placement, onChange, errors = {} }) {
             Specific Products
           </s-choice>
         </HostChoiceList>
+        {placement.mode === PLACEMENT_MODES.COLLECTIONS && !(placement.collections || []).length ? (
+          <s-banner tone="warning">
+            Select at least one collection. Until then, this widget stays hidden on the storefront — it will not fall back to all products.
+          </s-banner>
+        ) : null}
+        {placement.mode === PLACEMENT_MODES.PRODUCTS && !(placement.products || []).length ? (
+          <s-banner tone="warning">
+            Select at least one product. Until then, this widget stays hidden on the storefront — it will not fall back to all products.
+          </s-banner>
+        ) : null}
       </s-section>
 
       {placement.mode === PLACEMENT_MODES.PRODUCTS ? (

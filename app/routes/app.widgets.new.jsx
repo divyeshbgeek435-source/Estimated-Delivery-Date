@@ -1,6 +1,7 @@
 import { redirect, useActionData, useNavigate, useNavigation } from "react-router";
 import { requireAdmin } from "../lib/auth.server";
 import { createDraftWidget } from "../services/widgets/widget.server";
+import { shopTimezoneForMerchant } from "../services/shopify/merchant.server";
 import { formErrors, locationSchema } from "../lib/validation";
 import { LocationPicker } from "../components/widgets/LocationPicker";
 import { ActionButton } from "../components/common/ActionButton";
@@ -13,7 +14,7 @@ export const loader = async ({ request }) => {
 };
 
 export const action = async ({ request }) => {
-  const { merchant } = await requireAdmin(request);
+  const { admin, merchant } = await requireAdmin(request);
   if (!merchant?.id) {
     return { errors: { form: "Shop is not ready. Reload the app and try again." } };
   }
@@ -29,10 +30,12 @@ export const action = async ({ request }) => {
   }
 
   try {
+    const timezone = await shopTimezoneForMerchant(admin, merchant);
     const widget = await createDraftWidget(merchant.id, {
       name: parsed.data.name || defaultWidgetName(parsed.data.location),
       location: parsed.data.location,
       displayMode: formData.get("displayMode") || "GENERAL",
+      timezone,
     });
     return redirect(`/app/widgets/${widget.id}?tab=conditions`);
   } catch (error) {

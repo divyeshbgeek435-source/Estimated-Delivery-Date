@@ -23,10 +23,17 @@
       '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.2 8.2h11.6l-1 12.3H7.2l-1-12.3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 8.2V7.1a3 3 0 0 1 6 0v1.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
     pin:
       '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 21s6.5-5.8 6.5-11A6.5 6.5 0 1 0 5.5 10c0 5.2 6.5 11 6.5 11Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="10" r="2.1" stroke="currentColor" stroke-width="1.8"/></svg>',
+    flag:
+      '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 20V5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M6 5h13l-2.4 3.6L19 12.2H6V5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
   };
 
   function icon(name) {
-    const svg = ICON_SVGS[name] || ICON_SVGS.bag;
+    const value = String(name || "").trim();
+    if (/^(https?:\/\/|data:image\/|blob:|\/\/)/i.test(value)) {
+      const src = value.startsWith("data:image/") ? value.replace(/"/g, "") : escapeHtml(value);
+      return `<span class="edd-icon edd-icon--image"><img src="${src}" alt=""></span>`;
+    }
+    const svg = ICON_SVGS[value] || ICON_SVGS.package || ICON_SVGS.bag;
     return `<span class="edd-icon">${svg}</span>`;
   }
 
@@ -204,7 +211,7 @@
     return Boolean(payload && (payload.ok || payload.id) && !payload.error);
   }
 
-  async function sendProxy(url, params) {
+  async function sendProxy(url, params, { keepalive = false } = {}) {
     const encoded = params.toString();
     const headers = { Accept: "application/json" };
     const withQuery = `${url.pathname}${url.search}${url.search ? "&" : "?"}${encoded}`;
@@ -213,6 +220,7 @@
       credentials: "same-origin",
       cache: "no-store",
       headers,
+      keepalive,
     });
     const getPayload = await getResponse.json().catch(() => ({}));
     if (getResponse.ok && isOkPayload(getPayload)) return getPayload;
@@ -223,6 +231,7 @@
       body: encoded,
       credentials: "same-origin",
       cache: "no-store",
+      keepalive,
     });
     const postPayload = await postResponse.json().catch(() => ({}));
     if (postResponse.ok && isOkPayload(postPayload)) return postPayload;
@@ -271,6 +280,7 @@
     card.style.setProperty("--edd-card-bg", cardBackground);
     card.style.setProperty("--edd-icon-box", `${iconSize}px`);
     card.style.setProperty("--edd-theme", style.themeColor || "#202223");
+    card.style.setProperty("--edd-progress", style.progressColor || style.themeColor || "#202223");
     card.style.setProperty("--edd-font", `${fontSize}px`);
     card.style.setProperty("--edd-date-size", `${dateSize}px`);
     card.style.setProperty("--edd-status-size", `${statusSize}px`);
@@ -299,30 +309,36 @@
     const delivery = widget.delivery || {};
     const icons = widget.icons || {};
     const heading = widget.heading || "";
-    const showDescription = widget.descriptionEnabled !== false;
+    const headerIcon = icons.headerIcon || "flag";
+    const headerEnabled = icons.headerIconEnabled !== false;
+    const headingText = heading || "Estimated Delivery Date";
+    let design = String(widget.design || (widget.layout === "MINIMAL" ? "COMPACT" : "TIMELINE")).toUpperCase();
+    if (isCart && (design === "COMPACT" || design === "MINIMAL")) design = "TIMELINE";
+    const showDescription = widget.descriptionEnabled !== false && !["BANNER", "CARD", "TRACKER"].includes(design);
     const message = applyTags(widget.message, delivery, true);
     const items = widget.items || [];
     const dateKeys = items.map((item) => `${item.delivery?.delivery_from || ""}|${item.delivery?.delivery_to || ""}`);
     const mixedDates = new Set(dateKeys).size > 1;
     const perProduct = isCart && widget.cart?.displayMode === "PER_PRODUCT" && items.length > 1 && mixedDates;
-    let design = String(widget.design || (widget.layout === "MINIMAL" ? "COMPACT" : "TIMELINE")).toUpperCase();
-    if (isCart && (design === "COMPACT" || design === "MINIMAL")) design = "TIMELINE";
     const iconSize = readablePx(style.iconSize, 24, 22);
     const steps = [
       {
         icon: icons.purchased || "bag",
+        enabled: icons.purchasedEnabled !== false,
         title: icons.purchasedTitle || "Purchased",
         color: icons.purchasedColor || theme,
         date: delivery.purchasedLabel || "",
       },
       {
         icon: icons.processing || "truck",
+        enabled: icons.processingEnabled !== false,
         title: icons.processingTitle || "Processing",
         color: icons.processingColor || theme,
         date: delivery.processingLabel || "",
       },
       {
         icon: icons.delivered || "pin",
+        enabled: icons.deliveredEnabled !== false,
         title: icons.deliveredTitle || "Delivered",
         color: icons.deliveredColor || theme,
         date: delivery.deliveredLabel || "",
@@ -331,29 +347,46 @@
     const gap = style.paddingMiddle || 12;
     const clock = `<span class="edd-widget__clock" aria-hidden="true">${icon("clockSolid")}</span>`;
 
+    const headerMarkup = headerEnabled
+      ? `<span class="edd-widget__banner-icon">${icon(headerIcon)}</span>`
+      : "";
+    const highlightMarkup = headerEnabled
+      ? `<span class="edd-widget__highlight-icon">${icon(headerIcon || icons.delivered || "pin")}</span>`
+      : "";
+    const trackerFlag = headerEnabled
+      ? `<span class="edd-widget__tracker-flag">${icon(headerIcon)}</span>`
+      : "";
+    const deliveredRange = escapeHtml(delivery.deliveredLabel || delivery.delivery_from || "");
     const timeline =
-      design === "COMPACT"
+      design === "BANNER"
+        ? `<div class="edd-widget__banner">${headerMarkup}<p class="edd-widget__banner-text">${escapeHtml(headingText)} <strong>${deliveredRange}</strong></p></div>`
+        : design === "CARD"
+          ? `<div class="edd-widget__highlight">${highlightMarkup}<p>${escapeHtml(headingText)} <strong>${deliveredRange}</strong></p></div>`
+          : design === "TRACKER"
+            ? `<div class="edd-widget__tracker"><div class="edd-widget__tracker-head">${trackerFlag}<p>${escapeHtml(headingText)} <strong>${deliveredRange}</strong></p></div><div class="edd-widget__tracker-steps">${steps
+                .map(
+                  (step, index) =>
+                    `${index ? `<span class="edd-widget__tracker-dots" aria-hidden="true"></span>` : ""}<div class="edd-widget__tracker-step">${step.enabled ? `<span class="edd-widget__tracker-icon" style="color:${step.color}">${icon(step.icon)}</span>` : `<span class="edd-widget__tracker-icon edd-widget__tracker-icon--off" aria-hidden="true"></span>`}<b style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</b><i style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</i></div>`,
+                )
+                .join("")}</div></div>`
+        : design === "COMPACT"
         ? `<p class="edd-widget__minimal" style="color:${style.dateColor || textColor}">Delivery ${escapeHtml(delivery.deliveredLabel || delivery.delivery_from || "")}</p>`
         : design === "PILL"
           ? `<div class="edd-widget__pills">${steps
               .map((step) => `<span class="edd-widget__pill" style="color:${step.color};border-color:${step.color}">${escapeHtml(step.title)}: ${escapeHtml(step.date)}</span>`)
               .join("")}</div>`
-          : design === "CARD"
-            ? `<div class="edd-widget__rows">${steps
-                .map(
-                  (step) =>
-                    `<div class="edd-widget__row"><span class="edd-widget__icon" style="color:${step.color};width:${iconSize}px;height:${iconSize}px">${icon(step.icon)}</span><span><b style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</b><i style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</i></span></div>`,
-                )
-                .join("")}</div>`
-            : `<div class="edd-widget__timeline${design === "STACKED" ? " edd-widget__timeline--stacked" : ""}">${steps
+          : `<div class="edd-widget__timeline${design === "STACKED" ? " edd-widget__timeline--stacked" : ""}">${steps
                 .map((step, index) => {
                   const connector =
                     index > 0 && design !== "STACKED"
                       ? `<span class="edd-widget__connector" aria-hidden="true"><span class="edd-widget__connector-line" style="background:${progress};height:${style.progressWidth || 2}px"></span><span class="edd-widget__connector-arrow" style="border-left-color:${progress}"></span></span>`
                       : "";
+                  const stepIcon = step.enabled
+                    ? `<span class="edd-widget__icon" style="color:${step.color};width:${iconSize}px;height:${iconSize}px">${icon(step.icon)}</span>`
+                    : "";
                   return `${connector}
             <div class="edd-widget__step">
-              <span class="edd-widget__icon" style="color:${step.color};width:${iconSize}px;height:${iconSize}px">${icon(step.icon)}</span>
+              ${stepIcon}
               <span class="edd-widget__meta">
                 <span class="edd-widget__date" style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</span>
                 <span class="edd-widget__label" style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</span>
@@ -364,7 +397,7 @@
 
     body.innerHTML = `
       ${css ? `<style>${css}</style>` : ""}
-      ${heading ? `<p class="edd-widget__heading">${escapeHtml(heading)}</p>` : ""}
+      ${heading && !["BANNER", "CARD", "TRACKER"].includes(design) ? `<p class="edd-widget__heading">${escapeHtml(heading)}</p>` : ""}
       ${directWeight}
       ${showDescription ? `<div class="edd-widget__message-row essential-estimated-delivery-description" style="color:${style.dynamicColor || textColor};margin-bottom:${gap}px">${clock}<p class="edd-widget__message" data-edd-message>${message}</p></div>` : ""}
       ${timeline}
@@ -452,16 +485,7 @@
     params.set("widgetId", body.widgetId);
     params.set("type", body.type);
     if (body.productId) params.set("productId", body.productId);
-    const encoded = params.toString();
-    fetch(url.pathname, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      body: encoded,
-      keepalive: true,
-      credentials: "same-origin",
-    }).catch(() => {
-      fetch(`${url.pathname}?${encoded}`, { method: "GET", keepalive: true, credentials: "same-origin" }).catch(() => {});
-    });
+    sendProxy(url, params, { keepalive: true }).catch(() => {});
   }
 
   function bindTracking(root, payload) {
@@ -808,6 +832,7 @@
 
   function boot() {
     document.querySelectorAll("[data-edd-root]").forEach((root) => {
+      if (root.dataset.eddReady && (root.dataset.location || "") !== "CART") return;
       if ((root.dataset.location || "") === "CART" && root.hidden && !isDuplicateRoot(root)) {
         delete root.dataset.eddReady;
         revealRoot(root);
@@ -823,8 +848,11 @@
 
   let bootTimer = 0;
   function scheduleBoot() {
-    window.clearTimeout(bootTimer);
-    bootTimer = window.setTimeout(boot, 80);
+    if (bootTimer) return;
+    bootTimer = window.setTimeout(() => {
+      bootTimer = 0;
+      boot();
+    }, 250);
   }
 
   if (document.readyState === "loading") {
@@ -832,5 +860,10 @@
   } else {
     boot();
   }
-  new MutationObserver(scheduleBoot).observe(document.documentElement, { childList: true, subtree: true });
+  function watch() {
+    if (!document.body) return;
+    new MutationObserver(scheduleBoot).observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.body) watch();
+  else document.addEventListener("DOMContentLoaded", watch, { once: true });
 })();

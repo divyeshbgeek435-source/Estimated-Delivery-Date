@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useFetcher, useRevalidator, useSubmit } from "react-router";
+import { useFetcher, useSubmit } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { locationLabel, WIDGET_LOCATIONS, WIDGET_STATUSES } from "../../lib/constants";
 import { formatCountdown, mergeLiveRows, useLivePublishPoll } from "../../lib/use-live-publish";
 import { ActionButton } from "../common/ActionButton";
 import { AppLink } from "../common/AppLink";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { LivePublishedDialog } from "../common/LivePublishedDialog";
 
 const SECTIONS = [
@@ -14,23 +15,48 @@ const SECTIONS = [
 
 export function DashboardHome({
   widgets,
-  totals,
   liveNotices = [],
-  deliveryRequests = [],
   themeEditorEmbed,
   themeEditorBlock,
   saving,
   error,
+  actionData,
 }) {
+  const extras = useFetcher();
+  const extrasRef = useRef(extras);
+  extrasRef.current = extras;
   const embed = useEmbedStatus(themeEditorEmbed, themeEditorBlock);
+  const totals = extras.data?.totals || { impressions: 0 };
+  const deliveryRequests = extras.data?.deliveryRequests || [];
+
+  useEffect(() => {
+    extrasRef.current.load("/app/home-data");
+  }, [actionData]);
   const submit = useSubmit();
   const livePoll = useLivePublishPoll({ items: widgets });
   const [acked, setAcked] = useState(() => new Set());
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deletedNotice, setDeletedNotice] = useState(null);
+  const seenDelete = useRef("");
   const rows = mergeLiveRows(widgets, livePoll.data?.widgets);  
   const notices = (livePoll.data?.liveNotices ?? liveNotices).filter(
     (notice) => !acked.has(`${notice.id}:${notice.at || ""}`),
   );
   const checkoutItems = rows.filter((widget) => widget.location === WIDGET_LOCATIONS.CHECKOUT);
+  const deleting = Boolean(saving && pendingDelete);
+
+  useEffect(() => {
+    if (actionData?.error) setPendingDelete(null);
+    if (!actionData?.deleted) return;
+    const key = String(actionData.deletedAt || actionData.deletedName);
+    if (seenDelete.current === key) return;
+    seenDelete.current = key;
+    setPendingDelete(null);
+    setDeletedNotice({
+      name: actionData.deletedName || "Widget",
+      count: actionData.deletedCount || 1,
+    });
+  }, [actionData]);
 
   return (
     <s-page heading="Estimated delivery">
@@ -55,6 +81,7 @@ export function DashboardHome({
             location={section.location}
             widgets={items}
             now={livePoll.now}
+            onRequestDelete={setPendingDelete}
           />
         );
       })}
@@ -64,6 +91,7 @@ export function DashboardHome({
           location={WIDGET_LOCATIONS.CHECKOUT}
           widgets={checkoutItems}
           now={livePoll.now}
+          onRequestDelete={setPendingDelete}
         />
       ) : null}
 
@@ -78,7 +106,12 @@ export function DashboardHome({
         <AppBlockStatusCard fallbackBlockUrl={embed.blockUrl || themeEditorBlock} />
       </div>
 
-      <DeliveryRequestsList requests={deliveryRequests} saving={saving} />
+      <DeliveryRequestsList
+        requests={deliveryRequests}
+        saving={saving}
+        refreshing={extras.state !== "idle"}
+        onRefresh={() => extras.load("/app/home-data")}
+      />
       </div>
       <LivePublishedDialog
         notices={notices}
@@ -87,6 +120,45 @@ export function DashboardHome({
           setAcked((current) => new Set(current).add(`${widgetId}:${notice?.at || ""}`));
           submit({ widgetId, intent: "ack-live" }, { method: "post" });
         }}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        tone="danger"
+        title="Delete this widget?"
+        body={
+          <>
+            <strong>{pendingDelete?.name || "This widget"}</strong> will be removed from your storefront, along with its
+            settings and analytics. This cannot be undone.
+          </>
+        }
+        cancelLabel="Cancel"
+        confirmLabel="Confirm"
+        confirming={deleting}
+        onCancel={() => {
+          if (!deleting) setPendingDelete(null);
+        }}
+        onConfirm={() => {
+          if (!pendingDelete || deleting) return;
+          submit({ widgetId: pendingDelete.id, intent: "delete" }, { method: "post" });
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(deletedNotice) && !pendingDelete}
+        tone="success"
+        title="Widget deleted"
+        body={
+          deletedNotice?.count > 1
+            ? `${deletedNotice.count} widgets were deleted.`
+            : (
+              <>
+                <strong>{deletedNotice?.name || "Widget"}</strong> was deleted successfully.
+              </>
+            )
+        }
+        confirmLabel="Done"
+        hideCancel
+        onCancel={() => setDeletedNotice(null)}
+        onConfirm={() => setDeletedNotice(null)}
       />
     </s-page>
   );
@@ -98,9 +170,11 @@ function useEmbedStatus(fallbackEmbedUrl, fallbackBlockUrl) {
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
   const requestedScope = useRef(false);
+  const openedEditor = useRef(false);
   const [refreshing, setRefreshing] = useState(true);
 
-  const loadStatus = async (showRefreshing, requestScope = false) => {
+  const loadStatus = async (showRefreshing, { fresh = false, requestScope = false } = {}) => {
+    if (fetcherRef.current.state !== "idle") return;
     if (showRefreshing) setRefreshing(true);
     if (requestScope && !requestedScope.current) {
       requestedScope.current = true;
@@ -115,15 +189,27 @@ function useEmbedStatus(fallbackEmbedUrl, fallbackBlockUrl) {
         // Continue with whatever theme access the session already has.
       }
     }
-    fetcherRef.current.load("/app/embed-status");
+    fetcherRef.current.load(fresh ? "/app/embed-status?fresh=1" : "/app/embed-status");
   };
 
   useEffect(() => {
-    loadStatus(true, true);
+    loadStatus(true, { requestScope: true });
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const fresh = openedEditor.current;
+      openedEditor.current = false;
+      loadStatus(false, { fresh });
+    };
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") loadStatus(false);
     }, 30000);
-    return () => window.clearInterval(timer);
+    return () => {
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.clearInterval(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -136,16 +222,19 @@ function useEmbedStatus(fallbackEmbedUrl, fallbackBlockUrl) {
     activateUrl: fetcher.data?.themeEditorEmbed || fallbackEmbedUrl,
     manageUrl: fetcher.data?.themeEditorEmbedManage || fallbackEmbedUrl,
     blockUrl: fetcher.data?.themeEditorBlock || fallbackBlockUrl,
-    reload: () => loadStatus(true),
+    reload: (fresh = false) => loadStatus(true, { fresh }),
+    markEditorOpened: () => {
+      openedEditor.current = true;
+    },
   };
 }
 
 function AppEmbedStatusCard({ embed, fallbackEmbedUrl }) {
-  const { refreshing, enabled, activateUrl, manageUrl, reload } = embed;
+  const { refreshing, enabled, activateUrl, manageUrl, markEditorOpened } = embed;
   const openEditor = (url) => {
     if (!url) return;
+    markEditorOpened?.();
     window.open(url, "_blank", "noopener,noreferrer");
-    reload();
   };
 
   return (
@@ -215,10 +304,8 @@ function requestStatusLabel(status) {
   return "Pending";
 }
 
-function DeliveryRequestsList({ requests = [], saving }) {
+function DeliveryRequestsList({ requests = [], saving, refreshing = false, onRefresh }) {
   const submit = useSubmit();
-  const revalidator = useRevalidator();
-  const refreshing = revalidator.state !== "idle";
   const act = (item, intent) => {
     submit({ intent, requestId: item.id, widgetId: item.widgetId }, { method: "post" });
   };
@@ -231,7 +318,7 @@ function DeliveryRequestsList({ requests = [], saving }) {
           type="button"
           className="edd-btn edd-btn--secondary"
           disabled={refreshing || saving}
-          onClick={() => revalidator.revalidate()}
+          onClick={() => onRefresh?.()}
         >
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
@@ -290,7 +377,7 @@ function DeliveryRequestsList({ requests = [], saving }) {
   );
 }
 
-function WidgetList({ heading, location, widgets, now }) {
+function WidgetList({ heading, location, widgets, now, onRequestDelete }) {
   const empty =
     location === WIDGET_LOCATIONS.CART
       ? "No cart widget yet. Create one to show estimated delivery above checkout."
@@ -338,7 +425,12 @@ function WidgetList({ heading, location, widgets, now }) {
                   <s-badge tone={published ? "success" : scheduled ? "info" : "neutral"}>
                     {statusLabel}
                   </s-badge>
-                  <WidgetActions widget={widget} published={published} scheduled={scheduled} />
+                  <WidgetActions
+                    widget={widget}
+                    published={published}
+                    scheduled={scheduled}
+                    onRequestDelete={onRequestDelete}
+                  />
                 </span>
               </div>
             );
@@ -353,7 +445,7 @@ function WidgetList({ heading, location, widgets, now }) {
   );
 }
 
-function WidgetActions({ widget, published, scheduled }) {
+function WidgetActions({ widget, published, scheduled, onRequestDelete }) {
   const submit = useSubmit();
   const [open, setOpen] = useState(false);
   const root = useRef(null);
@@ -406,7 +498,15 @@ function WidgetActions({ widget, published, scheduled }) {
               {published ? "Unpublish" : "Publish"}
             </button>
           )}
-          <button type="button" role="menuitem" className="edd-actions__danger" onClick={() => run("delete")}>
+          <button
+            type="button"
+            role="menuitem"
+            className="edd-actions__danger"
+            onClick={() => {
+              setOpen(false);
+              onRequestDelete?.(widget);
+            }}
+          >
             Delete
           </button>
         </div>

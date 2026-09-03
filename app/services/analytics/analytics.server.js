@@ -35,23 +35,37 @@ export async function recordWidgetEvent({
   }
 }
 
-export async function getWidgetMetrics(widgetIds) {
+function rate(part, whole) {
+  return whole > 0 ? Number(((part / whole) * 100).toFixed(1)) : 0;
+}
+
+function emptyMetrics() {
+  return {
+    impressions: 0,
+    clicks: 0,
+    addToCart: 0,
+    conversions: 0,
+    conversionRate: 0,
+    clickThroughRate: 0,
+    addToCartRate: 0,
+  };
+}
+
+export async function getWidgetMetrics(widgetIds, options = {}) {
   if (!widgetIds.length) {
     return {};
   }
 
+  const where = { widgetId: { in: widgetIds } };
+  if (options.since) where.timestamp = { gte: options.since };
+
   const grouped = await prisma.widgetEvent.groupBy({
     by: ["widgetId", "type"],
-    where: { widgetId: { in: widgetIds } },
+    where,
     _count: { _all: true },
   });
 
-  const metrics = Object.fromEntries(
-    widgetIds.map((id) => [
-      id,
-      { impressions: 0, clicks: 0, addToCart: 0, conversions: 0, conversionRate: 0 },
-    ]),
-  );
+  const metrics = Object.fromEntries(widgetIds.map((id) => [id, emptyMetrics()]));
 
   for (const row of grouped) {
     const current = metrics[row.widgetId];
@@ -63,10 +77,9 @@ export async function getWidgetMetrics(widgetIds) {
   }
 
   for (const current of Object.values(metrics)) {
-    current.conversionRate =
-      current.impressions > 0
-        ? Number(((current.conversions / current.impressions) * 100).toFixed(1))
-        : 0;
+    current.conversionRate = rate(current.conversions, current.impressions);
+    current.clickThroughRate = rate(current.clicks, current.impressions);
+    current.addToCartRate = rate(current.addToCart, current.impressions);
   }
 
   return metrics;
@@ -74,23 +87,22 @@ export async function getWidgetMetrics(widgetIds) {
 
 export async function getMerchantTotals(merchantId) {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const where = { merchantId, timestamp: { gte: since } };
-  const [impressions, clicks, addToCart, conversions] = await Promise.all([
-    prisma.widgetEvent.count({ where: { ...where, type: EVENT_TYPES.IMPRESSION } }),
-    prisma.widgetEvent.count({ where: { ...where, type: EVENT_TYPES.CLICK } }),
-    prisma.widgetEvent.count({ where: { ...where, type: EVENT_TYPES.ADD_TO_CART } }),
-    prisma.widgetEvent.count({ where: { ...where, type: EVENT_TYPES.CONVERSION } }),
-  ]);
+  const grouped = await prisma.widgetEvent.groupBy({
+    by: ["type"],
+    where: { merchantId, timestamp: { gte: since } },
+    _count: { _all: true },
+  });
 
-  const totals = {
-    impressions,
-    clicks,
-    addToCart,
-    conversions,
-    conversionRate:
-      impressions > 0 ? Number(((conversions / impressions) * 100).toFixed(1)) : 0,
-  };
-
+  const totals = emptyMetrics();
+  for (const row of grouped) {
+    if (row.type === EVENT_TYPES.IMPRESSION) totals.impressions = row._count._all;
+    if (row.type === EVENT_TYPES.CLICK) totals.clicks = row._count._all;
+    if (row.type === EVENT_TYPES.ADD_TO_CART) totals.addToCart = row._count._all;
+    if (row.type === EVENT_TYPES.CONVERSION) totals.conversions = row._count._all;
+  }
+  totals.conversionRate = rate(totals.conversions, totals.impressions);
+  totals.clickThroughRate = rate(totals.clicks, totals.impressions);
+  totals.addToCartRate = rate(totals.addToCart, totals.impressions);
   return totals;
 }
 
@@ -124,6 +136,11 @@ export function publicStorefrontConfig(widget, delivery, options = {}) {
     },
     icons: {
       ...widget.iconConfig,
+      headerIcon: widget.iconConfig?.headerIcon || "flag",
+      headerIconEnabled: widget.iconConfig?.headerIconEnabled !== false,
+      purchasedEnabled: widget.iconConfig?.purchasedEnabled !== false,
+      processingEnabled: widget.iconConfig?.processingEnabled !== false,
+      deliveredEnabled: widget.iconConfig?.deliveredEnabled !== false,
       purchasedTitle: translation.purchasedTitle || widget.iconConfig.purchasedTitle,
       processingTitle: translation.processingTitle || widget.iconConfig.processingTitle,
       deliveredTitle: translation.deliveredTitle || widget.iconConfig.deliveredTitle,

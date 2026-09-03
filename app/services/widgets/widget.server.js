@@ -16,6 +16,8 @@ import {
 import { normalizePincodeRules, normalizeWeightRules, toCountryRules } from "../../lib/pincode";
 import { syncedPlacementIds } from "../../lib/form.server";
 import { normalizePosition } from "../../lib/widget-profiles";
+import { resolveTimeZone } from "../../lib/timezone";
+import { findMerchantByShopDomain } from "../shopify/merchant.server";
 import { syncWidgetStorefrontByShop } from "../shopify/store-block.server";
 
 function compact(value = {}) {
@@ -30,7 +32,7 @@ function definedFields(value = {}) {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
 }
 
-async function replaceWidgetFields(widgetId, fields) {
+async function replaceWidgetFields(widgetId, fields, { reload = true } = {}) {
   const $set = definedFields(fields);
   $set.updatedAt = { $date: new Date().toISOString() };
   await prisma.$runCommandRaw({
@@ -42,6 +44,7 @@ async function replaceWidgetFields(widgetId, fields) {
       },
     ],
   });
+  if (!reload) return { id: widgetId };
   return prisma.widget.findUnique({ where: { id: widgetId } });
 }
 
@@ -115,6 +118,11 @@ function withDefaults(widget) {
     iconConfig: {
       ...DEFAULT_ICONS,
       ...compact(widget.iconConfig || {}),
+      headerIcon: widget.iconConfig?.headerIcon || DEFAULT_ICONS.headerIcon,
+      headerIconEnabled: widget.iconConfig?.headerIconEnabled !== false,
+      purchasedEnabled: widget.iconConfig?.purchasedEnabled !== false,
+      processingEnabled: widget.iconConfig?.processingEnabled !== false,
+      deliveredEnabled: widget.iconConfig?.deliveredEnabled !== false,
       purchasedTitle: widget.iconConfig?.purchasedTitle || DEFAULT_ICONS.purchasedTitle,
       processingTitle: widget.iconConfig?.processingTitle || DEFAULT_ICONS.processingTitle,
       deliveredTitle: widget.iconConfig?.deliveredTitle || DEFAULT_ICONS.deliveredTitle,
@@ -133,6 +141,7 @@ function withDefaults(widget) {
     marketMode: widget.marketMode || "ALL",
     marketIds: widget.marketIds || [],
     markets: widget.markets || [],
+    timezone: resolveTimeZone(widget.timezone),
     scheduledPublishAt: messageFromRecord(widget.messageConfig).scheduledPublishAt,
   };
 }
@@ -177,15 +186,17 @@ export async function activateDueWidgets(merchantId) {
     select: { shopDomain: true },
   });
   if (merchant?.shopDomain) {
-    await Promise.all(
-      due.map(async (item) => {
-        const widget = await prisma.widget.findFirst({
-          where: { id: item.id, merchantId },
-        });
-        if (!widget) return;
-        await syncWidgetStorefrontByShop(merchant.shopDomain, withDefaults(widget));
-      }),
-    );
+    due.forEach((item) => {
+      prisma.widget
+        .findFirst({ where: { id: item.id, merchantId } })
+        .then((widget) => {
+          if (widget?.location === "CHECKOUT") {
+            return syncWidgetStorefrontByShop(merchant.shopDomain, withDefaults(widget));
+          }
+          return null;
+        })
+        .catch(() => {});
+    });
   }
 
   return due.map((widget) => ({ id: widget.id, name: widget.name, at: publishedAt }));
@@ -309,6 +320,13 @@ export async function getWidgetForMerchant(merchantId, widgetId) {
   return inheritCartShipping(withDefaults(widget), merchantId);
 }
 
+export async function getWidgetForSave(merchantId, widgetId) {
+  const widget = await prisma.widget.findFirst({
+    where: { id: widgetId, merchantId },
+  });
+  return withDefaults(widget);
+}
+
 async function inheritCartShipping(widget, merchantId) {
   if (!widget || widget.location !== "CART" || !merchantId) return widget;
   const product = await prisma.widget.findFirst({
@@ -354,6 +372,11 @@ function iconCreateData(icon = {}) {
     purchased: merged.purchased,
     processing: merged.processing,
     delivered: merged.delivered,
+    headerIcon: merged.headerIcon || "flag",
+    headerIconEnabled: merged.headerIconEnabled !== false,
+    purchasedEnabled: merged.purchasedEnabled !== false,
+    processingEnabled: merged.processingEnabled !== false,
+    deliveredEnabled: merged.deliveredEnabled !== false,
     purchasedTitle: merged.purchasedTitle,
     processingTitle: merged.processingTitle,
     deliveredTitle: merged.deliveredTitle,
@@ -390,7 +413,7 @@ function checkoutCreateData(checkout = {}) {
 export async function createDraftWidget(merchantId, options = {}) {
   const location = options.location || "PRODUCT";
   const displayMode = options.displayMode || "GENERAL";
-  let timezone = options.timezone || "UTC";
+  let timezone = resolveTimeZone(options.timezone);
   const name = String(options.name || "").trim() || defaultWidgetName(location);
 
   if (location === "CART") {
@@ -418,7 +441,7 @@ export async function createDraftWidget(merchantId, options = {}) {
     });
     if (product?.shippingRules) {
       shippingCreate = shippingCreateData(product.shippingRules);
-      timezone = product.timezone || timezone;
+      timezone = resolveTimeZone(product.timezone || timezone);
     }
   }
 
@@ -483,7 +506,7 @@ export async function saveShippingRules(merchantId, widgetId, shipping) {
     where: { id: widgetId },
     data: {
       shippingRules: embedSet(payload),
-      timezone: shipping.timezone || undefined,
+      timezone: shipping.timezone ? resolveTimeZone(shipping.timezone) : undefined,
       currentStep: "shipping",
     },
   });
@@ -632,7 +655,7 @@ export async function duplicateWidget(merchantId, widgetId) {
       location: widget.location,
       status: WIDGET_STATUSES.DRAFT,
       currentStep: widget.currentStep,
-      timezone: widget.timezone,
+      timezone: resolveTimeZone(widget.timezone),
       marketMode: widget.marketMode || "ALL",
       marketIds: widget.marketIds || [],
       markets: widget.markets || [],
@@ -664,20 +687,8 @@ export async function deleteWidget(merchantId, widgetId) {
 }
 
 export async function getActiveStorefrontWidgets(shopDomain, location) {
-  const raw = String(shopDomain || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .split("/")[0];
-  if (!raw) return [];
-  const full = raw.includes(".") ? raw : `${raw}.myshopify.com`;
-  const handle = full.replace(/\.myshopify\.com$/i, "");
-  const variants = [...new Set([shopDomain, raw, full, handle, `${handle}.myshopify.com`].filter(Boolean))];
-
-  const merchant = await prisma.merchant.findFirst({
-    where: { shopDomain: { in: variants } },
-  });
-  if (!merchant || merchant.uninstalledAt) return [];
+  const merchant = await findMerchantByShopDomain(shopDomain);
+  if (!merchant) return [];
   await activateDueWidgets(merchant.id);
 
   const widgets = await prisma.widget.findMany({
@@ -694,20 +705,24 @@ export async function getActiveStorefrontWidgets(shopDomain, location) {
 }
 
 export async function getWidgetByShop(shopDomain, widgetId) {
-  const merchant = await prisma.merchant.findUnique({
-    where: { shopDomain },
-    select: { id: true, uninstalledAt: true },
+  const merchant = await findMerchantByShopDomain(shopDomain);
+  if (!merchant || !widgetId) return null;
+  return prisma.widget.findFirst({
+    where: { id: widgetId, merchantId: merchant.id },
+    select: { id: true, merchantId: true },
   });
-  if (!merchant || merchant.uninstalledAt) return null;
-  return getWidgetForMerchant(merchant.id, widgetId);
 }
 
 export async function saveWidgetEditor(merchantId, widgetId, values, options = {}) {
-  const widget = await prisma.widget.findFirst({
-    where: { id: widgetId, merchantId },
-    select: { id: true, location: true },
-  });
-  if (!widget) return null;
+  const location =
+    options.location ||
+    (
+      await prisma.widget.findFirst({
+        where: { id: widgetId, merchantId },
+        select: { id: true, location: true },
+      })
+    )?.location;
+  if (!location) return null;
 
   const shippingPayload = {
     processingMinDays: values.processingMinDays,
@@ -730,6 +745,11 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     purchased: values.purchased,
     processing: values.processing,
     delivered: values.delivered,
+    headerIcon: values.headerIcon || "flag",
+    headerIconEnabled: values.headerIconEnabled !== false,
+    purchasedEnabled: values.purchasedEnabled !== false,
+    processingEnabled: values.processingEnabled !== false,
+    deliveredEnabled: values.deliveredEnabled !== false,
     purchasedTitle: values.purchasedTitle,
     processingTitle: values.processingTitle,
     deliveredTitle: values.deliveredTitle,
@@ -774,12 +794,14 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     collectionIds: placementIds.collectionIds,
     products: values.products || [],
     collections: values.collections || [],
-    position: values.position || defaultPosition(widget.location),
+    position: values.position || defaultPosition(location),
   };
 
-  const saved = await replaceWidgetFields(widgetId, {
+  const saved = await replaceWidgetFields(
+    widgetId,
+    {
     name: values.name,
-    timezone: values.timezone || undefined,
+    timezone: values.timezone ? resolveTimeZone(values.timezone) : undefined,
     marketMode: values.marketMode,
     marketIds: values.marketIds || [],
     markets: values.markets || [],
@@ -790,10 +812,10 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     iconConfig: iconPayload,
     styleConfig: stylePayload,
     placementConfig: placementPayload,
-    ...(widget.location === "CART" && values.displayMode
+    ...(location === "CART" && values.displayMode
       ? { cartConfig: cartCreateData({}, values.displayMode) }
       : {}),
-    ...(widget.location === "CHECKOUT"
+    ...(location === "CHECKOUT"
       ? {
           checkoutConfig: checkoutCreateData({
             heading: values.heading || "Estimated Delivery",
@@ -805,7 +827,9 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
           }),
         }
       : {}),
-  });
+    },
+    { reload: options.returnWidget !== false },
+  );
 
   if (!saved) return null;
   if (options.returnWidget === false) return true;

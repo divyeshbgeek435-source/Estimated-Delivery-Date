@@ -57,15 +57,27 @@ function blocksFrom(root) {
   return Object.entries(blocks).map(([id, block]) => ({ id, block }));
 }
 
-export function parseAppEmbedEnabled(settingsContent, identifiers = defaultEmbedIdentifiers()) {
+export function appEmbedBlockState(settingsContent, identifiers = defaultEmbedIdentifiers()) {
   try {
     const settings = parseSettingsJson(settingsContent);
     const live = liveSettingsRoot(settings);
-    if (!live) return false;
-    return blocksFrom(live).some(({ block }) => isOurAppEmbedType(block?.type, identifiers) && isEnabledBlock(block));
+    if (!live) return { exists: false, enabled: false };
+    const ours = blocksFrom(live).filter(({ block }) => isOurAppEmbedType(block?.type, identifiers));
+    if (!ours.length) return { exists: false, enabled: false };
+    // Shopify's theme editor toggle maps to the store-managed block, not our helper id.
+    const managed = ours.filter(({ id }) => id !== "edd-app-embed");
+    const target = managed.length ? managed : ours;
+    return {
+      exists: true,
+      enabled: target.some(({ block }) => isEnabledBlock(block)),
+    };
   } catch {
-    return false;
+    return { exists: false, enabled: false };
   }
+}
+
+export function parseAppEmbedEnabled(settingsContent, identifiers = defaultEmbedIdentifiers()) {
+  return appEmbedBlockState(settingsContent, identifiers).enabled;
 }
 
 export function discoverAppEmbedType(raw, identifiers = defaultEmbedIdentifiers()) {

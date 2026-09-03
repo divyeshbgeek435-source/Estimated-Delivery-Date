@@ -1,6 +1,6 @@
-import { DATE_FORMATS, ICON_OPTIONS, MESSAGE_TAGS, TRANSLATION_LOCALES, WIDGET_LOCATIONS } from "../../lib/constants";
-import { DeliveryIcon } from "../icons/DeliveryIcon";
+import { DATE_FORMATS, MESSAGE_TAGS, TRANSLATION_LOCALES, WIDGET_LOCATIONS } from "../../lib/constants";
 import { ActionButton } from "../common/ActionButton";
+import { IconMediaPicker } from "../common/IconMediaPicker";
 import { widgetProfile } from "../../lib/widget-profiles";
 
 const DATE_FORMAT_SAMPLES = {
@@ -142,11 +142,13 @@ export function ContentTab({ widget, draft, onChange, errors = {} }) {
           titleValue={icons.purchasedTitle || "Purchased"}
           iconName="purchased"
           iconValue={icons.purchased}
+          iconEnabled={icons.purchasedEnabled !== false}
           colorName="purchasedColor"
           colorValue={icons.purchasedColor}
           error={errors.purchasedTitle}
           onTitle={(purchasedTitle) => setIcons({ purchasedTitle })}
           onIcon={(purchased) => setIcons({ purchased })}
+          onEnabled={(purchasedEnabled) => setIcons({ purchasedEnabled })}
           onColor={(purchasedColor) => setIcons({ purchasedColor })}
         />
         <IconEditor
@@ -155,11 +157,13 @@ export function ContentTab({ widget, draft, onChange, errors = {} }) {
           titleValue={icons.processingTitle || "Processing"}
           iconName="processing"
           iconValue={icons.processing}
+          iconEnabled={icons.processingEnabled !== false}
           colorName="processingColor"
           colorValue={icons.processingColor}
           error={errors.processingTitle}
           onTitle={(processingTitle) => setIcons({ processingTitle })}
           onIcon={(processing) => setIcons({ processing })}
+          onEnabled={(processingEnabled) => setIcons({ processingEnabled })}
           onColor={(processingColor) => setIcons({ processingColor })}
         />
         <IconEditor
@@ -168,11 +172,13 @@ export function ContentTab({ widget, draft, onChange, errors = {} }) {
           titleValue={icons.deliveredTitle || "Delivered"}
           iconName="delivered"
           iconValue={icons.delivered}
+          iconEnabled={icons.deliveredEnabled !== false}
           colorName="deliveredColor"
           colorValue={icons.deliveredColor}
           error={errors.deliveredTitle}
           onTitle={(deliveredTitle) => setIcons({ deliveredTitle })}
           onIcon={(delivered) => setIcons({ delivered })}
+          onEnabled={(deliveredEnabled) => setIcons({ deliveredEnabled })}
           onColor={(deliveredColor) => setIcons({ deliveredColor })}
         />
       </s-section>
@@ -285,11 +291,13 @@ function IconEditor({
   titleValue,
   iconName,
   iconValue,
+  iconEnabled = true,
   colorName,
   colorValue,
   error,
   onTitle,
   onIcon,
+  onEnabled,
   onColor,
 }) {
   const filtered = Boolean(colorValue);
@@ -303,33 +311,21 @@ function IconEditor({
         error={error}
         onInput={(event) => onTitle(event.currentTarget.value)}
       ></s-text-field>
-      <s-text type="strong">Icon</s-text>
-      <input type="hidden" name={iconName} value={iconValue} />
-      <div className="edd-icon-change">
-        <span className="edd-icon-change__preview">
-          <DeliveryIcon name={iconValue} color={colorValue || "#202223"} />
-        </span>
-        <details className="edd-icon-change__picker">
-          <summary>Change icon</summary>
-          <div className="edd-icon-grid">
-            {ICON_OPTIONS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className="edd-icon-option"
-                aria-pressed={iconValue === option.value}
-                onClick={() => onIcon(option.value)}
-              >
-                <DeliveryIcon name={option.value} />
-                <span>{option.label}</span>
-              </button>
-            ))}
-          </div>
-        </details>
-      </div>
+      <IconMediaPicker
+        title="Icon"
+        name={iconName}
+        value={iconValue}
+        fallback={iconName === "processing" ? "truck" : iconName === "delivered" ? "pin" : "bag"}
+        color={colorValue || "#202223"}
+        error={error}
+        enabled={iconEnabled}
+        onEnabledChange={onEnabled}
+        onChange={onIcon}
+      />
       <s-checkbox
         label="Apply color filter"
         checked={filtered}
+        disabled={!iconEnabled}
         onChange={(event) => onColor(event.currentTarget.checked ? colorValue || "#000000" : "")}
       ></s-checkbox>
       {filtered ? (

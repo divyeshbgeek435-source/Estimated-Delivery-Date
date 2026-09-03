@@ -1,37 +1,16 @@
-import { requireAdmin } from "../lib/auth.server";
-import { WIDGET_LOCATIONS, WIDGET_STATUSES } from "../lib/constants";
-import prisma from "../lib/prisma.server";
-import { loadEditorLinks, loadLiveAppEmbedStatus, clearAppEmbedStatusCache } from "../services/shopify/app-embed.server";
-import { syncWidgetStorefront } from "../services/shopify/store-block.server";
+import { authenticate } from "../shopify.server";
+import { editorLinksForShop, loadLiveAppEmbedStatus, clearAppEmbedStatusCache } from "../services/shopify/app-embed.server";
 
 export const loader = async ({ request }) => {
-  const { admin, shop, session, merchant } = await requireAdmin(request);
-  clearAppEmbedStatusCache(shop);
-  let result = await loadLiveAppEmbedStatus(admin, shop, session);
+  const { admin, session } = await authenticate.admin(request);
+  const shop = session.shop;
+  const fresh = new URL(request.url).searchParams.get("fresh") === "1";
+  if (fresh) clearAppEmbedStatusCache(shop);
 
-  if (merchant?.id && result.checked && !result.missingThemeAccess) {
-    const liveCount = await prisma.widget.count({
-      where: {
-        merchantId: merchant.id,
-        status: WIDGET_STATUSES.ACTIVE,
-        location: { in: [WIDGET_LOCATIONS.PRODUCT, WIDGET_LOCATIONS.CART] },
-      },
-    });
-    const shouldBeOn = liveCount > 0;
-    if (shouldBeOn !== Boolean(result.enabled)) {
-      await syncWidgetStorefront(admin, session, {
-        merchantId: merchant.id,
-        status: shouldBeOn ? WIDGET_STATUSES.ACTIVE : WIDGET_STATUSES.DRAFT,
-        location: WIDGET_LOCATIONS.PRODUCT,
-      });
-      result = await loadLiveAppEmbedStatus(admin, shop, session);
-    }
-  }
-
-  const links = await loadEditorLinks(admin, shop, result.themeId);
+  const result = await loadLiveAppEmbedStatus(admin, shop, session, { fresh });
   return {
-    appEmbedEnabled: result.enabled,
+    appEmbedEnabled: Boolean(result.checked) && Boolean(result.enabled),
     missingThemeAccess: Boolean(result.missingThemeAccess),
-    ...links,
+    ...editorLinksForShop(shop, result.themeId),
   };
 };

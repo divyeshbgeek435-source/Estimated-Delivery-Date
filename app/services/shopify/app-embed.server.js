@@ -1,16 +1,17 @@
-import { unauthenticated, apiVersion } from "../../shopify.server";
+import { unauthenticated } from "../../shopify.server";
 import { appBlockEditorUrl, appEmbedEditorUrl } from "../../lib/theme-editor";
 import { defaultEmbedIdentifiers, parseAppEmbedEnabled } from "../../lib/theme-embed";
 
 export { parseAppEmbedEnabled };
 
-const CACHE_MS = 45_000;
+const CACHE_MS = 30_000;
 const METAFIELD_SYNC_MS = 60_000;
 const cache = new Map();
 const embedPings = new Map();
+const inflight = new Map();
 
-const INSTALLATION_QUERY = `#graphql
-  query DeliveryDateEmbedInstallation {
+const EMBED_STATUS_QUERY = `#graphql
+  query DeliveryDateAppEmbedStatus {
     currentAppInstallation {
       accessScopes {
         handle
@@ -20,15 +21,9 @@ const INSTALLATION_QUERY = `#graphql
         apiKey
       }
     }
-  }
-`;
-
-const THEME_SETTINGS_QUERY = `#graphql
-  query DeliveryDateAppEmbedStatus {
-    themes(first: 10, roles: [MAIN, DEVELOPMENT]) {
+    themes(first: 1, roles: [MAIN]) {
       nodes {
         id
-        name
         role
         files(filenames: ["config/settings_data.json"], first: 1) {
           nodes {
@@ -43,16 +38,6 @@ const THEME_SETTINGS_QUERY = `#graphql
             }
           }
         }
-      }
-    }
-  }
-`;
-
-const PRODUCT_HANDLE_QUERY = `#graphql
-  query DeliveryDatePreviewProduct {
-    products(first: 1, query: "status:active") {
-      nodes {
-        handle
       }
     }
   }
@@ -77,10 +62,6 @@ const METAFIELDS_SET_MUTATION = `#graphql
   }
 `;
 
-function graphqlApiVersion() {
-  return String(apiVersion || "2026-07").replaceAll("_", "-").toLowerCase();
-}
-
 function staticIdentifiers() {
   return defaultEmbedIdentifiers();
 }
@@ -94,20 +75,16 @@ function buildIdentifiers(installation) {
   )];
 }
 
-function remember(shop, result) {
+function remember(shop, result, ttl = CACHE_MS) {
   if (!shop) return result.enabled;
   const previous = cache.get(shop) || {};
   cache.set(shop, {
     ...previous,
     enabled: result.enabled,
     result,
-    expires: Date.now() + CACHE_MS,
+    expires: Date.now() + ttl,
   });
   return result.enabled;
-}
-
-function themeNumericId(gid) {
-  return String(gid || "").split("/").pop();
 }
 
 async function graphqlData(admin, query) {
@@ -128,25 +105,8 @@ async function readFileBody(body) {
   return "";
 }
 
-async function readThemeSettingsRest(session, themeGid) {
-  if (!session?.accessToken || !session.shop || !themeGid) return "";
-  const params = new URLSearchParams({ "asset[key]": "config/settings_data.json" });
-  const url = `https://${session.shop}/admin/api/${graphqlApiVersion()}/themes/${themeNumericId(themeGid)}/assets.json?${params}`;
-  const response = await fetch(url, {
-    headers: {
-      "X-Shopify-Access-Token": session.accessToken,
-      Accept: "application/json",
-    },
-  });
-  if (!response.ok) return "";
-  const json = await response.json();
-  return json.asset?.value || "";
-}
-
-async function settingsForTheme(theme, session) {
-  const content = await readFileBody(theme?.files?.nodes?.[0]?.body);
-  if (content) return content;
-  return readThemeSettingsRest(session, theme?.id);
+async function settingsForTheme(theme) {
+  return readFileBody(theme?.files?.nodes?.[0]?.body);
 }
 
 function hasThemeAccess(installation) {
@@ -168,19 +128,31 @@ export function clearAppEmbedStatusCache(shop) {
   else cache.clear();
 }
 
-export async function readAppEmbedEnabled(admin, session, shop) {
-  const installationData = await graphqlData(admin, INSTALLATION_QUERY);
-  const installation = installationData?.currentAppInstallation;
+export function editorLinksForShop(shop, themeId) {
+  const options = { themeId };
+  return {
+    themeEditorEmbed: appEmbedEditorUrl(shop, { ...options, activate: true }),
+    themeEditorEmbedManage: appEmbedEditorUrl(shop, { ...options, activate: false }),
+    themeEditorBlock: appBlockEditorUrl(shop, { ...options, activate: true }),
+    themeEditorBlockManage: appBlockEditorUrl(shop, { ...options, activate: false }),
+  };
+}
+
+export async function loadEditorLinks(admin, shop, themeId) {
+  return editorLinksForShop(shop, themeId);
+}
+
+export async function readAppEmbedEnabled(admin, session, shop, { fresh = false } = {}) {
+  const data = await graphqlData(admin, EMBED_STATUS_QUERY);
+  const installation = data?.currentAppInstallation;
   const identifiers = buildIdentifiers(installation);
   const missingThemeAccess = !hasThemeAccess(installation);
 
   if (!missingThemeAccess) {
     try {
-      const themeData = await graphqlData(admin, THEME_SETTINGS_QUERY);
-      const themes = themeData?.themes?.nodes || [];
-      const main = themes.find((theme) => theme.role === "MAIN") || themes[0];
+      const main = data?.themes?.nodes?.[0];
       if (main) {
-        const content = await settingsForTheme(main, session);
+        const content = await settingsForTheme(main);
         return {
           enabled: Boolean(content) && parseAppEmbedEnabled(content, identifiers),
           checked: Boolean(content),
@@ -194,31 +166,6 @@ export async function readAppEmbedEnabled(admin, session, shop) {
   }
 
   return { enabled: false, checked: !missingThemeAccess, missingThemeAccess };
-}
-
-export async function loadEditorLinks(admin, shop, themeId) {
-  const cached = shop ? cache.get(shop) : null;
-  if (cached?.links && cached.expires > Date.now()) {
-    return cached.links;
-  }
-  let productHandle = "";
-  try {
-    const data = await graphqlData(admin, PRODUCT_HANDLE_QUERY);
-    productHandle = data?.products?.nodes?.[0]?.handle || "";
-  } catch {
-    productHandle = "";
-  }
-  const options = { themeId, productHandle };
-  const links = {
-    themeEditorEmbed: appEmbedEditorUrl(shop, { ...options, activate: true }),
-    themeEditorEmbedManage: appEmbedEditorUrl(shop, { ...options, activate: false }),
-    themeEditorBlock: appBlockEditorUrl(shop, { ...options, activate: true }),
-    themeEditorBlockManage: appBlockEditorUrl(shop, { ...options, activate: false }),
-  };
-  if (shop) {
-    cache.set(shop, { ...(cached || {}), links, expires: cached?.expires || Date.now() + CACHE_MS });
-  }
-  return links;
 }
 
 export async function syncAppEmbedMetafield(admin, enabled) {
@@ -241,32 +188,43 @@ export async function syncAppEmbedMetafield(admin, enabled) {
   });
 }
 
-export async function loadLiveAppEmbedStatus(admin, shop, session) {
+export async function loadLiveAppEmbedStatus(admin, shop, session, { fresh = false } = {}) {
   const cached = shop ? cache.get(shop) : null;
-  if (cached?.result && cached.expires > Date.now()) {
+  if (!fresh && cached?.result && cached.expires > Date.now()) {
     return cached.result;
   }
 
-  try {
-    const result = await readAppEmbedEnabled(admin, session, shop);
-    if (result.checked) {
-      remember(shop, result);
-      const now = Date.now();
-      const shouldSync = !cached?.metafieldAt || now - cached.metafieldAt > METAFIELD_SYNC_MS;
-      if (shouldSync) {
-        cache.set(shop, { ...cache.get(shop), metafieldAt: now });
-        await syncAppEmbedMetafield(admin, result.enabled).catch(() => {});
+  const key = `${shop || "_"}:${fresh ? "fresh" : "cached"}`;
+  if (inflight.has(key)) return inflight.get(key);
+
+  const work = (async () => {
+    try {
+      const result = await readAppEmbedEnabled(admin, session, shop, { fresh });
+      if (result.checked) {
+        remember(shop, result, fresh ? 8_000 : CACHE_MS);
+        const now = Date.now();
+        const latest = cache.get(shop);
+        const shouldSync = !latest?.metafieldAt || now - latest.metafieldAt > METAFIELD_SYNC_MS;
+        if (shouldSync) {
+          cache.set(shop, { ...cache.get(shop), metafieldAt: now });
+          syncAppEmbedMetafield(admin, result.enabled).catch(() => {});
+        }
       }
+      return result;
+    } catch (error) {
+      console.warn("[edd-app-embed] status failed", error?.message || error);
+      return {
+        enabled: cached?.enabled ?? false,
+        checked: false,
+        missingThemeAccess: true,
+      };
+    } finally {
+      inflight.delete(key);
     }
-    return result;
-  } catch (error) {
-    console.warn("[edd-app-embed] status failed", error?.message || error);
-    return {
-      enabled: cached?.enabled ?? false,
-      checked: false,
-      missingThemeAccess: true,
-    };
-  }
+  })();
+
+  inflight.set(key, work);
+  return work;
 }
 
 export async function isAppEmbedEnabledForShop(shop) {

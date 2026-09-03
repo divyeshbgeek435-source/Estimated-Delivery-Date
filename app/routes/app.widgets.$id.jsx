@@ -25,9 +25,10 @@ import { WidgetWorkspace } from "../components/editor/WidgetWorkspace";
 import { DEFAULT_STYLE, DEFAULT_WORKING_DAYS, WIDGET_STATUSES, WORKING_DAYS } from "../lib/constants";
 import { normalizePosition } from "../lib/widget-profiles";
 import { confirmKindForStatus, resolveEditorStatus } from "../lib/widget-status";
+import { resolveTimeZone } from "../lib/timezone";
 import { getCollectionProductHandle } from "../services/shopify/catalog.server";
 import { storefrontPageUrl, widgetThemeEditorUrl } from "../lib/theme-editor";
-import { syncWidgetStorefront } from "../services/shopify/store-block.server";
+import { queueWidgetStorefrontSync, needsThemeSync } from "../services/shopify/store-block.server";
 
 async function firstProductHandle(admin, widget) {
   const fromPlacement = widget.placementConfig?.products?.[0]?.handle;
@@ -58,10 +59,13 @@ async function firstProductHandle(admin, widget) {
 
 export const loader = async ({ request, params }) => {
   const { admin, widget, shop } = await requireWidget(request, params.id);
-  const productHandle = await firstProductHandle(admin, widget);
+  const [productHandle, deliveryRequests] = await Promise.all([
+    firstProductHandle(admin, widget),
+    listDeliveryRequests(widget.merchantId, widget.id),
+  ]);
   return {
     widget: serializeWidget(widget),
-    deliveryRequests: await listDeliveryRequests(widget.merchantId, widget.id),
+    deliveryRequests,
     themeEditorUrl: widgetThemeEditorUrl(shop, widget.location, {
       position: widget.placementConfig?.position,
     }),
@@ -95,7 +99,7 @@ function flattenDraft(widget, draft = {}) {
         return days.length ? days : DEFAULT_WORKING_DAYS;
       })(),
       transitBlockedDates: shipping.transitBlockedDates || [],
-      timezone: draft.timezone || widget.timezone,
+      timezone: resolveTimeZone(draft.timezone || widget.timezone),
       pincodeRules: shipping.pincodeRules || widget.shippingRules.pincodeRules,
       weightRules: shipping.weightRules || widget.shippingRules.weightRules,
     },
@@ -112,6 +116,11 @@ function flattenDraft(widget, draft = {}) {
       purchased: icons.purchased,
       processing: icons.processing,
       delivered: icons.delivered,
+      headerIcon: icons.headerIcon || "flag",
+      headerIconEnabled: icons.headerIconEnabled !== false,
+      purchasedEnabled: icons.purchasedEnabled !== false,
+      processingEnabled: icons.processingEnabled !== false,
+      deliveredEnabled: icons.deliveredEnabled !== false,
       purchasedTitle: icons.purchasedTitle,
       processingTitle: icons.processingTitle,
       deliveredTitle: icons.deliveredTitle,
@@ -131,7 +140,7 @@ function flattenDraft(widget, draft = {}) {
     },
     editor: {
       name: draft.name || widget.name,
-      timezone: draft.timezone || widget.timezone,
+      timezone: resolveTimeZone(draft.timezone || widget.timezone),
       marketMode: draft.marketMode || widget.marketMode || "ALL",
       marketIds: draft.marketIds || widget.marketIds || [],
       markets: draft.markets || widget.markets || [],
@@ -151,9 +160,10 @@ function pickStyle(style = {}) {
 }
 
 export const action = async ({ request, params }) => {
-  const { admin, session, merchant, widget } = await requireWidget(request, params.id);
+  const { admin, session, merchant, widget } = await requireWidget(request, params.id, { fast: true });
   const formData = await request.formData();
   const intent = String(formData.get("intent") || "save");
+  const revision = Number(formData.get("saveRevision") || 0);
   const draft = readJsonField(formData, "editorState", {});
   const values = flattenDraft(widget, draft);
 
@@ -164,11 +174,12 @@ export const action = async ({ request, params }) => {
     const deliveryRequests = await listDeliveryRequests(merchant.id, widget.id);
     if (!saved) return { errors: { form: "Could not update that delivery request." } };
     if (status === REQUEST_STATUSES.ACCEPTED) {
-      await syncWidgetStorefront(admin, session, saved);
+      queueWidgetStorefrontSync(admin, session, saved);
     }
     return {
       widget: serializeWidget(saved),
       deliveryRequests,
+      revision,
       toast: status === REQUEST_STATUSES.ACCEPTED ? "Pincode added as an eligible location" : "Delivery request declined",
     };
   }
@@ -194,9 +205,9 @@ export const action = async ({ request, params }) => {
         ...values.placement,
         ...values.editor,
         status: WIDGET_STATUSES.DRAFT,
-      });
-      await syncWidgetStorefront(admin, session, saved);
-      return { widget: serializeWidget(saved), toast: widget.status === WIDGET_STATUSES.SCHEDULED ? "Schedule cancelled" : "Widget unpublished" };
+      }, { location: widget.location });
+      queueWidgetStorefrontSync(admin, session, saved);
+      return { widget: serializeWidget(saved), revision, toast: widget.status === WIDGET_STATUSES.SCHEDULED ? "Schedule cancelled" : "Widget unpublished" };
     } catch (error) {
       return { errors: { form: error?.message || "Could not unpublish the widget." } };
     }
@@ -244,19 +255,20 @@ export const action = async ({ request, params }) => {
         currentStep: String(formData.get("currentStep") || "conditions"),
         status,
       },
-      { returnWidget: intent !== "autosave" },
+      { returnWidget: intent !== "autosave", location: widget.location },
     );
 
-    if (intent !== "autosave") {
-      await syncWidgetStorefront(admin, session, saved);
+    if (intent === "autosave") {
+      return { silent: true, revision };
     }
 
-    if (intent === "autosave") {
-      return { silent: true };
+    if (needsThemeSync(widget, saved)) {
+      queueWidgetStorefrontSync(admin, session, saved);
     }
 
     return {
       widget: serializeWidget(saved),
+      revision,
       confirm: {
         kind: confirmKindForStatus(status),
         scheduledAt: scheduledPublishAt,

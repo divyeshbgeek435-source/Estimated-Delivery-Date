@@ -1,4 +1,7 @@
 import { addDays, format, parseISO } from "date-fns";
+import { FALLBACK_TIMEZONE, resolveTimeZone } from "./timezone";
+
+export { FALLBACK_TIMEZONE, resolveTimeZone } from "./timezone";
 
 const WEEKDAY_BY_INDEX = [
   "SUNDAY",
@@ -12,22 +15,6 @@ const WEEKDAY_BY_INDEX = [
 
 function pad(value) {
   return String(value).padStart(2, "0");
-}
-
-const TIMEZONE_CACHE = new Map();
-
-export function resolveTimeZone(timeZone) {
-  const value = String(timeZone || "").trim() || "UTC";
-  const cached = TIMEZONE_CACHE.get(value);
-  if (cached) return cached;
-  try {
-    Intl.DateTimeFormat("en-US", { timeZone: value }).format(new Date());
-    TIMEZONE_CACHE.set(value, value);
-    return value;
-  } catch {
-    TIMEZONE_CACHE.set(value, "UTC");
-    return "UTC";
-  }
 }
 
 function partsFromDate(date, timeZone) {
@@ -167,7 +154,7 @@ function combineOrderDate(orderDate, orderTime, timeZone) {
 }
 
 export function getCountdownToCutoff({ now = new Date(), cutoffTime, workingDays, blockedDates, timezone }) {
-  const zoned = getZonedParts(now, timezone || "UTC");
+  const zoned = getZonedParts(now, timezone);
   const cutoffMinutes = parseCutoffMinutes(cutoffTime);
   const currentMinutes = zoned.hour * 60 + zoned.minute;
   let targetDate = zoned.dateStr;
@@ -205,7 +192,7 @@ export function getCountdownToCutoff({ now = new Date(), cutoffTime, workingDays
   };
 }
 
-export function shippingCalculatorInput(shipping = {}, timezone = "UTC") {
+export function shippingCalculatorInput(shipping = {}, timezone = FALLBACK_TIMEZONE) {
   return {
     processingMinDays: shipping.processingMinDays,
     processingMaxDays: shipping.processingMaxDays,
@@ -216,7 +203,7 @@ export function shippingCalculatorInput(shipping = {}, timezone = "UTC") {
     transitMaxDays: shipping.transitMaxDays,
     transitWorkingDays: shipping.transitWorkingDays,
     transitBlockedDates: shipping.transitBlockedDates,
-    timezone,
+    timezone: resolveTimeZone(timezone),
   };
 }
 
@@ -232,7 +219,7 @@ export function calculateDeliveryDate({
   transitMaxDays = 0,
   transitWorkingDays,
   transitBlockedDates = [],
-  timezone = "UTC",
+  timezone = FALLBACK_TIMEZONE,
 }) {
   const zoned = combineOrderDate(orderDate, orderTime, timezone);
   const currentMinutes = zoned.hour * 60 + zoned.minute;
@@ -374,7 +361,7 @@ export function messageValues({
   delivery,
   countdown,
   now = new Date(),
-  timezone = "UTC",
+  timezone = FALLBACK_TIMEZONE,
   dateSettings = {},
   productName = "",
   stockLeft = "",
@@ -400,8 +387,9 @@ export function messageValues({
   };
 }
 
-export function buildStorefrontDelivery(shipping, timezone = "UTC", now = new Date(), extras = {}) {
-  const input = shippingCalculatorInput(shipping, timezone);
+export function buildStorefrontDelivery(shipping, timezone = FALLBACK_TIMEZONE, now = new Date(), extras = {}) {
+  const zone = resolveTimeZone(timezone);
+  const input = shippingCalculatorInput(shipping, zone);
   const delivery = calculateDeliveryDate({ orderDate: now, ...input });
   const countdown = getCountdownToCutoff({ now, ...input });
   return {
@@ -410,13 +398,13 @@ export function buildStorefrontDelivery(shipping, timezone = "UTC", now = new Da
       delivery,
       countdown,
       now,
-      timezone,
+      timezone: zone,
       dateSettings: extras.dateSettings,
       productName: extras.productName,
       stockLeft: extras.stockLeft,
     }),
     countdownSeconds: countdown.totalSeconds,
-    purchasedLabel: formatTimelineLabel(getZonedParts(now, timezone).dateStr),
+    purchasedLabel: formatTimelineLabel(getZonedParts(now, zone).dateStr),
     processingLabel: formatTimelineLabel(delivery.processingDateMin, delivery.processingDateMax),
     deliveredLabel: formatTimelineLabel(delivery.deliveryDateMin, delivery.deliveryDateMax),
   };

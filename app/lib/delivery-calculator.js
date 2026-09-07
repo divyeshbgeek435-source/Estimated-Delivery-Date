@@ -323,19 +323,24 @@ export function messageSegments(template, values = {}) {
   let match = token.exec(source);
   while (match) {
     if (match.index > lastIndex) {
-      parts.push({ text: source.slice(lastIndex, match.index), highlight: false });
+      parts.push({ type: "text", text: source.slice(lastIndex, match.index), highlight: false });
     }
     const key = match[1];
-    const known = Object.prototype.hasOwnProperty.call(values, key);
-    parts.push({
-      text: known ? String(values[key] ?? "") : match[0],
-      highlight: known && HIGHLIGHT_MESSAGE_KEYS.has(key),
-    });
+    if (key === "image") {
+      parts.push({ type: "image", src: String(values.image || "") });
+    } else {
+      const known = Object.prototype.hasOwnProperty.call(values, key);
+      parts.push({
+        type: "text",
+        text: known ? String(values[key] ?? "") : match[0],
+        highlight: known && HIGHLIGHT_MESSAGE_KEYS.has(key),
+      });
+    }
     lastIndex = token.lastIndex;
     match = token.exec(source);
   }
   if (lastIndex < source.length) {
-    parts.push({ text: source.slice(lastIndex), highlight: false });
+    parts.push({ type: "text", text: source.slice(lastIndex), highlight: false });
   }
   return parts;
 }
@@ -351,6 +356,11 @@ export function escapeHtml(value) {
 export function resolveMessageHtml(template, values = {}) {
   return messageSegments(template, values)
     .map((part) => {
+      if (part.type === "image") {
+        const src = String(part.src || "").trim();
+        if (!src) return "";
+        return `<img class="edd-inline-image" src="${escapeHtml(src)}" alt="" />`;
+      }
       const text = escapeHtml(part.text);
       return part.highlight ? `<strong>${text}</strong>` : text;
     })

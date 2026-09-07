@@ -55,32 +55,39 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false }) {
           label="Default weight"
           name="weightValue"
           value={weight.value || ""}
-          details="Used when a location has no specific weight, and for Show weight directly."
+          details="Used when a location has no specific weight. Ignored if the product-weight checkbox below is on."
           onInput={(event) => setWeight({ value: event.currentTarget.value })}
         ></s-text-field>
-        <label className="edd-field">
-          <span>Unit</span>
-          <select
-            className="edd-input"
-            value={weight.unit || "kg"}
-            onChange={(event) => setWeight({ unit: event.currentTarget.value })}
-          >
-            {WEIGHT_UNITS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <s-text-field
+          label="Unit"
+          name="weightUnit"
+          value={weight.unit || ""}
+          placeholder="kg"
+          list="edd-weight-units"
+          details="Type any unit, such as kg, g, lb, or pcs."
+          onInput={(event) => setWeight({ unit: event.currentTarget.value })}
+        ></s-text-field>
       </s-grid>
+      <datalist id="edd-weight-units">
+        {WEIGHT_UNITS.map((item) => (
+          <option key={item.value} value={item.value}></option>
+        ))}
+      </datalist>
       <label className="edd-switch">
         <input
           type="checkbox"
           checked={Boolean(weight.useProductWeight)}
           onChange={(event) => setWeight({ useProductWeight: event.currentTarget.checked })}
         />
-        <span>Fall back to the product variant weight when no weight is set</span>
+        <span>Use the product variant weight instead of the default weight</span>
       </label>
+      <s-paragraph color="subdued">
+        {weight.useProductWeight
+          ? "The availability line uses the Shopify product weight. Default weight is ignored."
+          : `The availability line uses Default weight and Unit${
+              weight.value ? ` (${weight.value} ${weight.unit || "kg"})` : ""
+            }. Turn this on to use each product's own weight.`}
+      </s-paragraph>
 
       {open ? (
         <div className="edd-live-overlay" role="dialog" aria-modal="true" aria-labelledby="edd-weight-title">

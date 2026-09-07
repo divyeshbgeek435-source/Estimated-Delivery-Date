@@ -20,21 +20,24 @@ import { EmbedActivateBanner } from "../common/EmbedActivateBanner";
 import { ErrorBanner } from "../common/Feedback";
 import { WidgetConfirmDialog } from "../common/LivePublishedDialog";
 import { ConditionsTab } from "./ConditionsTab";
-import { ContentTab } from "./ContentTab";
 import { DesignTab } from "./DesignTab";
 import { PlacementTab } from "./PlacementTab";
 import { WidgetStatusPicker } from "./WidgetStatusPicker";
 
 const NEXT_TAB = {
-  conditions: { id: "content", label: "Continue to Content" },
-  content: { id: "design", label: "Continue to Design" },
+  conditions: { id: "design", label: "Continue to Design" },
   design: { id: "placement", label: "Continue to Placement" },
 };
+
+function normalizeTab(value) {
+  if (value === "content" || value === "message" || value === "style") return "design";
+  return EDITOR_TABS.some((item) => item.id === value) ? value : "conditions";
+}
 
 function tabFromUrl() {
   if (typeof window === "undefined") return "conditions";
   const value = new URLSearchParams(window.location.search).get("tab");
-  return EDITOR_TABS.some((item) => item.id === value) ? value : "conditions";
+  return normalizeTab(value);
 }
 
 function SaveStatus({ status, onRetry }) {
@@ -304,11 +307,6 @@ export function WidgetWorkspace({
               />
             </div>
           ) : null}
-          {visitedTabs.has("content") ? (
-            <div className="edd-editor__panel" hidden={tab !== "content"}>
-              <ContentTab widget={widget} draft={draft} onChange={setDraft} errors={saveErrors || errors} />
-            </div>
-          ) : null}
           {visitedTabs.has("design") ? (
             <div className="edd-editor__panel" hidden={tab !== "design"}>
               <DesignTab widget={widget} draft={draft} onChange={setDraft} errors={saveErrors || errors} />
@@ -381,6 +379,7 @@ export function WidgetWorkspace({
             <LiveWidgetPreview
               location={widget.location}
               position={position}
+              cartDisplayMode={draft.cartConfig?.displayMode}
               heading={previewMessage.heading || ""}
               template={previewMessage.template}
               icons={draft.iconConfig}
@@ -391,6 +390,7 @@ export function WidgetWorkspace({
               layout={previewMessage.widgetLayout || "FULL"}
               design={previewMessage.designTemplate || "TIMELINE"}
               showDescription={previewMessage.descriptionEnabled !== false}
+              showHeading={previewMessage.headingEnabled !== false}
             />
           </div>
         </aside>

@@ -29,6 +29,8 @@ import { resolveTimeZone } from "../lib/timezone";
 import { getCollectionProductHandle } from "../services/shopify/catalog.server";
 import { storefrontPageUrl, widgetThemeEditorUrl } from "../lib/theme-editor";
 import { queueWidgetStorefrontSync, needsThemeSync } from "../services/shopify/store-block.server";
+import { mergeIconLibraries } from "../lib/icon-media";
+import { saveMerchantIconLibrary } from "../services/shopify/merchant.server";
 
 async function firstProductHandle(admin, widget) {
   const fromPlacement = widget.placementConfig?.products?.[0]?.handle;
@@ -58,13 +60,21 @@ async function firstProductHandle(admin, widget) {
 }
 
 export const loader = async ({ request, params }) => {
-  const { admin, widget, shop } = await requireWidget(request, params.id);
+  const { admin, widget, shop, merchant } = await requireWidget(request, params.id);
   const [productHandle, deliveryRequests] = await Promise.all([
     firstProductHandle(admin, widget),
     listDeliveryRequests(widget.merchantId, widget.id),
   ]);
+  const iconLibrary = mergeIconLibraries(merchant?.iconLibrary, widget.iconConfig?.savedIcons);
   return {
-    widget: serializeWidget(widget),
+    widget: serializeWidget({
+      ...widget,
+      iconConfig: {
+        ...(widget.iconConfig || {}),
+        savedIcons: iconLibrary,
+      },
+    }),
+    iconLibrary,
     deliveryRequests,
     themeEditorUrl: widgetThemeEditorUrl(shop, widget.location, {
       position: widget.placementConfig?.position,
@@ -112,6 +122,7 @@ function flattenDraft(widget, draft = {}) {
       widgetLayout: message.widgetLayout || "FULL",
       designTemplate: message.designTemplate || "TIMELINE",
       descriptionEnabled: message.descriptionEnabled !== false,
+      headingEnabled: message.headingEnabled !== false,
       translations: message.translations || {},
       purchased: icons.purchased,
       processing: icons.processing,
@@ -127,6 +138,7 @@ function flattenDraft(widget, draft = {}) {
       purchasedColor: icons.purchasedColor || "",
       processingColor: icons.processingColor || "",
       deliveredColor: icons.deliveredColor || "",
+      savedIcons: icons.savedIcons || [],
       scheduledPublishAt: message.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt || null,
       liveNotice: message.liveNotice || widget.messageConfig?.liveNotice || null,
     },
@@ -256,6 +268,11 @@ export const action = async ({ request, params }) => {
         status,
       },
       { returnWidget: intent !== "autosave", location: widget.location },
+    );
+
+    await saveMerchantIconLibrary(
+      merchant.id,
+      mergeIconLibraries(merchant.iconLibrary, messageParsed.data.savedIcons, values.message.savedIcons),
     );
 
     if (intent === "autosave") {

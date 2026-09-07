@@ -6,9 +6,9 @@ export function AppNav() {
       <AppLink nav to="/app">
         Home
       </AppLink>
-      <AppLink nav to="/app/analytics">
+      {/* <AppLink nav to="/app/analytics">
         Analytics
-      </AppLink>
+      </AppLink> */}
     </s-app-nav>
   );
 }

@@ -14,17 +14,25 @@ export function PlacementPreview({ location, position, children }) {
   return <ProductChrome slot={slot}>{children}</ProductChrome>;
 }
 
-export function LiveWidgetPreview({ location, position, ...previewProps }) {
+export function LiveWidgetPreview({ location, position, cartDisplayMode, ...previewProps }) {
   const isCheckout = location === WIDGET_LOCATIONS.CHECKOUT;
   return (
     <PlacementPreview location={location} position={position}>
       {isCheckout ? (
         <div className="edd-checkout-banner">
           <p className="edd-checkout-banner__heading">{previewProps.heading || "Estimated Delivery"}</p>
-          <DeliveryWidgetPreview {...previewProps} heading="" layout="MINIMAL" design="COMPACT" showDescription />
+          <DeliveryWidgetPreview
+            {...previewProps}
+            location={location}
+            cartDisplayMode={cartDisplayMode}
+            heading=""
+            layout="MINIMAL"
+            design="COMPACT"
+            showDescription
+          />
         </div>
       ) : (
-        <DeliveryWidgetPreview {...previewProps} />
+        <DeliveryWidgetPreview {...previewProps} location={location} cartDisplayMode={cartDisplayMode} />
       )}
     </PlacementPreview>
   );

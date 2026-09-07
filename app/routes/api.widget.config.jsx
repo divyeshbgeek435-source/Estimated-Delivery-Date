@@ -61,7 +61,7 @@ async function handleConfig(request) {
   let admin;
   try {
     const context = await authenticate.public.appProxy(request);
-    shop = context.session?.shop;
+    shop = context.session?.shop || new URL(request.url).searchParams.get("shop");
     admin = context.admin;
   } catch {
     return json({ error: "Unauthorized" }, 401);

@@ -46,6 +46,11 @@ export const WEIGHT_UNITS = [
   { value: "oz", label: "oz" },
 ];
 
+export function normalizeWeightUnit(value, fallback = "kg") {
+  const unit = String(value || "").trim().slice(0, 16);
+  return unit || fallback;
+}
+
 export const WEIGHT_DISPLAY_MODES = {
   PINCODE: "PINCODE",
   DIRECT: "DIRECT",
@@ -114,7 +119,7 @@ function normalizeCityEntry(entry) {
   }
   const name = String(entry?.name || "").trim().slice(0, 80);
   if (!name) return null;
-  const unit = WEIGHT_UNITS.some((item) => item.value === entry?.unit) ? entry.unit : "kg";
+  const unit = normalizeWeightUnit(entry?.unit);
   return {
     name,
     state: String(entry?.state || "").trim().slice(0, 80),
@@ -129,7 +134,7 @@ export function normalizePincodeEntry(entry = {}, fallbackMin = 1, fallbackMax =
   const code = normalizePincode(entry.code);
   const from = normalizePincode(entry.from);
   const to = normalizePincode(entry.to);
-  const unit = WEIGHT_UNITS.some((item) => item.value === entry?.unit) ? entry.unit : "kg";
+  const unit = normalizeWeightUnit(entry?.unit);
   return {
     code: code || undefined,
     from: from || undefined,
@@ -149,7 +154,7 @@ function normalizeLocation(entry = {}, shipping = {}) {
   if (!city) return null;
   const fallbackMin = Number(shipping.transitMinDays) || 1;
   const fallbackMax = Number(shipping.transitMaxDays) || fallbackMin;
-  const unit = WEIGHT_UNITS.some((item) => item.value === entry?.unit) ? entry.unit : "kg";
+  const unit = normalizeWeightUnit(entry?.unit);
   const pincodes = Array.isArray(entry.pincodes)
     ? entry.pincodes
         .map((item) => {
@@ -265,7 +270,7 @@ export function hasLocation(rules, country, city, state = "") {
 }
 
 export function normalizeWeightRules(rules = {}) {
-  const unit = WEIGHT_UNITS.some((item) => item.value === rules?.unit) ? rules.unit : "kg";
+  const unit = normalizeWeightUnit(rules?.unit);
   const displayMode =
     rules?.displayMode === WEIGHT_DISPLAY_MODES.DIRECT || rules?.displayMode === WEIGHT_DISPLAY_MODES.PINCODE
       ? rules.displayMode
@@ -375,14 +380,10 @@ export function selectionAllowsPlace(rules = {}, place = {}) {
 }
 
 function weightFromParts(value, unit, weightRules, productWeight) {
-  return formatWeightDisplay(
-    {
-      value: value || weightRules.value,
-      unit: unit || weightRules.unit,
-      useProductWeight: weightRules.useProductWeight,
-    },
-    productWeight,
-  );
+  if (value) {
+    return `${String(value).trim()} ${String(unit || weightRules.unit || "").trim()}`.trim();
+  }
+  return formatWeightDisplay(weightRules, productWeight);
 }
 
 function cityWeight(rules, cityName) {
@@ -527,13 +528,22 @@ export function shippingWithPincodeRule(shipping = {}, rule) {
 
 export function formatWeightDisplay(rules = {}, productWeight = "") {
   const normalized = normalizeWeightRules(rules);
+  const variant = String(productWeight || "").trim();
+  if (normalized.useProductWeight) {
+    return variant;
+  }
   if (normalized.value) {
     return `${normalized.value} ${normalized.unit}`.trim();
   }
-  if (normalized.useProductWeight) {
-    return String(productWeight || "").trim();
-  }
   return "";
+}
+
+export function formatPincodeStatusLine(pincode = {}) {
+  if (pincode.available === false) return pincode.message || "Delivery unavailable";
+  if (!pincode.available) return "";
+  return [pincode.message || PINCODE_AVAILABLE_MESSAGE, pincode.label, pincode.weight]
+    .filter(Boolean)
+    .join(" — ");
 }
 
 export function publicPincodeState(rules, options = {}) {

@@ -9,16 +9,19 @@ import {
   widgetBackground,
 } from "../../lib/delivery-calculator";
 import { resolveTimeZone } from "../../lib/timezone";
-import { isIconEnabled } from "../../lib/icon-media";
+import { isCustomImage, isIconEnabled, safeImageSrc } from "../../lib/icon-media";
 import {
   WEIGHT_DISPLAY_MODES,
   asksForPincode,
   digitsOnly,
+  formatPincodeStatusLine,
   formatWeightDisplay,
   resolveDeliveryAvailability,
   resolveWeightDisplayMode,
   shippingWithPincodeRule,
 } from "../../lib/pincode";
+import { CART_DISPLAY_MODES, ANIMATED_DESIGNS, WIDGET_LOCATIONS } from "../../lib/constants";
+import { AnimatedEtaTemplate, JourneyRange, MessageParts } from "./AnimatedEtaTemplates";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
 
 async function checkDelivery(code, shipping, productWeight = "") {
@@ -45,6 +48,8 @@ async function checkDelivery(code, shipping, productWeight = "") {
   return resolveDeliveryAvailability({ ...options, place });
 }
 
+const EMBEDDED_DESCRIPTION_DESIGNS = new Set(["MOMENT", "EXPRESS", "BUBBLE", "SEGMENTS", "METER", "BAND"]);
+
 export function DeliveryWidgetPreview({
   heading = "",
   template,
@@ -56,14 +61,21 @@ export function DeliveryWidgetPreview({
   layout = "FULL",
   design = "TIMELINE",
   showDescription = true,
+  showHeading = true,
   productWeight = "",
+  location = WIDGET_LOCATIONS.PRODUCT,
+  cartDisplayMode = CART_DISPLAY_MODES.GENERAL,
 }) {
   const zone = resolveTimeZone(timezone);
+  const isCart = location === WIDGET_LOCATIONS.CART || location === WIDGET_LOCATIONS.CHECKOUT;
   const [now, setNow] = useState(() => new Date());
   const [tick, setTick] = useState(() => new Date());
   const [pincodeValue, setPincodeValue] = useState("");
   const [check, setCheck] = useState(null);
   const [checking, setChecking] = useState(false);
+  const previewProductWeight =
+    String(productWeight || "").trim() ||
+    (shipping.weightRules?.useProductWeight ? "product weight" : "");
 
   useEffect(() => {
     const countdown = setInterval(() => setTick(new Date()), 1000);
@@ -75,17 +87,54 @@ export function DeliveryWidgetPreview({
   }, []);
 
   useEffect(() => {
-    if (asksForPincode(shipping.weightRules, shipping.pincodeRules)) return;
+    if (isCart || asksForPincode(shipping.weightRules, shipping.pincodeRules)) return;
     setCheck(null);
     setPincodeValue("");
-  }, [shipping.weightRules, shipping.pincodeRules]);
+  }, [isCart, shipping.weightRules, shipping.pincodeRules]);
+
+  useEffect(() => {
+    if (isCart) {
+      setCheck(null);
+      setPincodeValue("");
+      return;
+    }
+    setCheck((current) => {
+      if (!current?.available || !current.code) return current;
+      const next = resolveDeliveryAvailability({
+        code: current.code,
+        rules: shipping.pincodeRules,
+        weightRules: shipping.weightRules,
+        place: {
+          ok: true,
+          city: current.city,
+          state: current.state,
+          country: current.country,
+          label: current.label,
+        },
+        productWeight: previewProductWeight,
+        shipping,
+      });
+      if (next.weight === current.weight && next.label === current.label && next.message === current.message) {
+        return current;
+      }
+      return {
+        ...current,
+        weight: next.weight,
+        label: next.label || current.label,
+        message: next.message || current.message,
+      };
+    });
+  }, [isCart, shipping, previewProductWeight]);
 
   const pincode = shipping.pincodeRules || {};
   const displayMode = resolveWeightDisplayMode(shipping.weightRules, pincode);
-  const askPincode = asksForPincode(shipping.weightRules, pincode);
-  const directWeight = formatWeightDisplay(shipping.weightRules, productWeight);
+  // Live cart/checkout never shows the pincode/weight checker — keep preview identical.
+  const askPincode = !isCart && asksForPincode(shipping.weightRules, pincode);
+  const showWeight = !isCart && displayMode === WEIGHT_DISPLAY_MODES.DIRECT;
+  const directWeight = formatWeightDisplay(shipping.weightRules, previewProductWeight);
   const matchedShipping = check?.available ? shippingWithPincodeRule(shipping, check) : shipping;
   const showDates =
+    isCart ||
     !askPincode ||
     (displayMode === WEIGHT_DISPLAY_MODES.PINCODE ? check?.available === true : check?.available !== false);
 
@@ -119,7 +168,10 @@ export function DeliveryWidgetPreview({
     [tick, shipping, zone],
   );
 
-  const values = messageValues({ delivery, countdown, now: tick, timezone: zone, dateSettings });
+  const values = {
+    ...messageValues({ delivery, countdown, now: tick, timezone: zone, dateSettings }),
+    image: safeImageSrc(icons.headerIcon),
+  };
   const theme = style.themeColor || "#202223";
   const progress = style.progressColor || "#202223";
   const textColor = style.textColor || "#202223";
@@ -163,13 +215,45 @@ export function DeliveryWidgetPreview({
   const paddingBottom = style.paddingBottom ?? 12;
   const paddingLeft = style.paddingLeft ?? 16;
   const gap = style.paddingMiddle ?? 12;
-  const designName = design || (layout === "MINIMAL" ? "COMPACT" : "TIMELINE");
-  const shownWeight = check?.available ? check.weight : displayMode === WEIGHT_DISPLAY_MODES.DIRECT ? directWeight : "";
+  let designName = design || (layout === "MINIMAL" ? "COMPACT" : "TIMELINE");
+  if (isCart && (designName === "COMPACT" || designName === "MINIMAL")) designName = "TIMELINE";
+  const shownWeight = check?.available ? check.weight : showWeight ? directWeight : "";
+  const showPerProduct =
+    location === WIDGET_LOCATIONS.CART && cartDisplayMode === CART_DISPLAY_MODES.PER_PRODUCT;
+  const sampleAltDelivery = useMemo(
+    () =>
+      calculateDeliveryDate({
+        orderDate: now,
+        processingMinDays: Math.max(0, Number(matchedShipping.processingMinDays) || 1),
+        processingMaxDays: Math.max(0, (Number(matchedShipping.processingMaxDays) || 2) - 1),
+        cutoffTime: matchedShipping.cutoffTime,
+        workingDays: matchedShipping.workingDays,
+        blockedDates: matchedShipping.blockedDates,
+        transitMinDays: Math.max(0, (Number(matchedShipping.transitMinDays) || 2) - 1),
+        transitMaxDays: Math.max(0, (Number(matchedShipping.transitMaxDays) || 5) - 1),
+        transitWorkingDays: matchedShipping.transitWorkingDays,
+        transitBlockedDates: matchedShipping.transitBlockedDates,
+        timezone: zone,
+      }),
+    [now, matchedShipping, zone],
+  );
+  const cartItems = showPerProduct
+    ? [
+        { title: "Sample product A", dates: deliveredDate },
+        {
+          title: "Sample product B",
+          dates: formatTimelineLabel(sampleAltDelivery.deliveryDateMin, sampleAltDelivery.deliveryDateMax),
+        },
+      ]
+    : [];
 
   const deliveredRange = deliveredDate;
   const headerIcon = icons.headerIcon || "flag";
   const headerEnabled = isIconEnabled(icons, "headerIcon");
+  const titleEnabled = showHeading !== false;
   const headingText = heading || "Estimated Delivery Date";
+  const headingWeight = Number(style.headingFontWeight) || 600;
+  const titleStyle = { fontWeight: headingWeight };
 
   const onCheck = async (event) => {
     event.preventDefault();
@@ -177,7 +261,7 @@ export function DeliveryWidgetPreview({
     if (!code) return;
     setChecking(true);
     try {
-      const result = await checkDelivery(code, shipping, productWeight);
+      const result = await checkDelivery(code, shipping, previewProductWeight);
       setCheck(result);
     } catch {
       setCheck({
@@ -210,15 +294,48 @@ export function DeliveryWidgetPreview({
         ["--edd-font"]: `${fontSize}px`,
         ["--edd-date-size"]: `${dateSize}px`,
         ["--edd-status-size"]: `${statusSize}px`,
+        ["--edd-journey-rail"]: `${Math.max(2, Number(style.progressWidth) || 5)}px`,
+        ["--edd-heading-weight"]: headingWeight,
       }}
     >
-      {heading && designName !== "TRACKER" && designName !== "BANNER" && designName !== "CARD" ? (
-        <p className="edd-preview__heading">{heading}</p>
+      {(titleEnabled || headerEnabled) &&
+      designName !== "TRACKER" &&
+      designName !== "JOURNEY" &&
+      designName !== "BANNER" &&
+      designName !== "CARD" &&
+      !ANIMATED_DESIGNS.has(designName) ? (
+        <div className="edd-preview__title-row">
+          {headerEnabled ? (
+            <span className="edd-preview__title-icon" style={{ color: theme }}>
+              <DeliveryIcon key={`title-${headerIcon}`} name={headerIcon} color={theme} />
+            </span>
+          ) : null}
+          {titleEnabled ? (
+            <p className="edd-preview__heading" style={titleStyle}>
+              {headingText}
+            </p>
+          ) : null}
+        </div>
       ) : null}
-      {displayMode === WEIGHT_DISPLAY_MODES.DIRECT ? (
+      {showWeight ? (
         <p className="edd-preview__weight">
           Weight: {shownWeight || (shipping.weightRules?.useProductWeight ? "product weight" : "—")}
         </p>
+      ) : null}
+      {showDates &&
+      showDescription &&
+      ["BANNER", "CARD", "TRACKER"].includes(designName) ? (
+        <div
+          className="edd-preview__message-row essential-estimated-delivery-description"
+          style={{ color: style.dynamicColor || textColor, marginBottom: gap }}
+        >
+          {headerEnabled && isCustomImage(headerIcon) ? (
+            <img className="edd-inline-image edd-inline-image--lead" src={safeImageSrc(headerIcon)} alt="" />
+          ) : null}
+          <p className="edd-preview__message">
+            <MessageParts segments={messageSegments(template, values)} accentColor={style.dynamicColor || textColor} />
+          </p>
+        </div>
       ) : null}
       {showDates && designName === "BANNER" ? (
         <div className="edd-preview__banner">
@@ -228,7 +345,8 @@ export function DeliveryWidgetPreview({
             </span>
           ) : null}
           <p className="edd-preview__banner-text">
-            {headingText} <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
+            {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
+            <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
           </p>
         </div>
       ) : showDates && designName === "CARD" ? (
@@ -239,7 +357,7 @@ export function DeliveryWidgetPreview({
             </span>
           ) : null}
           <p>
-            {headingText}{" "}
+            {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
             <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
           </p>
         </div>
@@ -252,7 +370,7 @@ export function DeliveryWidgetPreview({
               </span>
             ) : null}
             <p>
-              {headingText}{" "}
+              {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
               <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
             </p>
           </div>
@@ -275,22 +393,105 @@ export function DeliveryWidgetPreview({
             ))}
           </div>
         </div>
-      ) : showDates && showDescription ? (
+      ) : showDates && ANIMATED_DESIGNS.has(designName) && designName !== "JOURNEY" ? (
+        <AnimatedEtaTemplate
+          design={designName}
+          steps={steps}
+          headingText={headingText}
+          showHeading={titleEnabled}
+          headingWeight={headingWeight}
+          deliveredRange={deliveredRange}
+          style={style}
+          textColor={textColor}
+          theme={theme}
+          progress={progress}
+          headerEnabled={headerEnabled}
+          headerIcon={headerIcon}
+          showDescription={showDescription}
+          descriptionSegments={messageSegments(template, values)}
+        />
+      ) : showDates && designName === "JOURNEY" ? (
+        <div key={`journey-${designName}`} className="edd-preview__journey">
+          {showDescription ? (
+            <div
+              className="edd-preview__message-row essential-estimated-delivery-description"
+              style={{ color: style.dynamicColor || textColor, marginBottom: gap }}
+            >
+              {headerEnabled && isCustomImage(headerIcon) ? (
+                <img className="edd-inline-image edd-inline-image--lead" src={safeImageSrc(headerIcon)} alt="" />
+              ) : null}
+              <p className="edd-preview__message">
+                <MessageParts segments={messageSegments(template, values)} accentColor={style.dynamicColor || textColor} />
+              </p>
+            </div>
+          ) : null}
+          {(titleEnabled || headerEnabled) ? (
+            <div className="edd-preview__journey-head">
+              {headerEnabled ? (
+                <span className="edd-preview__journey-flag">
+                  <DeliveryIcon key={`journey-${headerIcon}`} name={headerIcon} color={theme} />
+                </span>
+              ) : null}
+              <p>
+                {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
+                <JourneyRange label={deliveredRange} color={style.dynamicColor || textColor} />
+              </p>
+            </div>
+          ) : (
+            <div className="edd-preview__journey-head">
+              <p>
+                <JourneyRange label={deliveredRange} color={style.dynamicColor || textColor} />
+              </p>
+            </div>
+          )}
+          <div className="edd-preview__journey-shell">
+            <div className="edd-preview__journey-steps">
+              {steps.map((step, index) => (
+                <div key={step.key} className="edd-preview__journey-step" style={{ animationDelay: `${180 + index * 100}ms` }}>
+                  {step.enabled ? (
+                    <span className={`edd-preview__journey-icon${index === 1 ? " edd-preview__journey-icon--truck" : ""}`} style={{ color: step.color }}>
+                      <DeliveryIcon key={step.icon} name={step.icon} color={step.color} />
+                    </span>
+                  ) : (
+                    <span className="edd-preview__journey-icon edd-preview__journey-icon--off" aria-hidden="true" />
+                  )}
+                  <span className="edd-preview__journey-label" style={{ color: style.statusColor || textColor }}>
+                    {step.title}
+                  </span>
+                  <strong className="edd-preview__journey-date" style={{ color: style.dateColor || textColor }}>
+                    {step.date}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showDates &&
+      showDescription &&
+      !EMBEDDED_DESCRIPTION_DESIGNS.has(designName) &&
+      designName !== "JOURNEY" &&
+      !["BANNER", "CARD", "TRACKER"].includes(designName) ? (
         <div
           className="edd-preview__message-row essential-estimated-delivery-description"
           style={{ color: style.dynamicColor || textColor, marginBottom: gap }}
         >
-          <span className="edd-preview__clock" aria-hidden="true">
-            <DeliveryIcon name="clockSolid" color={style.dynamicColor || textColor} />
-          </span>
+          {headerEnabled && isCustomImage(headerIcon) ? (
+            <img className="edd-inline-image edd-inline-image--lead" src={safeImageSrc(headerIcon)} alt="" />
+          ) : (
+            <span className="edd-preview__clock" aria-hidden="true">
+              <DeliveryIcon name="clockSolid" color={style.dynamicColor || textColor} />
+            </span>
+          )}
           <p className="edd-preview__message">
-            {messageSegments(template, values).map((part, index) =>
-              part.highlight ? <strong key={index}>{part.text}</strong> : <span key={index}>{part.text}</span>,
-            )}
+            <MessageParts segments={messageSegments(template, values)} accentColor={style.dynamicColor || textColor} />
           </p>
         </div>
       ) : null}
-      {showDates && ["BANNER", "CARD", "TRACKER"].includes(designName) ? null : showDates && designName === "COMPACT" ? (
+      {showDates &&
+      (ANIMATED_DESIGNS.has(designName) || ["BANNER", "CARD", "TRACKER"].includes(designName))
+        ? null
+        : showDates && designName === "COMPACT" ? (
         <p className="edd-preview__minimal" style={{ color: style.dateColor || textColor }}>
           Delivery {deliveredDate}
         </p>
@@ -347,6 +548,16 @@ export function DeliveryWidgetPreview({
           ))}
         </div>
       ) : null}
+      {showPerProduct && showDates ? (
+        <div className="edd-preview__items">
+          {cartItems.map((item) => (
+            <div key={item.title} className="edd-preview__item">
+              <span className="edd-preview__item-title">{item.title}</span>
+              <span className="edd-preview__item-dates">{item.dates}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {askPincode ? (
         <div className="edd-check">
           <p className="edd-check__title">Check delivery</p>
@@ -369,11 +580,9 @@ export function DeliveryWidgetPreview({
               {checking ? "Checking" : "Check"}
             </button>
           </div>
-          {check?.message ? (
-            <p className="edd-check__status" data-tone={check.available ? "ok" : "error"}>
-              {check.available
-                ? `${check.message}${check.label ? ` — ${check.label}` : ""}${check.weight ? ` · ${check.weight}` : ""}`
-                : check.message}
+          {check?.available === false && check?.message ? (
+            <p className="edd-check__status" data-tone="error">
+              {formatPincodeStatusLine(check)}
             </p>
           ) : null}
           {check?.available === false ? (

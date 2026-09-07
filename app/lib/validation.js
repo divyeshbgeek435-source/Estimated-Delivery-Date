@@ -111,7 +111,7 @@ export const shippingSchema = z
                 city: asString("").pipe(z.string().trim().max(80)),
                 state: asOptionalString.pipe(z.string().trim().max(80).optional()),
                 weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
-                unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
+                unit: asOptionalString.pipe(z.string().trim().max(16).optional()),
                 pincodes: z
                   .array(
                     z.union([
@@ -122,7 +122,7 @@ export const shippingSchema = z
                         minDays: z.coerce.number().int().min(0).max(60).optional(),
                         maxDays: z.coerce.number().int().min(0).max(90).optional(),
                         weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
-                        unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
+                        unit: asOptionalString.pipe(z.string().trim().max(16).optional()),
                       }),
                     ]),
                   )
@@ -149,7 +149,7 @@ export const shippingSchema = z
                   name: asString("").pipe(z.string().trim().max(80)),
                   state: asOptionalString.pipe(z.string().trim().max(80).optional()),
                   weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
-                  unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
+                  unit: asOptionalString.pipe(z.string().trim().max(16).optional()),
                 }),
               ]),
             )
@@ -167,7 +167,7 @@ export const shippingSchema = z
                 city: asOptionalString.pipe(z.string().trim().max(80).optional()),
                 state: asOptionalString.pipe(z.string().trim().max(80).optional()),
                 weight: asOptionalString.pipe(z.string().trim().max(32).optional()),
-                unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])).optional(),
+                unit: asOptionalString.pipe(z.string().trim().max(16).optional()),
               }),
             )
             .max(2500)
@@ -180,7 +180,7 @@ export const shippingSchema = z
       z
         .object({
           value: asString("").pipe(z.string().trim().max(32)),
-          unit: z.preprocess((value) => value || "kg", z.enum(["kg", "g", "lb", "oz"])),
+          unit: asString("kg").pipe(z.string().trim().max(16)),
           useProductWeight: z.preprocess(
             (value) => value === true || value === "true" || value === "on" || value === "1",
             z.boolean(),
@@ -226,9 +226,28 @@ export const messageSchema = z.object({
   widgetLayout: z.preprocess((value) => value || "FULL", z.enum(["FULL", "MINIMAL"])),
   designTemplate: z.preprocess(
     (value) => value || "TIMELINE",
-    z.enum(["TIMELINE", "COMPACT", "STACKED", "PILL", "CARD", "TRACKER", "BANNER"]),
+    z.enum([
+      "TIMELINE",
+      "JOURNEY",
+      "MOMENT",
+      "BUBBLE",
+      "EXPRESS",
+      "SEGMENTS",
+      "METER",
+      "BAND",
+      "COMPACT",
+      "STACKED",
+      "PILL",
+      "CARD",
+      "TRACKER",
+      "BANNER",
+    ]),
   ),
   descriptionEnabled: z.preprocess(
+    (value) => value === true || value === "true" || value === "on" || value === "1" || value === undefined,
+    z.boolean(),
+  ),
+  headingEnabled: z.preprocess(
     (value) => value === true || value === "true" || value === "on" || value === "1" || value === undefined,
     z.boolean(),
   ),
@@ -244,14 +263,26 @@ export const messageSchema = z.object({
     )
     .nullish()
     .transform((value) => value || {}),
-  purchased: asString("bag").pipe(z.string().min(1).max(180000)),
-  processing: asString("truck").pipe(z.string().min(1).max(180000)),
-  delivered: asString("pin").pipe(z.string().min(1).max(180000)),
-  headerIcon: asString("flag").pipe(z.string().min(1).max(180000)),
+  purchased: asString("bag").pipe(z.string().min(1).max(400000)),
+  processing: asString("truck").pipe(z.string().min(1).max(400000)),
+  delivered: asString("pin").pipe(z.string().min(1).max(400000)),
+  headerIcon: asString("flag").pipe(z.string().min(1).max(400000)),
   headerIconEnabled: asEnabled,
   purchasedEnabled: asEnabled,
   processingEnabled: asEnabled,
   deliveredEnabled: asEnabled,
+  savedIcons: z
+    .array(
+      z.object({
+        id: asString(),
+        src: asString().pipe(z.string().min(1).max(400000)),
+        kind: z.preprocess((value) => value || "static", z.enum(["static", "animated"])),
+        label: asString("Custom icon").pipe(z.string().trim().max(40)),
+        addedAt: asOptionalString,
+      }),
+    )
+    .nullish()
+    .transform((value) => value || []),
   purchasedTitle: z.preprocess(
     (value) => (value == null || value === "" ? "Purchased" : value),
     z.string().trim().min(1).max(40),
@@ -298,6 +329,7 @@ export const styleSchema = z.object({
   dateFontSize: z.coerce.number().int().min(8).max(24).default(11),
   dateColor: hexColor("#202223"),
   dynamicColor: hexColor("#202223"),
+  headingFontWeight: z.coerce.number().int().min(400).max(900).default(600),
   customCss: asString("").pipe(z.string().max(4000)),
 });
 

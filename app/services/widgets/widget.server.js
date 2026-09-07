@@ -17,6 +17,7 @@ import { normalizePincodeRules, normalizeWeightRules, toCountryRules } from "../
 import { syncedPlacementIds } from "../../lib/form.server";
 import { normalizePosition } from "../../lib/widget-profiles";
 import { resolveTimeZone } from "../../lib/timezone";
+import { normalizeIconLibrary } from "../../lib/icon-media";
 import { findMerchantByShopDomain } from "../shopify/merchant.server";
 import { syncWidgetStorefrontByShop } from "../shopify/store-block.server";
 
@@ -73,6 +74,7 @@ function prismaMessageData(message = {}) {
     includeYear: merged.includeYear,
     widgetLayout: merged.widgetLayout || "FULL",
     descriptionEnabled: merged.descriptionEnabled !== false,
+    headingEnabled: merged.headingEnabled !== false,
     translations,
   };
 }
@@ -126,6 +128,7 @@ function withDefaults(widget) {
       purchasedTitle: widget.iconConfig?.purchasedTitle || DEFAULT_ICONS.purchasedTitle,
       processingTitle: widget.iconConfig?.processingTitle || DEFAULT_ICONS.processingTitle,
       deliveredTitle: widget.iconConfig?.deliveredTitle || DEFAULT_ICONS.deliveredTitle,
+      savedIcons: normalizeIconLibrary(widget.iconConfig?.savedIcons),
     },
     styleConfig: { ...DEFAULT_STYLE, ...compact(widget.styleConfig || {}) },
     placementConfig: {
@@ -383,6 +386,7 @@ function iconCreateData(icon = {}) {
     purchasedColor: merged.purchasedColor || "",
     processingColor: merged.processingColor || "",
     deliveredColor: merged.deliveredColor || "",
+    savedIcons: normalizeIconLibrary(merged.savedIcons),
   };
 }
 
@@ -677,10 +681,12 @@ export async function deleteWidget(merchantId, widgetId) {
   });
   if (!widget) return false;
 
-  await Promise.all([
-    prisma.deliveryRequest.deleteMany({ where: { widgetId } }),
-    prisma.widgetEvent.deleteMany({ where: { widgetId } }),
-  ]);
+  await Promise.all(
+    [
+      prisma.widgetEvent.deleteMany({ where: { widgetId } }),
+      prisma.deliveryRequest?.deleteMany({ where: { widgetId } }),
+    ].filter(Boolean),
+  );
   await prisma.widget.delete({ where: { id: widgetId } });
 
   return true;
@@ -756,6 +762,7 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     purchasedColor: values.purchasedColor || "",
     processingColor: values.processingColor || "",
     deliveredColor: values.deliveredColor || "",
+    savedIcons: normalizeIconLibrary(values.savedIcons),
   };
 
   const stylePayload = {
@@ -784,6 +791,7 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     dateFontSize: values.dateFontSize,
     dateColor: values.dateColor,
     dynamicColor: values.dynamicColor,
+    headingFontWeight: Number(values.headingFontWeight) || 600,
     customCss: values.customCss || "",
   };
 

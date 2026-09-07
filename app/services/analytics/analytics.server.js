@@ -1,6 +1,11 @@
-import prisma from "../../lib/prisma.server";
-import { EVENT_TYPES } from "../../lib/constants";
+import prisma, { hasWidgetEventKind } from "../../lib/prisma.server";
+import { ACTIVITY_KINDS, EVENT_TYPES } from "../../lib/constants";
 import { publicPincodeState, resolveWeightDisplayMode } from "../../lib/pincode";
+
+function newEventKey(type, widgetId) {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `evt:${type}:${widgetId}:${Date.now()}:${rand}`;
+}
 
 export async function recordWidgetEvent({
   widgetId,
@@ -10,6 +15,11 @@ export async function recordWidgetEvent({
   metadata,
   eventKey,
 }) {
+  // Mongo unique indexes treat missing/null eventKey as one value, so every insert
+  // needs a distinct key. Client-supplied keys are still used for idempotent dedupe.
+  const key = eventKey || newEventKey(type, widgetId);
+  const now = new Date();
+
   if (eventKey) {
     const existing = await prisma.widgetEvent.findUnique({
       where: { eventKey },
@@ -26,11 +36,16 @@ export async function recordWidgetEvent({
         type,
         productId: productId || null,
         metadata: metadata || undefined,
-        eventKey: eventKey || undefined,
+        eventKey: key,
+        timestamp: now,
+        createdAt: now,
+        ...(hasWidgetEventKind() ? { kind: ACTIVITY_KINDS.EVENT } : {}),
       },
+      select: { id: true },
     });
   } catch (error) {
-    if (error?.code === "P2002") return { id: null };
+    // Only treat unique conflicts as success when the caller asked for dedupe.
+    if (error?.code === "P2002" && eventKey) return { id: null };
     throw error;
   }
 }
@@ -56,7 +71,10 @@ export async function getWidgetMetrics(widgetIds, options = {}) {
     return {};
   }
 
-  const where = { widgetId: { in: widgetIds } };
+  const where = {
+    widgetId: { in: widgetIds },
+    type: { in: Object.values(EVENT_TYPES) },
+  };
   if (options.since) where.timestamp = { gte: options.since };
 
   const grouped = await prisma.widgetEvent.groupBy({
@@ -89,7 +107,7 @@ export async function getMerchantTotals(merchantId) {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const grouped = await prisma.widgetEvent.groupBy({
     by: ["type"],
-    where: { merchantId, timestamp: { gte: since } },
+    where: { merchantId, type: { in: Object.values(EVENT_TYPES) }, timestamp: { gte: since } },
     _count: { _all: true },
   });
 
@@ -129,6 +147,7 @@ export function publicStorefrontConfig(widget, delivery, options = {}) {
     layout: widget.messageConfig.widgetLayout || "FULL",
     design: widget.messageConfig.designTemplate || "TIMELINE",
     descriptionEnabled: widget.messageConfig.descriptionEnabled !== false,
+    headingEnabled: widget.messageConfig.headingEnabled !== false,
     pincode,
     weight: {
       displayMode,
@@ -171,6 +190,7 @@ export function publicStorefrontConfig(widget, delivery, options = {}) {
       dateFontSize: widget.styleConfig.dateFontSize,
       dateColor: widget.styleConfig.dateColor,
       dynamicColor: widget.styleConfig.dynamicColor,
+      headingFontWeight: widget.styleConfig.headingFontWeight || 600,
       customCss: widget.styleConfig.customCss,
     },
     cart: widget.cartConfig,

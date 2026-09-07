@@ -5,8 +5,9 @@ import { recordWidgetEvent } from "../services/analytics/analytics.server";
 
 async function identifyShop(request) {
   try {
-    const { session } = await authenticate.public.appProxy(request);
-    if (session?.shop) return { shop: session.shop, cors: null };
+    const context = await authenticate.public.appProxy(request);
+    const shop = context.session?.shop || new URL(request.url).searchParams.get("shop");
+    if (shop) return { shop, cors: null };
   } catch {
     // Fall through to checkout authentication.
   }
@@ -88,7 +89,7 @@ async function handleEvent(request) {
       return jsonWithCors({ error: "Unknown widget" }, 404, cors);
     }
 
-    await recordWidgetEvent({
+    const saved = await recordWidgetEvent({
       widgetId: widget.id,
       merchantId: widget.merchantId,
       type: parsed.data.type,
@@ -96,6 +97,9 @@ async function handleEvent(request) {
       eventKey: parsed.data.eventKey,
       metadata: { source: "storefront" },
     });
+    if (parsed.data.type === "IMPRESSION") {
+      console.info("[edd] impression recorded", widget.id, shop, saved?.id || "duplicate");
+    }
   } catch (error) {
     console.warn("[edd] widget event failed", error?.message || error);
     return jsonWithCors({ error: "Could not record event" }, 500, cors);
@@ -105,7 +109,13 @@ async function handleEvent(request) {
 }
 
 function jsonWithCors(body, status, cors) {
-  const response = Response.json(body, { status });
+  const response = Response.json(body, {
+    status,
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+    },
+  });
   return cors ? cors(response) : response;
 }
 

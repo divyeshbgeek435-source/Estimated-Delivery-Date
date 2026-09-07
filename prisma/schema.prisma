@@ -31,14 +31,26 @@ model Session {
 }
 
 model Merchant {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
-  shopDomain    String    @unique
-  timezone      String    @default("UTC")
-  billingPlan   String    @default("FREE")
-  uninstalledAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  widgets       Widget[]
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  shopDomain      String    @unique
+  timezone        String    @default("UTC")
+  billingPlan     String    @default("FREE")
+  email           String?
+  firstName       String?
+  lastName        String?
+  accountOwner    Boolean?
+  userId          String?
+  locale          String?
+  collaborator    Boolean?
+  emailVerified   Boolean?
+  shopOwnerName   String?
+  contactEmail    String?
+  profileSyncedAt DateTime?
+  uninstalledAt   DateTime?
+  iconLibrary     Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  widgets         Widget[]
 }
 
 model Widget {
@@ -62,8 +74,7 @@ model Widget {
   cartConfig      CartConfig?
   checkoutConfig  CheckoutConfig?
 
-  events           WidgetEvent[]
-  deliveryRequests DeliveryRequest[]
+  events WidgetEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -95,6 +106,7 @@ type MessageConfig {
   includeYear         Boolean @default(true)
   widgetLayout        String  @default("FULL")
   descriptionEnabled  Boolean @default(true)
+  headingEnabled      Boolean @default(true)
   translations        Json?
 }
 
@@ -113,6 +125,7 @@ type IconConfig {
   purchasedColor  String @default("")
   processingColor String @default("")
   deliveredColor  String @default("")
+  savedIcons      Json?
 }
 
 type StyleConfig {
@@ -141,6 +154,7 @@ type StyleConfig {
   dateFontSize       Int    @default(11)
   dateColor          String @default("#202223")
   dynamicColor       String @default("#202223")
+  headingFontWeight  Int    @default(600)
   customCss          String @default("")
 }
 
@@ -173,37 +187,29 @@ type CheckoutConfig {
 }
 
 model WidgetEvent {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  widgetId   String   @db.ObjectId
-  widget     Widget   @relation(fields: [widgetId], references: [id])
-  merchantId String   @db.ObjectId
-  type       String
-  productId  String?
-  timestamp  DateTime @default(now())
-  metadata   Json?
-  eventKey   String?  @unique
-
-  @@index([widgetId, type])
-  @@index([merchantId, type, timestamp])
-}
-
-model DeliveryRequest {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   widgetId     String   @db.ObjectId
   widget       Widget   @relation(fields: [widgetId], references: [id])
   merchantId   String   @db.ObjectId
-  pincode      String
-  country      String   @default("IN")
-  city         String   @default("")
-  state        String   @default("")
+  kind         String   @default("EVENT")
+  type         String
+  status       String?
   productId    String?
   productTitle String?
-  status       String   @default("PENDING")
+  pincode      String?
+  country      String?
+  city         String?
+  state        String?
+  timestamp    DateTime @default(now())
+  metadata     Json?
+  eventKey     String?  @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@index([widgetId, status])
-  @@index([merchantId, status, createdAt])
+  @@index([widgetId, type])
+  @@index([merchantId, type, timestamp])
+  @@index([widgetId, kind, status])
+  @@index([merchantId, kind, status, createdAt])
 }
 
 model ProcessedWebhook {

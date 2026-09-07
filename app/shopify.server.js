@@ -6,7 +6,21 @@ import {
 } from "@shopify/shopify-app-react-router/server";
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./lib/prisma.server.js";
-import { ensureMerchant } from "./services/shopify/merchant.server.js";
+import { persistSessionIdentity, syncMerchantProfile } from "./services/shopify/merchant.server.js";
+
+const prismaSessions = new PrismaSessionStorage(prisma);
+const profileSessionStorage = new Proxy(prismaSessions, {
+  get(target, prop, receiver) {
+    if (prop === "storeSession") {
+      return async (session) => {
+        const saved = await target.storeSession(session);
+        await persistSessionIdentity(session).catch(() => {});
+        return saved;
+      };
+    }
+    return Reflect.get(target, prop, receiver);
+  },
+});
 
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
@@ -22,14 +36,15 @@ const shopify = shopifyApp({
     .filter(Boolean),
   appUrl: process.env.SHOPIFY_APP_URL || "",
   authPathPrefix: "/auth",
-  sessionStorage: new PrismaSessionStorage(prisma),
+  sessionStorage: profileSessionStorage,
+  useOnlineTokens: true,
   distribution: AppDistribution.AppStore,
   future: {
     expiringOfflineAccessTokens: true,
   },
   hooks: {
-    afterAuth: async ({ session }) => {
-      await ensureMerchant(session.shop);
+    afterAuth: async ({ session, admin }) => {
+      await syncMerchantProfile({ session, admin });
     },
   },
   ...(process.env.SHOP_CUSTOM_DOMAIN

@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { ICON_OPTIONS } from "../../lib/constants";
-import { isCustomImage, resizeImageFile } from "../../lib/icon-media";
+import { ANIMATED_ICON_OPTIONS, ICON_OPTIONS } from "../../lib/constants";
+import {
+  createLibraryIcon,
+  isAnimatedSrc,
+  isCustomImage,
+  mergeIconLibraries,
+  normalizeIconLibrary,
+  resizeImageFile,
+} from "../../lib/icon-media";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
 
 function remoteUrlValue(value) {
@@ -16,6 +23,8 @@ export function IconMediaPicker({
   color,
   fallback = "bag",
   enabled = true,
+  library = [],
+  onLibraryChange,
   onEnabledChange,
   onChange,
   error,
@@ -25,11 +34,26 @@ export function IconMediaPicker({
   const [message, setMessage] = useState("");
   const current = value || fallback;
   const [urlValue, setUrlValue] = useState(() => remoteUrlValue(current));
+  const [tab, setTab] = useState(() =>
+    ANIMATED_ICON_OPTIONS.some((item) => item.value === current)
+      ? "animated"
+      : isCustomImage(current)
+        ? "library"
+        : "static",
+  );
   const active = enabled !== false;
+  const saved = normalizeIconLibrary(library);
 
   useEffect(() => {
     setUrlValue(remoteUrlValue(value || fallback));
   }, [value, fallback]);
+
+  const remember = (src, labelHint) => {
+    if (!onLibraryChange || !isCustomImage(src)) return;
+    const entry = createLibraryIcon({ src, label: labelHint, kind: isAnimatedSrc(src) ? "animated" : "static" });
+    if (!entry) return;
+    onLibraryChange(mergeIconLibraries(saved, [entry]));
+  };
 
   const pickFile = async (event) => {
     const file = event.currentTarget.files?.[0];
@@ -38,13 +62,23 @@ export function IconMediaPicker({
     setBusy(true);
     setMessage("");
     try {
-      onChange(await resizeImageFile(file));
-    } catch (error) {
-      setMessage(error?.message || "Could not upload that image.");
+      const src = await resizeImageFile(file);
+      onChange(src);
+      remember(src, file.name);
+      setTab("library");
+    } catch (err) {
+      setMessage(err?.message || "Could not upload that image.");
     } finally {
       setBusy(false);
     }
   };
+
+  const removeSaved = (id) => {
+    if (!onLibraryChange) return;
+    onLibraryChange(saved.filter((item) => item.id !== id));
+  };
+
+  const options = tab === "animated" ? ANIMATED_ICON_OPTIONS : ICON_OPTIONS;
 
   return (
     <div className={`edd-icon-card ${active ? "" : "edd-icon-card--off"}`}>
@@ -73,11 +107,11 @@ export function IconMediaPicker({
               disabled={!active || busy}
               onClick={() => fileRef.current?.click()}
             >
-              {busy ? "Uploading…" : isCustomImage(current) ? "Change image" : "Upload image"}
+              {busy ? "Uploading…" : isCustomImage(current) ? "Change image" : "Upload icon"}
             </button>
             {isCustomImage(current) ? (
               <button type="button" className="edd-btn" disabled={!active} onClick={() => onChange(fallback)}>
-                Use icon
+                Use built-in
               </button>
             ) : null}
           </div>
@@ -94,7 +128,7 @@ export function IconMediaPicker({
           label={`${label} URL`}
           labelAccessibilityVisibility="exclusive"
           value={urlValue}
-          placeholder="Paste an image URL"
+          placeholder="Paste a static or animated image URL"
           disabled={!active}
           onInput={(event) => {
             if (!active) return;
@@ -103,15 +137,70 @@ export function IconMediaPicker({
             const next = typed.trim();
             if (isCustomImage(next)) {
               onChange(next);
+              remember(next, "Linked icon");
+              setTab("library");
               return;
             }
             if (!next && remoteUrlValue(current)) onChange(fallback);
           }}
         ></s-text-field>
-        <details className="edd-icon-change__picker" open={active ? undefined : false}>
-          <summary>Choose an icon</summary>
+
+        <div className="edd-icon-tabs" role="tablist" aria-label="Icon type">
+          {[
+            { id: "static", label: "Static" },
+            { id: "animated", label: "Animated" },
+            { id: "library", label: `My icons${saved.length ? ` (${saved.length})` : ""}` },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              className={`edd-icon-tab${tab === item.id ? " is-active" : ""}`}
+              aria-selected={tab === item.id}
+              disabled={!active}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "library" ? (
+          saved.length ? (
+            <div className="edd-icon-grid edd-icon-grid--library">
+              {saved.map((item) => (
+                <div key={item.id} className="edd-icon-library-item">
+                  <button
+                    type="button"
+                    className="edd-icon-option"
+                    aria-pressed={current === item.src}
+                    disabled={!active}
+                    onClick={() => onChange(item.src)}
+                  >
+                    <DeliveryIcon name={item.src} />
+                    <span>
+                      {item.label}
+                      {item.kind === "animated" ? " · animated" : ""}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="edd-icon-library-remove"
+                    disabled={!active}
+                    aria-label={`Remove ${item.label}`}
+                    onClick={() => removeSaved(item.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="edd-icon-empty">Upload or paste an icon to reuse it across every template.</p>
+          )
+        ) : (
           <div className="edd-icon-grid">
-            {ICON_OPTIONS.map((option) => (
+            {options.map((option) => (
               <button
                 key={option.value}
                 type="button"
@@ -125,7 +214,7 @@ export function IconMediaPicker({
               </button>
             ))}
           </div>
-        </details>
+        )}
       </div>
       {error || message ? <s-banner tone="critical">{error || message}</s-banner> : null}
     </div>

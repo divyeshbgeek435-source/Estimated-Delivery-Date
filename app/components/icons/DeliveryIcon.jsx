@@ -1,3 +1,5 @@
+import { ANIMATED_ICON_MAP } from "../../lib/constants";
+
 const ICONS = {
   package: (
     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -70,7 +72,8 @@ const ICONS = {
 };
 
 export function DeliveryIcon({ name, color }) {
-  const src = /^(https?:\/\/|data:image\/|blob:|\/\/)/i.test(String(name || "").trim()) ? String(name).trim() : "";
+  const value = String(name || "").trim();
+  const src = /^(https?:\/\/|data:image\/|blob:|\/\/)/i.test(value) ? value : "";
   if (src) {
     return (
       <span className="edd-icon edd-icon--image" style={{ color }}>
@@ -78,9 +81,23 @@ export function DeliveryIcon({ name, color }) {
       </span>
     );
   }
+
+  const animated = ANIMATED_ICON_MAP[value];
+  if (animated) {
+    return (
+      <span
+        className={`edd-icon edd-icon--anim edd-icon--${animated.motion}`}
+        style={{ color }}
+        data-motion={animated.motion}
+      >
+        {ICONS[animated.base] || ICONS.package}
+      </span>
+    );
+  }
+
   return (
     <span className="edd-icon" style={{ color }}>
-      {ICONS[name] || ICONS.package}
+      {ICONS[value] || ICONS.package}
     </span>
   );
 }

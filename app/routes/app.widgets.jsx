@@ -1,8 +1,8 @@
 import { Outlet } from "react-router";
-import { authenticate } from "../shopify.server";
+import { requireAdmin } from "../lib/auth.server";
 
 export const loader = async ({ request }) => {
-  await authenticate.admin(request);
+  await requireAdmin(request);
   return {};
 };
 

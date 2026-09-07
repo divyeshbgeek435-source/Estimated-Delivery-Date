@@ -33,6 +33,22 @@
       const src = value.startsWith("data:image/") ? value.replace(/"/g, "") : escapeHtml(value);
       return `<span class="edd-icon edd-icon--image"><img src="${src}" alt=""></span>`;
     }
+    const animated = {
+      animTruck: { base: "truck", motion: "drive" },
+      animPackage: { base: "package", motion: "bounce" },
+      animBox: { base: "box", motion: "shake" },
+      animClock: { base: "clock", motion: "tick" },
+      animBag: { base: "bag", motion: "float" },
+      animPin: { base: "pin", motion: "drop" },
+      animCheck: { base: "check", motion: "pop" },
+      animHome: { base: "home", motion: "bob" },
+      animFlag: { base: "flag", motion: "wave" },
+      animCalendar: { base: "calendar", motion: "flip" },
+    }[value];
+    if (animated) {
+      const svg = ICON_SVGS[animated.base] || ICON_SVGS.package;
+      return `<span class="edd-icon edd-icon--anim edd-icon--${animated.motion}" data-motion="${animated.motion}">${svg}</span>`;
+    }
     const svg = ICON_SVGS[value] || ICON_SVGS.package || ICON_SVGS.bag;
     return `<span class="edd-icon">${svg}</span>`;
   }
@@ -55,8 +71,21 @@
 
   const HIGHLIGHT_KEYS = /^(counter|countdown|delivery_from|delivery_to|delivery_date|processing_from|processing_to|processing_date|ordered_date|order_date)$/;
 
+  function customImageSrc(value) {
+    const src = String(value || "").trim();
+    if (!/^(https?:\/\/|data:image\/|blob:|\/\/)/i.test(src)) return "";
+    if (src.startsWith("data:image/") && src.length > 400000) return "";
+    return src;
+  }
+
   function applyTags(template, delivery, highlight) {
     return String(template || "").replace(/\{([a-z_]+)\}/gi, (match, key) => {
+      if (key === "image") {
+        const src = customImageSrc(delivery?.image);
+        if (!src) return "";
+        const safe = src.startsWith("data:image/") ? src.replace(/"/g, "") : escapeHtml(src);
+        return `<img class="edd-inline-image" src="${safe}" alt="" />`;
+      }
       if (!Object.prototype.hasOwnProperty.call(delivery || {}, key)) return match;
       const value = escapeHtml(delivery[key] ?? "");
       return highlight && HIGHLIGHT_KEYS.test(key) ? `<strong>${value}</strong>` : value;
@@ -208,34 +237,76 @@
   }
 
   function isOkPayload(payload) {
-    return Boolean(payload && (payload.ok || payload.id) && !payload.error);
+    return Boolean(payload && (payload.ok === true || payload.id) && !payload.error);
   }
 
-  async function sendProxy(url, params, { keepalive = false } = {}) {
+  async function sendProxy(url, params, { keepalive = false, method = "auto" } = {}) {
     const encoded = params.toString();
     const headers = { Accept: "application/json" };
-    const withQuery = `${url.pathname}${url.search}${url.search ? "&" : "?"}${encoded}`;
-    const getResponse = await fetch(withQuery, {
-      method: "GET",
-      credentials: "same-origin",
-      cache: "no-store",
-      headers,
-      keepalive,
-    });
-    const getPayload = await getResponse.json().catch(() => ({}));
-    if (getResponse.ok && isOkPayload(getPayload)) return getPayload;
+    const path = `${url.pathname}${url.search || ""}`;
+    const withQuery = `${path}${path.includes("?") ? "&" : "?"}${encoded}`;
 
-    const postResponse = await fetch(withQuery, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
-      body: encoded,
-      credentials: "same-origin",
-      cache: "no-store",
-      keepalive,
-    });
-    const postPayload = await postResponse.json().catch(() => ({}));
-    if (postResponse.ok && isOkPayload(postPayload)) return postPayload;
-    throw new Error(postPayload.error || getPayload.error || "request failed");
+    const tryPost = async (useKeepalive) => {
+      // Put params in the query too — app proxy sometimes forwards POST without the body.
+      const response = await fetch(withQuery, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
+        body: encoded,
+        credentials: "same-origin",
+        cache: "no-store",
+        keepalive: useKeepalive,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok && isOkPayload(payload)) return payload;
+      throw new Error(payload.error || `request failed (${response.status})`);
+    };
+
+    const tryGet = async (useKeepalive) => {
+      const response = await fetch(withQuery, {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers,
+        keepalive: useKeepalive,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok && isOkPayload(payload)) return payload;
+      throw new Error(payload.error || `request failed (${response.status})`);
+    };
+
+    if (method === "POST") {
+      try {
+        return await tryPost(false);
+      } catch (firstError) {
+        if (keepalive) {
+          try {
+            return await tryPost(true);
+          } catch {
+            // fall through
+          }
+        }
+        throw firstError;
+      }
+    }
+
+    if (method === "GET") {
+      return tryGet(false);
+    }
+
+    // App proxy often strips POST bodies; prefer query-string GET (same as config).
+    try {
+      return await tryGet(false);
+    } catch {
+      try {
+        return await tryPost(false);
+      } catch (error) {
+        if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+          const blank = new Blob([encoded], { type: "application/x-www-form-urlencoded" });
+          if (navigator.sendBeacon(withQuery, blank)) return { ok: true, beacon: true };
+        }
+        throw error;
+      }
+    }
   }
 
   function shouldShowDates(widget) {
@@ -262,6 +333,147 @@
     return Math.max(min, next);
   }
 
+  function journeyRangeHtml(label, color) {
+    const text = String(label || "").trim();
+    if (!text) return "";
+    const parts = text.split(/\s+-\s+|\s+to\s+/i);
+    if (parts.length === 2) {
+      let start = parts[0];
+      let end = parts[1];
+      if (/^\d/.test(end) && /^[A-Za-z]/.test(start)) {
+        end = `${start.split(/\s+/)[0]} ${end}`;
+      }
+      return `<strong style="color:${color}">${escapeHtml(start)}</strong> to <strong style="color:${color}">${escapeHtml(end)}</strong>`;
+    }
+    return `<strong style="color:${color}">${escapeHtml(text)}</strong>`;
+  }
+
+  function animatedTemplateHtml({
+    design,
+    steps,
+    headingText,
+    showHeading,
+    headingWeight,
+    deliveredRange,
+    style,
+    textColor,
+    theme,
+    progress,
+    headerEnabled,
+    headerIcon,
+    showDescription,
+    descriptionHtml,
+  }) {
+    const accent = style.dynamicColor || style.dateColor || progress || theme;
+    const status = style.statusColor || textColor;
+    const date = style.dateColor || accent;
+    const range = journeyRangeHtml(deliveredRange, accent);
+    const titleOn = showHeading !== false;
+    const weight = Number(headingWeight) || 600;
+    const titleStyle = `font-weight:${weight}`;
+    const headerIconHtml = headerEnabled
+      ? `<span class="edd-anim__header-icon" style="color:${theme}">${icon(headerIcon || "flag")}</span>`
+      : "";
+    const titleRow = (className = "edd-anim__title-row") =>
+      titleOn || headerEnabled
+        ? `<div class="${className}">${headerIconHtml}${
+            titleOn ? `<p class="edd-anim__title" style="${titleStyle}">${escapeHtml(headingText || "Estimated Delivery Date")}</p>` : ""
+          }</div>`
+        : "";
+    const lead =
+      showDescription && descriptionHtml
+        ? `<p class="edd-anim__lead" style="color:${accent}" data-edd-message>${descriptionHtml}</p>`
+        : "";
+    const leadAbove =
+      showDescription && descriptionHtml
+        ? `<p class="edd-anim__lead edd-anim__lead--above" style="color:${accent}" data-edd-message>${descriptionHtml}</p>`
+        : "";
+    const stepIcon = (step, index, className) =>
+      step.enabled
+        ? `<span class="${className}${index === 1 ? " is-truck" : ""}" style="color:${step.color}">${icon(step.icon)}</span>`
+        : `<span class="${className} is-off" aria-hidden="true"></span>`;
+
+    if (design === "MOMENT") {
+      const eyebrow =
+        titleOn || headerEnabled
+          ? `<p class="edd-anim__eyebrow" style="${titleOn ? titleStyle : ""}">${headerIconHtml}${
+              titleOn ? escapeHtml(headingText || "") : ""
+            }</p>`
+          : "";
+      return `<div class="edd-anim edd-anim--moment"><div class="edd-anim__copy">${eyebrow}${lead}</div><div class="edd-anim__rail-wrap"><span class="edd-anim__rail edd-anim__rail--dashed" style="color:${progress}" aria-hidden="true"></span><span class="edd-anim__rail-fill" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__nodes">${steps
+        .map(
+          (step, index) =>
+            `<span class="edd-anim__node${index === 0 ? " is-hollow" : ""}" style="border-color:${progress};background:${index === 0 ? "#fff" : progress};animation-delay:${180 + index * 120}ms"></span>`,
+        )
+        .join("")}</div></div><div class="edd-anim__steps">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__step" style="animation-delay:${220 + index * 120}ms">${stepIcon(step, index, "edd-anim__icon")}<span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+        )
+        .join("")}</div></div>`;
+    }
+
+    if (design === "BUBBLE") {
+      const bannerIcon = headerEnabled
+        ? `<span class="edd-anim__banner-icon" style="color:${theme}">${icon(headerIcon || "bag")}</span>`
+        : "";
+      const titleBit = titleOn ? `<span style="${titleStyle}">${escapeHtml(headingText || "Delivery Date")} </span>` : "";
+      return `<div class="edd-anim edd-anim--bubble">${leadAbove}<div class="edd-anim__banner"><span>${titleBit}${range}</span>${bannerIcon}</div><div class="edd-anim__bubble-shell"><span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__step" style="animation-delay:${180 + index * 110}ms"><span class="edd-anim__bubble${index === 1 ? " is-truck" : ""}" style="color:${step.color}">${step.enabled ? icon(step.icon) : ""}</span><span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+        )
+        .join("")}</div></div></div>`;
+    }
+
+    if (design === "EXPRESS") {
+      const clock = headerEnabled
+        ? `<span class="edd-anim__express-clock" style="color:${theme}">${icon(headerIcon || "clock")}</span>`
+        : "";
+      const sub =
+        showDescription && descriptionHtml
+          ? `<p class="edd-anim__express-sub" style="color:${accent}" data-edd-message>${descriptionHtml}</p>`
+          : `<p class="edd-anim__express-sub">Estimated Delivery Date ${range}</p>`;
+      const titleBit =
+        titleOn && headingText ? `<p class="edd-anim__express-title" style="${titleStyle}">${escapeHtml(headingText)}</p>` : "";
+      return `<div class="edd-anim edd-anim--express"><div class="edd-anim__express-head">${clock}<div>${titleBit}${sub}</div></div><div class="edd-anim__express-shell"><span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__step" style="animation-delay:${180 + index * 110}ms"><span class="edd-anim__circle${index === 1 ? " is-truck" : ""}" style="background:${progress};color:#fff">${step.enabled ? icon(step.icon) : ""}</span><span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+        )
+        .join("")}</div></div></div>`;
+    }
+
+    if (design === "SEGMENTS") {
+      return `<div class="edd-anim edd-anim--segments-wrap">${titleRow()}${leadAbove}<div class="edd-anim edd-anim--segments">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__segment" style="animation-delay:${120 + index * 100}ms">${stepIcon(step, index, "edd-anim__icon")}<span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+        )
+        .join("")}</div></div>`;
+    }
+
+    if (design === "METER") {
+      return `<div class="edd-anim edd-anim--meter">${titleRow()}${leadAbove}<div class="edd-anim__meter-track"><span class="edd-anim__meter-fill" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__step" style="animation-delay:${160 + index * 120}ms"><span class="edd-anim__meter-dot${index === 0 ? " is-active" : ""}${index === 1 ? " is-truck" : ""}" style="border-color:${progress};background:${index === 0 ? progress : "#fff"};color:${index === 0 ? "#fff" : step.color}">${step.enabled ? icon(step.icon) : ""}</span><span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+        )
+        .join("")}</div></div></div>`;
+    }
+
+    if (design === "BAND") {
+      return `<div class="edd-anim edd-anim--band-wrap">${titleRow()}${leadAbove}<div class="edd-anim edd-anim--band" style="border-color:${progress}">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__band-step" style="animation-delay:${140 + index * 110}ms">${stepIcon(step, index, "edd-anim__icon")}<span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+        )
+        .join("")}</div></div>`;
+    }
+
+    return "";
+  }
+
   function applyCardStyle(card, style) {
     const cardBackground = style.backgroundType === "TRANSPARENT" ? "#ffffff" : style.backgroundColor || "#e8e8e8";
     const fontSize = readablePx(style.fontSize, 15, 14);
@@ -281,9 +493,11 @@
     card.style.setProperty("--edd-icon-box", `${iconSize}px`);
     card.style.setProperty("--edd-theme", style.themeColor || "#202223");
     card.style.setProperty("--edd-progress", style.progressColor || style.themeColor || "#202223");
+    card.style.setProperty("--edd-journey-rail", `${Math.max(2, Number(style.progressWidth) || 5)}px`);
     card.style.setProperty("--edd-font", `${fontSize}px`);
     card.style.setProperty("--edd-date-size", `${dateSize}px`);
     card.style.setProperty("--edd-status-size", `${statusSize}px`);
+    card.style.setProperty("--edd-heading-weight", String(Number(style.headingFontWeight) || 600));
   }
 
   function renderCard(root, payload) {
@@ -311,11 +525,32 @@
     const heading = widget.heading || "";
     const headerIcon = icons.headerIcon || "flag";
     const headerEnabled = icons.headerIconEnabled !== false;
+    const titleEnabled = widget.headingEnabled !== false;
+    const headingWeight = Number(style.headingFontWeight) || 600;
     const headingText = heading || "Estimated Delivery Date";
+    const titleStyle = `font-weight:${headingWeight}`;
     let design = String(widget.design || (widget.layout === "MINIMAL" ? "COMPACT" : "TIMELINE")).toUpperCase();
     if (isCart && (design === "COMPACT" || design === "MINIMAL")) design = "TIMELINE";
-    const showDescription = widget.descriptionEnabled !== false && !["BANNER", "CARD", "TRACKER"].includes(design);
-    const message = applyTags(widget.message, delivery, true);
+    const embeddedDescription = ["MOMENT", "EXPRESS", "BUBBLE", "SEGMENTS", "METER", "BAND"].includes(design);
+    const descriptionEnabled = widget.descriptionEnabled !== false;
+    const tagValues = {
+      ...(delivery || {}),
+      image: customImageSrc(icons.headerIcon),
+    };
+    const message = applyTags(widget.message, tagValues, true);
+    const showDescriptionRow =
+      descriptionEnabled &&
+      !embeddedDescription &&
+      !["BANNER", "CARD", "TRACKER", "JOURNEY"].includes(design);
+    const showDescriptionAbove =
+      descriptionEnabled && ["BANNER", "CARD", "TRACKER", "JOURNEY"].includes(design);
+    const titleBit = titleEnabled ? `<span style="${titleStyle}">${escapeHtml(headingText)} </span>` : "";
+    const classicTitle =
+      titleEnabled || headerEnabled
+        ? `<div class="edd-widget__title-row">${
+            headerEnabled ? `<span class="edd-widget__title-icon">${icon(headerIcon)}</span>` : ""
+          }${titleEnabled ? `<p class="edd-widget__heading" style="${titleStyle}">${escapeHtml(headingText)}</p>` : ""}</div>`
+        : "";
     const items = widget.items || [];
     const dateKeys = items.map((item) => `${item.delivery?.delivery_from || ""}|${item.delivery?.delivery_to || ""}`);
     const mixedDates = new Set(dateKeys).size > 1;
@@ -345,7 +580,15 @@
       },
     ];
     const gap = style.paddingMiddle || 12;
-    const clock = `<span class="edd-widget__clock" aria-hidden="true">${icon("clockSolid")}</span>`;
+    const leadImage =
+      headerEnabled && customImageSrc(icons.headerIcon)
+        ? `<img class="edd-inline-image edd-inline-image--lead" src="${icons.headerIcon.startsWith("data:image/") ? icons.headerIcon.replace(/"/g, "") : escapeHtml(icons.headerIcon)}" alt="" />`
+        : "";
+    const clock = leadImage || `<span class="edd-widget__clock" aria-hidden="true">${icon("clockSolid")}</span>`;
+    const descriptionRow = (withClock) =>
+      `<div class="edd-widget__message-row essential-estimated-delivery-description" style="color:${style.dynamicColor || textColor};margin-bottom:${gap}px">${
+        withClock ? clock : leadImage
+      }<p class="edd-widget__message" data-edd-message>${message}</p></div>`;
 
     const headerMarkup = headerEnabled
       ? `<span class="edd-widget__banner-icon">${icon(headerIcon)}</span>`
@@ -356,19 +599,49 @@
     const trackerFlag = headerEnabled
       ? `<span class="edd-widget__tracker-flag">${icon(headerIcon)}</span>`
       : "";
+    const journeyFlag = headerEnabled
+      ? `<span class="edd-widget__journey-flag">${icon(headerIcon)}</span>`
+      : "";
     const deliveredRange = escapeHtml(delivery.deliveredLabel || delivery.delivery_from || "");
+    const journeyRange = journeyRangeHtml(delivery.deliveredLabel || delivery.delivery_from || "", style.dynamicColor || textColor);
     const timeline =
       design === "BANNER"
-        ? `<div class="edd-widget__banner">${headerMarkup}<p class="edd-widget__banner-text">${escapeHtml(headingText)} <strong>${deliveredRange}</strong></p></div>`
+        ? `${showDescriptionAbove ? descriptionRow(false) : ""}<div class="edd-widget__banner">${headerMarkup}<p class="edd-widget__banner-text">${titleBit}<strong>${deliveredRange}</strong></p></div>`
         : design === "CARD"
-          ? `<div class="edd-widget__highlight">${highlightMarkup}<p>${escapeHtml(headingText)} <strong>${deliveredRange}</strong></p></div>`
+          ? `${showDescriptionAbove ? descriptionRow(false) : ""}<div class="edd-widget__highlight">${highlightMarkup}<p>${titleBit}<strong>${deliveredRange}</strong></p></div>`
           : design === "TRACKER"
-            ? `<div class="edd-widget__tracker"><div class="edd-widget__tracker-head">${trackerFlag}<p>${escapeHtml(headingText)} <strong>${deliveredRange}</strong></p></div><div class="edd-widget__tracker-steps">${steps
+            ? `${showDescriptionAbove ? descriptionRow(false) : ""}<div class="edd-widget__tracker"><div class="edd-widget__tracker-head">${trackerFlag}<p>${titleBit}<strong>${deliveredRange}</strong></p></div><div class="edd-widget__tracker-steps">${steps
                 .map(
                   (step, index) =>
                     `${index ? `<span class="edd-widget__tracker-dots" aria-hidden="true"></span>` : ""}<div class="edd-widget__tracker-step">${step.enabled ? `<span class="edd-widget__tracker-icon" style="color:${step.color}">${icon(step.icon)}</span>` : `<span class="edd-widget__tracker-icon edd-widget__tracker-icon--off" aria-hidden="true"></span>`}<b style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</b><i style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</i></div>`,
                 )
                 .join("")}</div></div>`
+          : ["MOMENT", "BUBBLE", "EXPRESS", "SEGMENTS", "METER", "BAND"].includes(design)
+            ? animatedTemplateHtml({
+                design,
+                steps,
+                headingText,
+                showHeading: titleEnabled,
+                headingWeight,
+                deliveredRange: delivery.deliveredLabel || delivery.delivery_from || "",
+                style,
+                textColor,
+                theme,
+                progress,
+                headerEnabled,
+                headerIcon,
+                showDescription: descriptionEnabled,
+                descriptionHtml: descriptionEnabled ? message : "",
+              })
+          : design === "JOURNEY"
+            ? `<div class="edd-widget__journey">${
+                showDescriptionAbove ? descriptionRow(false) : ""
+              }<div class="edd-widget__journey-head">${journeyFlag}<p>${titleBit}${journeyRange}</p></div><div class="edd-widget__journey-shell"><div class="edd-widget__journey-steps">${steps
+                .map(
+                  (step, index) =>
+                    `<div class="edd-widget__journey-step" style="animation-delay:${180 + index * 100}ms">${step.enabled ? `<span class="edd-widget__journey-icon${index === 1 ? " edd-widget__journey-icon--truck" : ""}" style="color:${step.color}">${icon(step.icon)}</span>` : `<span class="edd-widget__journey-icon edd-widget__journey-icon--off" aria-hidden="true"></span>`}<span class="edd-widget__journey-label" style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</span><strong class="edd-widget__journey-date" style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</strong></div>`,
+                )
+                .join("")}</div></div></div>`
         : design === "COMPACT"
         ? `<p class="edd-widget__minimal" style="color:${style.dateColor || textColor}">Delivery ${escapeHtml(delivery.deliveredLabel || delivery.delivery_from || "")}</p>`
         : design === "PILL"
@@ -397,9 +670,9 @@
 
     body.innerHTML = `
       ${css ? `<style>${css}</style>` : ""}
-      ${heading && !["BANNER", "CARD", "TRACKER"].includes(design) ? `<p class="edd-widget__heading">${escapeHtml(heading)}</p>` : ""}
+      ${!["BANNER", "CARD", "TRACKER", "JOURNEY", "MOMENT", "BUBBLE", "EXPRESS", "SEGMENTS", "METER", "BAND"].includes(design) ? classicTitle : ""}
       ${directWeight}
-      ${showDescription ? `<div class="edd-widget__message-row essential-estimated-delivery-description" style="color:${style.dynamicColor || textColor};margin-bottom:${gap}px">${clock}<p class="edd-widget__message" data-edd-message>${message}</p></div>` : ""}
+      ${showDescriptionRow ? descriptionRow(true) : ""}
       ${timeline}
       ${
         perProduct
@@ -416,12 +689,6 @@
 
   function pincodeStatus(pincode) {
     if (pincode.available === false) return pincode.message || "Delivery unavailable";
-    if (pincode.available) {
-      const bits = [pincode.message || "Delivery available"];
-      if (pincode.label) bits.push(pincode.label);
-      if (pincode.weight) bits.push(pincode.weight);
-      return bits.join(" — ");
-    }
     return "";
   }
 
@@ -444,7 +711,8 @@
     extras.hidden = false;
     const value = extras.querySelector("[data-edd-pincode-input]")?.value || pincode.code || "";
     const fieldId = `edd-pincode-${root.dataset.productId || "widget"}`.replace(/[^a-zA-Z0-9_-]/g, "");
-    const tone = pincode.available === false ? "error" : pincode.available ? "ok" : "";
+    const tone = pincode.available === false ? "error" : "";
+    const statusText = pincodeStatus(pincode);
     const requestButton =
       pincode.available === false
         ? `<button class="edd-request-btn" type="button" data-edd-request form="edd-pincode-unbound">Request delivery</button>`
@@ -456,7 +724,7 @@
           <input id="${fieldId}" class="edd-check__input" data-edd-pincode-input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="postal-code" placeholder="Enter pincode" value="${escapeHtml(digitsOnly(value))}" aria-label="Pincode" form="edd-pincode-unbound">
           <button class="edd-check__button" type="button" data-edd-check form="edd-pincode-unbound">Check</button>
         </div>
-        <p class="edd-check__status" data-edd-pincode-status ${tone ? `data-tone="${tone}"` : ""}>${escapeHtml(pincodeStatus(pincode))}</p>
+        <p class="edd-check__status" data-edd-pincode-status ${tone ? `data-tone="${tone}"` : ""}${statusText ? "" : " hidden"}>${escapeHtml(statusText)}</p>
         ${requestButton}
       </div>
     `;
@@ -475,7 +743,13 @@
       payload.widget.delivery.counter = formatSeconds(remaining);
       payload.widget.delivery.countdown = payload.widget.delivery.counter;
       const messageEl = root.querySelector("[data-edd-message]");
-      if (messageEl) messageEl.innerHTML = applyTags(payload.widget.message, payload.widget.delivery, true);
+      if (messageEl) {
+        const tagValues = {
+          ...payload.widget.delivery,
+          image: customImageSrc(payload.widget.icons?.headerIcon),
+        };
+        messageEl.innerHTML = applyTags(payload.widget.message, tagValues, true);
+      }
     }, 1000);
   }
 
@@ -484,8 +758,16 @@
     const params = new URLSearchParams();
     params.set("widgetId", body.widgetId);
     params.set("type", body.type);
-    if (body.productId) params.set("productId", body.productId);
-    sendProxy(url, params, { keepalive: true }).catch(() => {});
+    const productId = compactResourceIds(body.productId) || String(body.productId || "").trim();
+    if (productId) params.set("productId", productId.slice(0, 128));
+    // GET with query params — Shopify app proxy often drops POST bodies.
+    // Fall back to POST / beacon via sendProxy auto mode.
+    return sendProxy(url, params).catch((error) => {
+      if (window.Shopify?.designMode || /[?&]edd_debug=1(?:&|$)/.test(window.location.search)) {
+        console.warn("[edd] event failed", body.type, error?.message || error);
+      }
+      return null;
+    });
   }
 
   function bindTracking(root, payload) {
@@ -493,7 +775,15 @@
     if (!widgetId || root.dataset.eddTracked) return;
     root.dataset.eddTracked = "true";
     const eventBody = { widgetId, productId: root.dataset.productId };
-    track(root, { ...eventBody, type: "IMPRESSION" });
+    // Record after paint so the proxy request isn't racing initial page work.
+    const sendImpression = () => track(root, { ...eventBody, type: "IMPRESSION" });
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(sendImpression, 0);
+      });
+    } else {
+      window.setTimeout(sendImpression, 50);
+    }
 
     root.addEventListener("click", (event) => {
       if (event.target instanceof Element && event.target.closest("[data-edd-pincode-form]")) return;
@@ -530,6 +820,7 @@
       if (status) {
         status.textContent = "Checking…";
         status.removeAttribute("data-tone");
+        status.hidden = false;
       }
       const nextUrl = new URL(configUrl.toString());
       nextUrl.searchParams.set("pincode", code);
@@ -547,6 +838,7 @@
         if (nextStatus) {
           nextStatus.textContent = "Could not check this pincode. Try again.";
           nextStatus.setAttribute("data-tone", "error");
+          nextStatus.hidden = false;
         }
         if (checkButton) checkButton.disabled = false;
       }

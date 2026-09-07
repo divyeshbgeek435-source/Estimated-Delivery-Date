@@ -17,7 +17,7 @@ import {
 } from "../services/widgets/delivery-requests.server";
 import { WIDGET_STATUSES } from "../lib/constants";
 import { queueWidgetStorefrontSync } from "../services/shopify/store-block.server";
-import { appBlockEditorUrl, appEmbedEditorUrl } from "../lib/theme-editor";
+import { appEmbedEditorUrl } from "../lib/theme-editor";
 import { DashboardHome } from "../components/dashboard/DashboardHome";
 
 export const loader = async ({ request }) => {
@@ -37,7 +37,6 @@ export const loader = async ({ request }) => {
     liveNotices,
     shop,
     themeEditorEmbed: appEmbedEditorUrl(shop),
-    themeEditorBlock: appBlockEditorUrl(shop),
   };
 };
 
@@ -134,7 +133,6 @@ export default function Dashboard() {
       widgets={data.widgets}
       liveNotices={data.liveNotices}
       themeEditorEmbed={data.themeEditorEmbed}
-      themeEditorBlock={data.themeEditorBlock}
       saving={navigation.state !== "idle"}
       error={actionData?.error}
       actionData={actionData}

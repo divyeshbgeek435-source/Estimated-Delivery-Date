@@ -13,25 +13,52 @@ const SECTIONS = [
   { location: WIDGET_LOCATIONS.CART, heading: "Cart page widgets" },
 ];
 
+const HOME_DATA_POLL_MS = 3000;
+
 export function DashboardHome({
   widgets,
   liveNotices = [],
   themeEditorEmbed,
-  themeEditorBlock,
   saving,
   error,
   actionData,
 }) {
-  const extras = useFetcher();
-  const extrasRef = useRef(extras);
-  extrasRef.current = extras;
-  const embed = useEmbedStatus(themeEditorEmbed, themeEditorBlock);
-  const totals = extras.data?.totals || { impressions: 0 };
-  const deliveryRequests = extras.data?.deliveryRequests || [];
+  const requestsFetcher = useFetcher();
+  const totalsFetcher = useFetcher();
+  const requestsRef = useRef(requestsFetcher);
+  const totalsRef = useRef(totalsFetcher);
+  requestsRef.current = requestsFetcher;
+  totalsRef.current = totalsFetcher;
+  const embed = useEmbedStatus(themeEditorEmbed);
+  const totals = totalsFetcher.data?.totals || requestsFetcher.data?.totals || { impressions: 0 };
+  const deliveryRequests = requestsFetcher.data?.deliveryRequests || [];
 
+  // Delivery requests: load once / after actions / when the merchant clicks Refresh.
   useEffect(() => {
-    extrasRef.current.load("/app/home-data");
+    requestsRef.current.load(`/app/home-data?part=requests&t=${Date.now()}`);
   }, [actionData]);
+
+  // Impressions only: live poll while the tab is visible.
+  useEffect(() => {
+    const refreshTotals = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (totalsRef.current.state !== "idle") return;
+      totalsRef.current.load(`/app/home-data?part=totals&t=${Date.now()}`);
+    };
+
+    refreshTotals();
+    const timer = window.setInterval(refreshTotals, HOME_DATA_POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshTotals();
+    };
+    window.addEventListener("focus", refreshTotals);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshTotals);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
   const submit = useSubmit();
   const livePoll = useLivePublishPoll({ items: widgets });
   const [acked, setAcked] = useState(() => new Set());
@@ -97,20 +124,25 @@ export function DashboardHome({
 
       <div className="edd-card edd-impressions">
         <p className="edd-impressions__label">Impressions</p>
-        <p className="edd-impressions__value">{totals.impressions || 0}</p>
-        <p className="edd-impressions__help">Past 30 days</p>
+        <p className="edd-impressions__value" key={totals.impressions || 0}>
+          {totals.impressions || 0}
+        </p>
+        <p className="edd-impressions__help">Past 30 days · updates live</p>
       </div>
 
       <div className="edd-status-grid">
         <AppEmbedStatusCard embed={embed} fallbackEmbedUrl={themeEditorEmbed} />
-        <AppBlockStatusCard fallbackBlockUrl={embed.blockUrl || themeEditorBlock} />
       </div>
 
       <DeliveryRequestsList
         requests={deliveryRequests}
         saving={saving}
-        refreshing={extras.state !== "idle"}
-        onRefresh={() => extras.load("/app/home-data")}
+        refreshing={requestsFetcher.state !== "idle"}
+        onRefresh={() => {
+          if (requestsFetcher.state === "idle") {
+            requestsFetcher.load(`/app/home-data?part=requests&t=${Date.now()}`);
+          }
+        }}
       />
       </div>
       <LivePublishedDialog
@@ -164,7 +196,7 @@ export function DashboardHome({
   );
 }
 
-function useEmbedStatus(fallbackEmbedUrl, fallbackBlockUrl) {
+function useEmbedStatus(fallbackEmbedUrl) {
   const shopify = useAppBridge();
   const fetcher = useFetcher();
   const fetcherRef = useRef(fetcher);
@@ -221,7 +253,6 @@ function useEmbedStatus(fallbackEmbedUrl, fallbackBlockUrl) {
     enabled: fetcher.data?.appEmbedEnabled,
     activateUrl: fetcher.data?.themeEditorEmbed || fallbackEmbedUrl,
     manageUrl: fetcher.data?.themeEditorEmbedManage || fallbackEmbedUrl,
-    blockUrl: fetcher.data?.themeEditorBlock || fallbackBlockUrl,
     reload: (fresh = false) => loadStatus(true, { fresh }),
     markEditorOpened: () => {
       openedEditor.current = true;
@@ -262,26 +293,6 @@ function AppEmbedStatusCard({ embed, fallbackEmbedUrl }) {
       ) : (
         <s-paragraph>Activate by clicking 'Activate' and then 'Save' in the following page.</s-paragraph>
       )}
-    </div>
-  );
-}
-
-function AppBlockStatusCard({ fallbackBlockUrl }) {
-
-  return (
-    <div className="edd-card edd-embed-card">
-      <div className="edd-status-card__head">
-        <s-heading>App Block</s-heading>
-        <s-badge tone="warning">Disabled</s-badge>
-        <button
-          type="button"
-          className="edd-activate"
-          onClick={() => window.open(fallbackBlockUrl, "_blank", "noopener,noreferrer")}
-        >
-          Activate
-        </button>
-      </div>
-      <s-paragraph>Activate by clicking 'Activate' and then 'Save' in the following page.</s-paragraph>
     </div>
   );
 }

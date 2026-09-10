@@ -54,15 +54,30 @@ function buildInsights(totals, widgets, metrics, pendingRequests) {
   ];
 }
 
-function MetricTile({ label, value, help }) {
+const METRIC_ICONS = {
+  impressions: { type: "data-presentation", tone: "teal" },
+  clicks: { type: "cursor", tone: "blue" },
+  addToCart: { type: "cart", tone: "green" },
+  conversionRate: { type: "order", tone: "amber" },
+  "Click-through rate": { type: "data-presentation", tone: "teal" },
+  "Add-to-cart rate": { type: "cart", tone: "green" },
+  "Top widget": { type: "product", tone: "amber" },
+  "Live widgets": { type: "product", tone: "green" },
+  "Pending requests": { type: "delivery", tone: "amber" },
+};
+
+function MetricTile({ label, value, help, iconType = "data-presentation", iconTone = "green" }) {
   return (
-    <s-box padding="base" border="base" borderRadius="base" background="base">
-      <s-stack gap="small-200">
-        <s-heading>{label}</s-heading>
-        <p className="edd-metric-value">{value}</p>
-        <s-paragraph color="subdued">{help}</s-paragraph>
-      </s-stack>
-    </s-box>
+    <article className="edd-metric-card">
+      <div className="edd-metric-card__head">
+        <h3 className="edd-metric-card__label">{label}</h3>
+        <span className={`edd-metric-card__icon edd-metric-card__icon--${iconTone}`} aria-hidden="true">
+          <s-icon type={iconType} />
+        </span>
+      </div>
+      <p className="edd-metric-card__value">{value}</p>
+      <p className="edd-metric-card__help">{help}</p>
+    </article>
   );
 }
 
@@ -73,9 +88,19 @@ function MetricsRow({ items }) {
 
   return (
     <div className={`edd-metrics-grid${countClass}`}>
-      {items.map((item) => (
-        <MetricTile key={item.label} label={item.label} value={item.value} help={item.help} />
-      ))}
+      {items.map((item) => {
+        const icon = METRIC_ICONS[item.key] || METRIC_ICONS[item.label] || { type: "data-presentation", tone: "green" };
+        return (
+          <MetricTile
+            key={item.label}
+            label={item.label}
+            value={item.value}
+            help={item.help}
+            iconType={icon.type}
+            iconTone={icon.tone}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -88,6 +113,7 @@ export function AnalyticsHome({ widgets, totals, metrics, pendingRequests = 0 })
       : METRICS[3].help;
 
   const performance = METRICS.map((card) => ({
+    key: card.key,
     label: card.label,
     value: card.key === "conversionRate" ? percent(totals[card.key]) : totals[card.key] || 0,
     help: card.key === "conversionRate" ? conversionHelp : card.help,

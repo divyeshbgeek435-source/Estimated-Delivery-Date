@@ -19,25 +19,13 @@ import {
 import { WIDGET_STATUSES } from "../lib/constants";
 import { queueWidgetStorefrontSync } from "../services/shopify/store-block.server";
 import { appEmbedEditorUrl } from "../lib/theme-editor";
-import { loadHomeImpressionTotals } from "../lib/analytics.server";
-import {
-  buildEmbedStatusPayload,
-  loadLiveAppEmbedStatus,
-} from "../services/shopify/app-embed.server";
 import { DashboardHome } from "../components/dashboard/DashboardHome";
 
 export const loader = async ({ request }) => {
-  const { admin, session, merchant, shop } = await requireAdmin(request);
-  const [widgets, totals, embedResult] = await Promise.all([
-    listWidgetSummaries(merchant.id),
-    loadHomeImpressionTotals(merchant.id).catch(() => ({ impressions: 0 })),
-    loadLiveAppEmbedStatus(admin, shop, session).catch(() => ({
-      enabled: null,
-      checked: false,
-      missingThemeAccess: true,
-      themeId: null,
-    })),
-  ]);
+  // Keep the document critical path lean: widgets only. Embed status + impression
+  // totals load after paint via /app/embed-status and /app/home-data (DashboardHome).
+  const { merchant, shop } = await requireAdmin(request);
+  const widgets = await listWidgetSummaries(merchant.id);
   const liveNotices = widgets
     .filter((widget) => widget.status === WIDGET_STATUSES.ACTIVE && widget.liveNotice)
     .map((widget) => ({
@@ -59,12 +47,12 @@ export const loader = async ({ request }) => {
 
   return {
     widgets,
-    totals,
-    embedStatus: buildEmbedStatusPayload(shop, embedResult),
+    totals: null,
+    embedStatus: null,
     liveNotices,
     activationConflicts,
     shop,
-    themeEditorEmbed: appEmbedEditorUrl(shop, { themeId: embedResult?.themeId }),
+    themeEditorEmbed: appEmbedEditorUrl(shop),
   };
 };
 

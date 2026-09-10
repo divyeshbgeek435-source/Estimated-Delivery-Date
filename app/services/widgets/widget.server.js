@@ -568,7 +568,10 @@ function mapWidgetSummary(widget) {
 }
 
 export async function listWidgetSummaries(merchantId) {
-  await activateDueWidgets(merchantId);
+  // Scheduled activations must not block the home document; live-status poll catches up.
+  void activateDueWidgets(merchantId).catch((error) => {
+    console.warn("[edd] activateDueWidgets", error?.message || error);
+  });
   const widgets = await prisma.widget.findMany({
     where: { merchantId },
     select: summarySelect,
@@ -1026,12 +1029,7 @@ export async function deleteWidget(merchantId, widgetId) {
   });
   if (!widget) return false;
 
-  await Promise.all(
-    [
-      prisma.widgetEvent.deleteMany({ where: { widgetId } }),
-      prisma.deliveryRequest?.deleteMany({ where: { widgetId } }),
-    ].filter(Boolean),
-  );
+  await Promise.all([prisma.widgetEvent.deleteMany({ where: { widgetId } })]);
   await prisma.widget.delete({ where: { id: widgetId } });
 
   return true;

@@ -1,4 +1,4 @@
-import prisma, { hasDeliveryRequestModel, hasWidgetEventKind } from "../../lib/prisma.server";
+import prisma, { hasWidgetEventKind } from "../../lib/prisma.server";
 import { ACTIVITY_KINDS } from "../../lib/constants";
 import { normalizePincode, normalizePincodeRules } from "../../lib/pincode";
 import { lookupPostalCode } from "../../lib/pincode.server";
@@ -11,7 +11,6 @@ export const REQUEST_STATUSES = {
 };
 
 const REQUEST_TYPE = "DELIVERY_REQUEST";
-const LEGACY_COLLECTION = "DeliveryRequest";
 
 function asId(value) {
   if (!value) return "";
@@ -34,15 +33,11 @@ function asDate(value) {
   return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
 }
 
-function requests() {
-  return hasDeliveryRequestModel() ? prisma.deliveryRequest : prisma.widgetEvent;
-}
-
 function requestWhere(extra = {}) {
   if (hasWidgetEventKind()) {
     return { kind: ACTIVITY_KINDS.REQUEST, type: REQUEST_TYPE, ...extra };
   }
-  return extra;
+  return { type: REQUEST_TYPE, ...extra };
 }
 
 export function serializeDeliveryRequest(row) {
@@ -61,8 +56,6 @@ export function serializeDeliveryRequest(row) {
   };
 }
 
-let migrated = false;
-
 async function getMerchantWidgets(merchantId) {
   return prisma.widget.findMany({
     where: { merchantId },
@@ -71,10 +64,9 @@ async function getMerchantWidgets(merchantId) {
 }
 
 async function purgeOrphanDeliveryRequests(merchantId, validWidgetIds) {
-  const model = requests();
-  if (!merchantId || typeof model?.deleteMany !== "function") return;
+  if (!merchantId) return;
   const ids = Array.isArray(validWidgetIds) ? validWidgetIds : [];
-  await model
+  await prisma.widgetEvent
     .deleteMany({
       where: requestWhere({
         merchantId,
@@ -84,65 +76,9 @@ async function purgeOrphanDeliveryRequests(merchantId, validWidgetIds) {
     .catch(() => {});
 }
 
-export async function migrateLegacyDeliveryRequests() {
-  if (migrated || hasDeliveryRequestModel() || !hasWidgetEventKind()) {
-    migrated = true;
-    return;
-  }
-  migrated = true;
-  try {
-    const result = await prisma.$runCommandRaw({
-      find: LEGACY_COLLECTION,
-      filter: {},
-      limit: 5000,
-    });
-    const rows = result?.cursor?.firstBatch || [];
-    const widgetIds = [...new Set(rows.map((doc) => asId(doc.widgetId)).filter(Boolean))];
-    const existingWidgets = widgetIds.length
-      ? await prisma.widget.findMany({
-          where: { id: { in: widgetIds } },
-          select: { id: true },
-        })
-      : [];
-    const existingIds = new Set(existingWidgets.map((widget) => widget.id));
-    await Promise.all(
-      rows.map(async (doc) => {
-        const widgetId = asId(doc.widgetId);
-        const merchantId = asId(doc.merchantId);
-        const sourceId = asId(doc._id);
-        if (!widgetId || !merchantId || !sourceId || !existingIds.has(widgetId)) return;
-        const createdAt = doc.createdAt ? new Date(asDate(doc.createdAt)) : new Date();
-        await prisma.widgetEvent
-          .create({
-            data: {
-              widgetId,
-              merchantId,
-              kind: ACTIVITY_KINDS.REQUEST,
-              type: REQUEST_TYPE,
-              status: doc.status || REQUEST_STATUSES.PENDING,
-              pincode: doc.pincode || "",
-              country: doc.country || "IN",
-              city: doc.city || "",
-              state: doc.state || "",
-              productId: doc.productId ? asId(doc.productId) : null,
-              productTitle: doc.productTitle || null,
-              eventKey: `request:${sourceId}`,
-              timestamp: createdAt,
-              createdAt,
-            },
-          })
-          .catch(() => {});
-      }),
-    );
-  } catch {
-    migrated = true;
-  }
-}
-
 export async function listDeliveryRequests(merchantId, widgetId) {
   if (!merchantId || !widgetId) return [];
-  await migrateLegacyDeliveryRequests();
-  const rows = await requests().findMany({
+  const rows = await prisma.widgetEvent.findMany({
     where: requestWhere({ merchantId, widgetId }),
     orderBy: { createdAt: "desc" },
     take: 100,
@@ -152,7 +88,6 @@ export async function listDeliveryRequests(merchantId, widgetId) {
 
 export async function listMerchantDeliveryRequests(merchantId) {
   if (!merchantId) return [];
-  await migrateLegacyDeliveryRequests();
 
   // Avoid Prisma include on required widget: orphaned events (deleted widgets)
   // make findMany throw "Field widget is required to return data, got null".
@@ -162,7 +97,7 @@ export async function listMerchantDeliveryRequests(merchantId) {
   if (!widgetIds.length) return [];
 
   const widgetById = new Map(widgets.map((widget) => [widget.id, widget]));
-  const rows = await requests().findMany({
+  const rows = await prisma.widgetEvent.findMany({
     where: requestWhere({ merchantId, widgetId: { in: widgetIds } }),
     orderBy: { createdAt: "desc" },
     take: 200,
@@ -174,11 +109,10 @@ export async function listMerchantDeliveryRequests(merchantId) {
 
 export async function countPendingDeliveryRequests(merchantId) {
   if (!merchantId) return 0;
-  await migrateLegacyDeliveryRequests();
   const widgets = await getMerchantWidgets(merchantId);
   const widgetIds = widgets.map((widget) => widget.id);
   if (!widgetIds.length) return 0;
-  return requests().count({
+  return prisma.widgetEvent.count({
     where: requestWhere({
       merchantId,
       widgetId: { in: widgetIds },
@@ -200,8 +134,6 @@ export async function createDeliveryRequest({
     throw new Error("A widget, merchant, and pincode are required.");
   }
 
-  await migrateLegacyDeliveryRequests();
-
   const payload = {
     merchantId,
     widgetId,
@@ -214,14 +146,14 @@ export async function createDeliveryRequest({
     status: REQUEST_STATUSES.PENDING,
     ...(hasWidgetEventKind()
       ? { kind: ACTIVITY_KINDS.REQUEST, type: REQUEST_TYPE }
-      : {}),
+      : { type: REQUEST_TYPE }),
   };
 
   const fillPlace = (row) => {
     lookupPostalCode(country || "IN", code)
       .then(async (place) => {
         if (!place?.ok || !row?.id) return;
-        await requests()
+        await prisma.widgetEvent
           .update({
             where: { id: String(row.id) },
             data: {
@@ -235,7 +167,7 @@ export async function createDeliveryRequest({
       .catch(() => {});
   };
 
-  const existing = await requests().findFirst({
+  const existing = await prisma.widgetEvent.findFirst({
     where: requestWhere({
       merchantId,
       widgetId,
@@ -249,14 +181,14 @@ export async function createDeliveryRequest({
     return row;
   }
 
-  const created = await requests().create({ data: payload });
+  const created = await prisma.widgetEvent.create({ data: payload });
   const row = serializeDeliveryRequest(created);
   fillPlace(row);
   return row;
 }
 
 export async function setDeliveryRequestStatus(merchantId, widgetId, requestId, status) {
-  const request = await requests().findFirst({
+  const request = await prisma.widgetEvent.findFirst({
     where: requestWhere({ id: requestId, merchantId, widgetId }),
   });
   if (!request) return null;
@@ -298,7 +230,7 @@ export async function setDeliveryRequestStatus(merchantId, widgetId, requestId, 
     }
   }
 
-  await requests().update({
+  await prisma.widgetEvent.update({
     where: { id: requestId },
     data: { status },
   });

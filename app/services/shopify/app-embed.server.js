@@ -4,7 +4,7 @@ import { defaultEmbedIdentifiers, parseAppEmbedEnabled } from "../../lib/theme-e
 
 export { parseAppEmbedEnabled };
 
-const CACHE_MS = 30_000;
+const CACHE_MS = 8_000;
 const METAFIELD_SYNC_MS = 60_000;
 const cache = new Map();
 const embedPings = new Map();
@@ -101,17 +101,22 @@ async function graphqlData(admin, query) {
   return payload.data;
 }
 
-async function readFileBody(body) {
+async function readFileBody(body, { fresh = false } = {}) {
   if (body?.content) return body.content;
   if (body?.url) {
-    const response = await fetch(body.url);
+    const url = fresh
+      ? `${body.url}${body.url.includes("?") ? "&" : "?"}t=${Date.now()}`
+      : body.url;
+    const response = await fetch(url, {
+      headers: fresh ? { "Cache-Control": "no-cache", Pragma: "no-cache" } : undefined,
+    });
     if (response.ok) return response.text();
   }
   return "";
 }
 
-async function settingsForTheme(theme) {
-  return readFileBody(theme?.files?.nodes?.[0]?.body);
+async function settingsForTheme(theme, { fresh = false } = {}) {
+  return readFileBody(theme?.files?.nodes?.[0]?.body, { fresh });
 }
 
 function hasThemeAccess(installation) {
@@ -141,6 +146,11 @@ export function clearAppEmbedStatusCache(shop) {
   else cache.clear();
 }
 
+export function clearAppEmbedPing(shop) {
+  if (shop) embedPings.delete(shop);
+  else embedPings.clear();
+}
+
 export function editorLinksForShop(shop, themeId) {
   const options = { themeId };
   return {
@@ -164,13 +174,13 @@ export async function loadEditorLinks(admin, shop, themeId) {
   return editorLinksForShop(shop, themeId);
 }
 
-async function readThemeEmbedStatus(admin, identifiers) {
+async function readThemeEmbedStatus(admin, identifiers, { fresh = false } = {}) {
   const themeData = await graphqlData(admin, THEME_EMBED_QUERY);
   const main = themeData?.themes?.nodes?.[0];
   if (!main) {
     return { enabled: false, checked: true, missingThemeAccess: false, themeId: null };
   }
-  const content = await settingsForTheme(main);
+  const content = await settingsForTheme(main, { fresh });
   return {
     enabled: Boolean(content) && parseAppEmbedEnabled(content, identifiers),
     checked: Boolean(content),
@@ -183,7 +193,7 @@ export async function readAppEmbedEnabled(admin, session, shop, { fresh = false 
   // Prefer session scopes to skip an extra Admin API round-trip on the hot path.
   if (sessionHasThemeAccess(session)) {
     try {
-      return await readThemeEmbedStatus(admin, staticIdentifiers());
+      return await readThemeEmbedStatus(admin, staticIdentifiers(), { fresh });
     } catch (error) {
       console.warn("[edd-app-embed] theme read failed", error?.message || error);
       return {
@@ -210,7 +220,7 @@ export async function readAppEmbedEnabled(admin, session, shop, { fresh = false 
   }
 
   try {
-    return await readThemeEmbedStatus(admin, identifiers);
+    return await readThemeEmbedStatus(admin, identifiers, { fresh });
   } catch (error) {
     console.warn("[edd-app-embed] theme read failed", error?.message || error);
     return {
@@ -255,7 +265,9 @@ export async function loadLiveAppEmbedStatus(admin, shop, session, { fresh = fal
     try {
       const result = await readAppEmbedEnabled(admin, session, shop, { fresh });
       if (result.checked) {
-        remember(shop, result, fresh ? 8_000 : CACHE_MS);
+        remember(shop, result, fresh ? 3_000 : CACHE_MS);
+        // Theme Off must win over a leftover storefront ping from when it was On.
+        if (result.enabled === false) clearAppEmbedPing(shop);
         const now = Date.now();
         const latest = cache.get(shop);
         const shouldSync = !latest?.metafieldAt || now - latest.metafieldAt > METAFIELD_SYNC_MS;
@@ -284,16 +296,22 @@ export async function loadLiveAppEmbedStatus(admin, shop, session, { fresh = fal
 
 export async function isAppEmbedEnabledForShop(shop) {
   if (!shop) return false;
-  if (recentEmbedPing(shop)) return true;
   const cached = cache.get(shop);
-  if (cached && cached.expires > Date.now()) return Boolean(cached.enabled);
+  if (cached && cached.expires > Date.now() && cached.result?.checked) {
+    return Boolean(cached.enabled);
+  }
 
   try {
     const { admin, session } = await unauthenticated.admin(shop);
     const result = await loadLiveAppEmbedStatus(admin, shop, session);
+    if (result.checked && typeof result.enabled === "boolean") {
+      return result.enabled;
+    }
+    // Only fall back to a recent storefront ping when theme status is unknown.
     if (result.missingThemeAccess || result.enabled == null) return recentEmbedPing(shop);
     return Boolean(result.enabled);
   } catch {
-    return Boolean(cached?.enabled) || recentEmbedPing(shop);
+    if (cached && cached.expires > Date.now()) return Boolean(cached.enabled);
+    return recentEmbedPing(shop);
   }
 }

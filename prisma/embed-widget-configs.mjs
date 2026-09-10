@@ -1,6 +1,7 @@
 /**
+ * Legacy helper — prefer `npm run db:consolidate`.
  * Copies 1:1 widget config collections onto Widget documents.
- * Does not delete any collections or documents.
+ * Does not delete any collections.
  *
  * Run: node --env-file=.env prisma/embed-widget-configs.mjs
  */
@@ -107,6 +108,7 @@ async function embedCollection(collection, field) {
 }
 
 async function main() {
+  console.warn("Prefer: npm run db:consolidate:apply (embeds + drops orphans).");
   const results = [];
   for (const item of CONFIGS) {
     results.push(await embedCollection(item.collection, item.field));

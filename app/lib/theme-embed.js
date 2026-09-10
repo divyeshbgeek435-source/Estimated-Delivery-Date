@@ -8,10 +8,10 @@ export function defaultEmbedIdentifiers(extra = []) {
     process.env.SHOPIFY_API_KEY,
     process.env.SHOPIFY_DELIVERY_DATE_WIDGET_ID,
     "428f3d88064e44c926da9dbde635d831",
+    "b6ee452490636fdabe1c0381d99da8d2",
     THEME_APP_EXTENSION_UID,
     THEME_APP_EXTENSION_HANDLE,
     "estimated-delivery-date",
-    "estimated-delivery",
     ...extra,
   ]
     .filter(Boolean)
@@ -43,12 +43,27 @@ export function liveSettingsRoot(settings) {
 
 export function isOurAppEmbedType(type, identifiers = defaultEmbedIdentifiers()) {
   const value = String(type || "").toLowerCase();
-  if (!value.includes(`/blocks/${APP_EMBED_HANDLE}`)) return false;
-  return identifiers.some((hint) => hint && value.includes(hint));
+  const marker = `/blocks/${APP_EMBED_HANDLE}/`;
+  if (!value.includes(marker)) return false;
+
+  const suffix = value.split(marker)[1]?.split(/[/?#]/)[0]?.trim() || "";
+  const hints = (identifiers || []).map((hint) => String(hint || "").toLowerCase()).filter(Boolean);
+
+  // Prefer matching the extension id / API key suffix Shopify puts in the type URL.
+  if (suffix && hints.some((hint) => hint.length >= 8 && (suffix === hint || suffix.includes(hint)))) {
+    return true;
+  }
+
+  // Fallback: app handle path segment for UUID-suffixed production types.
+  const appPathHints = hints.filter((hint) => /[a-z]/.test(hint) && hint.includes("-"));
+  return appPathHints.some((hint) => value.includes(`/apps/${hint}/`));
 }
 
 function isEnabledBlock(block) {
-  return block?.disabled !== true && String(block?.disabled).toLowerCase() !== "true";
+  if (!block || typeof block !== "object") return false;
+  // Shopify sets disabled:false when On and disabled:true when Off.
+  // Only treat an explicit false as Active — avoids stale/orphan blocks without a clear flag.
+  return block.disabled === false || String(block.disabled).toLowerCase() === "false";
 }
 
 function blocksFrom(root) {
@@ -64,12 +79,22 @@ export function appEmbedBlockState(settingsContent, identifiers = defaultEmbedId
     if (!live) return { exists: false, enabled: false };
     const ours = blocksFrom(live).filter(({ block }) => isOurAppEmbedType(block?.type, identifiers));
     if (!ours.length) return { exists: false, enabled: false };
-    // Shopify's theme editor toggle maps to the store-managed block, not our helper id.
+    // Theme editor ON/OFF only applies to Shopify-managed block IDs.
+    // Never treat the app-written helper id as Active by itself.
     const managed = ours.filter(({ id }) => id !== "edd-app-embed");
-    const target = managed.length ? managed : ours;
+    if (!managed.length) {
+      return { exists: true, enabled: false };
+    }
+    // Off wins: Active only when at least one managed block is explicitly enabled
+    // and none of the managed blocks are explicitly disabled.
+    const explicitlyOn = managed.filter(({ block }) => isEnabledBlock(block));
+    const explicitlyOff = managed.filter(({ block }) => {
+      const disabled = block?.disabled;
+      return disabled === true || disabled === 1 || String(disabled).toLowerCase() === "true";
+    });
     return {
       exists: true,
-      enabled: target.some(({ block }) => isEnabledBlock(block)),
+      enabled: explicitlyOn.length > 0 && explicitlyOff.length === 0,
     };
   } catch {
     return { exists: false, enabled: false };

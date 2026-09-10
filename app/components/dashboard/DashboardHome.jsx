@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher, useNavigate, useSubmit } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { locationLabel, WIDGET_LOCATIONS, WIDGET_STATUSES } from "../../lib/constants";
@@ -31,8 +31,8 @@ const SECTIONS = [
   },
 ];
 
-/** Totals refresh cadence — keep a live feel without hammering the API. */
-const HOME_DATA_POLL_MS = 5000;
+/** Totals refresh cadence — live enough without competing with first paint. */
+const HOME_DATA_POLL_MS = 15000;
 
 export function DashboardHome({
   widgets,
@@ -52,10 +52,10 @@ export function DashboardHome({
   requestsRef.current = requestsFetcher;
   totalsRef.current = totalsFetcher;
   const embed = useEmbedStatus(themeEditorEmbed, initialEmbedStatus);
-  const [liveTotals, setLiveTotals] = useState(() => initialTotals || { impressions: 0 });
+  const [liveTotals, setLiveTotals] = useState(() => initialTotals);
   const deliveryRequests = requestsFetcher.data?.deliveryRequests || [];
   const requestsReady = requestsFetcher.data != null;
-  const totalsReady = initialTotals != null || totalsFetcher.data?.totals != null || liveTotals != null;
+  const totalsReady = initialTotals != null || totalsFetcher.data?.totals != null;
 
   useEffect(() => {
     if (initialTotals?.impressions != null) {
@@ -80,24 +80,27 @@ export function DashboardHome({
   }, [actionData]);
 
   useEffect(() => {
-    const refreshTotals = () => {
+    const refreshTotals = ({ fresh = false } = {}) => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const fetcher = totalsRef.current;
       // Allow overlap only when idle so we never stall the live counter.
       if (fetcher.state !== "idle") return;
-      fetcher.load(`/app/home-data?part=totals&fresh=1&t=${Date.now()}`);
+      const qs = fresh ? "fresh=1&" : "";
+      fetcher.load(`/app/home-data?part=totals&${qs}t=${Date.now()}`);
     };
 
-    refreshTotals();
-    const timer = window.setInterval(refreshTotals, HOME_DATA_POLL_MS);
+    // Prefer cached totals on first paint; refresh in the background without busting cache.
+    refreshTotals({ fresh: false });
+    const timer = window.setInterval(() => refreshTotals({ fresh: false }), HOME_DATA_POLL_MS);
     const onVisible = () => {
-      if (document.visibilityState === "visible") refreshTotals();
+      if (document.visibilityState === "visible") refreshTotals({ fresh: true });
     };
-    window.addEventListener("focus", refreshTotals);
+    const onFocus = () => refreshTotals({ fresh: true });
+    window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(timer);
-      window.removeEventListener("focus", refreshTotals);
+      window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
@@ -382,13 +385,6 @@ function OverviewMetrics({
       : embed.enabled
         ? "Active"
         : "Off";
-  const embedTone = embedRefreshing
-    ? "info"
-    : embed.missingThemeAccess
-      ? "warning"
-      : embed.enabled
-        ? "success"
-        : "warning";
   const widgetsHelp =
     scheduledCount > 0
       ? `${liveCount} live · ${scheduledCount} scheduled · ${widgetCount} total`
@@ -397,109 +393,107 @@ function OverviewMetrics({
   return (
     <s-section heading="Store overview">
       <div className="edd-metrics-grid">
-        <s-box padding="base" border="base" borderRadius="base" background="base">
-          <s-stack gap="small-200">
-            <s-stack direction="inline" gap="small-200" alignItems="center">
-              <s-icon type="product" color="subdued" />
-              <s-heading>Live widgets</s-heading>
-            </s-stack>
-            <p className="edd-metric-value">{liveCount}</p>
-            <s-paragraph color="subdued">{widgetsHelp}</s-paragraph>
-          </s-stack>
-        </s-box>
+        <article className="edd-metric-card">
+          <div className="edd-metric-card__head">
+            <h3 className="edd-metric-card__label">Live widgets</h3>
+            <span className="edd-metric-card__icon edd-metric-card__icon--green" aria-hidden="true">
+              <s-icon type="product" />
+            </span>
+          </div>
+          <p className="edd-metric-card__value">{liveCount}</p>
+          <p className="edd-metric-card__help">{widgetsHelp}</p>
+        </article>
 
-        <s-box padding="base" border="base" borderRadius="base" background="base">
-          <s-stack gap="small-200">
-            <s-stack direction="inline" gap="small-200" alignItems="center">
-              <s-icon type="data-presentation" color="subdued" />
-              <s-heading>Impressions</s-heading>
-            </s-stack>
-            {impressionsReady ? (
-              <p className="edd-metric-value" key={impressions}>
-                {impressions.toLocaleString()}
-              </p>
-            ) : (
-              <s-stack direction="inline" gap="small-200" alignItems="center">
-                <s-spinner size="base" accessibilityLabel="Loading impressions" />
-                <s-text color="subdued">Loading</s-text>
-              </s-stack>
-            )}
-            <s-paragraph color="subdued">Past 30 days · updates live</s-paragraph>
-          </s-stack>
-        </s-box>
+        <article className="edd-metric-card">
+          <div className="edd-metric-card__head">
+            <h3 className="edd-metric-card__label">Impressions</h3>
+            <span className="edd-metric-card__icon edd-metric-card__icon--teal" aria-hidden="true">
+              <s-icon type="data-presentation" />
+            </span>
+          </div>
+          {impressionsReady ? (
+            <p className="edd-metric-card__value" key={impressions}>
+              {impressions.toLocaleString()}
+            </p>
+          ) : (
+            <div className="edd-metric-card__loading">
+              <s-spinner size="base" accessibilityLabel="Loading impressions" />
+              <span>Loading</span>
+            </div>
+          )}
+          <p className="edd-metric-card__help">Last 30 days</p>
+        </article>
 
-        <s-box
-          padding="base"
-          border="base"
-          borderRadius="base"
-          background={pendingCount ? "subdued" : "base"}
-        >
-          <s-stack gap="small-200">
-            <s-stack direction="inline" gap="small-200" alignItems="center">
-              <s-icon type="delivery" color="subdued" />
-              <s-heading>Delivery requests</s-heading>
-              {pendingCount ? (
-                <s-badge tone="warning" color="base" size="base">
-                  {pendingCount}
-                </s-badge>
-              ) : null}
-            </s-stack>
-            <p className="edd-metric-value">{pendingCount}</p>
-            <s-paragraph color="subdued">
-              {pendingCount ? "Waiting for your review" : "No pending requests"}
-            </s-paragraph>
-          </s-stack>
-        </s-box>
+        <a href="#delivery-requests" className="edd-metric-card">
+          <div className="edd-metric-card__head">
+            <h3 className="edd-metric-card__label">Delivery requests</h3>
+            <span className="edd-metric-card__icon edd-metric-card__icon--amber">
+              <s-icon type="delivery" />
+            </span>
+          </div>
+          <p className="edd-metric-card__value">{pendingCount}</p>
+          <p className="edd-metric-card__help">
+            {pendingCount ? "Needs review" : "No pending requests"}
+          </p>
+        </a>
 
-        <s-box padding="base" border="base" borderRadius="base" background="base">
-          <s-stack gap="small-200">
-            <s-stack direction="inline" gap="small-200" alignItems="center" justifyContent="space-between">
-              <s-stack direction="inline" gap="small-200" alignItems="center">
-                <s-icon type="desktop" color="subdued" />
-                <s-heading>App embed</s-heading>
-              </s-stack>
-              <s-badge tone={embedTone} color="base" size="base" {...(embed.enabled ? { icon: "check-circle" } : {})}>
-                {embedLabel}
-              </s-badge>
-            </s-stack>
-            {embed.enabled ? (
-              <s-paragraph color="subdued">
-                Manage in the{" "}
-                <s-link href={embed.manageUrl || fallbackEmbedUrl} target="_blank">
-                  theme editor
-                </s-link>
-              </s-paragraph>
-            ) : embed.missingThemeAccess ? (
-              <s-stack gap="small-300">
-                <s-paragraph color="subdued">Allow theme access to check embed status.</s-paragraph>
-                {!embedRefreshing ? (
+        <article className={`edd-metric-card${embed.enabled ? " edd-metric-card--ok" : ""}`}>
+          <div className="edd-metric-card__head">
+            <h3 className="edd-metric-card__label">App embed</h3>
+            <span className="edd-metric-card__icon edd-metric-card__icon--slate" aria-hidden="true">
+              <s-icon type="desktop" />
+            </span>
+          </div>
+          <p className="edd-metric-card__value edd-metric-card__value--status">{embedLabel}</p>
+          {embed.enabled ? (
+            <p className="edd-metric-card__help edd-metric-card__help--action">
+              <button
+                type="button"
+                className="edd-metric-card__text-link"
+                onClick={() => {
+                  const url = embed.manageUrl || fallbackEmbedUrl;
+                  if (!url) return;
+                  embed.markEditorOpened?.();
+                  window.open(url, "_blank", "noopener,noreferrer");
+                }}
+              >
+                Manage in Theme Editor
+              </button>
+            </p>
+          ) : embed.missingThemeAccess ? (
+            !embedRefreshing ? (
+              <div className="edd-metric-card__actions">
+                <span
+                  className="edd-tooltip edd-tooltip--above"
+                  data-tooltip="Allow theme access so the app can check whether the embed is on."
+                >
                   <ActionButton variant="primary" onClick={() => embed.requestAccess?.()}>
                     Allow theme access
                   </ActionButton>
-                ) : null}
-              </s-stack>
-            ) : (
-              <s-stack gap="small-300">
-                <s-paragraph color="subdued">
-                  Turn on Estimated delivery embed, then click Save in the theme editor.
-                </s-paragraph>
-                {!embedRefreshing ? (
-                  <ActionButton
-                    variant="primary"
-                    onClick={() => {
-                      const url = embed.activateUrl || fallbackEmbedUrl;
-                      if (!url) return;
-                      embed.markEditorOpened?.();
-                      window.open(url, "_blank", "noopener,noreferrer");
-                    }}
-                  >
-                    Open theme editor
-                  </ActionButton>
-                ) : null}
-              </s-stack>
-            )}
-          </s-stack>
-        </s-box>
+                </span>
+              </div>
+            ) : null
+          ) : !embedRefreshing ? (
+            <div className="edd-metric-card__actions">
+              <span
+                className="edd-tooltip edd-tooltip--above"
+                data-tooltip="Turn on the embed, then Save in the theme editor"
+              >
+                <ActionButton
+                  variant="primary"
+                  onClick={() => {
+                    const url = embed.activateUrl || fallbackEmbedUrl;
+                    if (!url) return;
+                    embed.markEditorOpened?.();
+                    window.open(url, "_blank", "noopener,noreferrer");
+                  }}
+                >
+                  Open theme editor
+                </ActionButton>
+              </span>
+            </div>
+          ) : null}
+        </article>
       </div>
     </s-section>
   );
@@ -537,6 +531,36 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
   const requestedScope = useRef(false);
   const openedEditor = useRef(false);
   const [refreshing, setRefreshing] = useState(!initialStatus);
+  const [bridgeEnabled, setBridgeEnabled] = useState(null);
+
+  const readBridgeEmbedStatus = async () => {
+    try {
+      const extensions = await shopify?.app?.extensions?.();
+      if (!Array.isArray(extensions)) return null;
+      for (const extension of extensions) {
+        if (extension?.type !== "theme_app_extension") continue;
+        const blocks = Array.isArray(extension.activations) ? extension.activations : [];
+        const embed = blocks.find(
+          (block) =>
+            block?.handle === "app-embed" ||
+            block?.target === "body" ||
+            /estimated delivery/i.test(String(block?.name || "")),
+        );
+        if (!embed) continue;
+        // App Bridge: active = on in published theme; available = installed but Off.
+        return embed.status === "active";
+      }
+      return false;
+    } catch {
+      return null;
+    }
+  };
+
+  const refreshBridge = async () => {
+    const enabled = await readBridgeEmbedStatus();
+    if (enabled != null) setBridgeEnabled(enabled);
+    return enabled;
+  };
 
   const requestThemeAccess = async () => {
     try {
@@ -554,18 +578,21 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
       setRefreshing(true);
       fetcherRef.current.load("/app/embed-status?fresh=1");
     }
+    await refreshBridge();
   };
 
   const loadStatus = (showRefreshing, { fresh = false } = {}) => {
     if (fetcherRef.current.state !== "idle") return;
     if (showRefreshing) setRefreshing(true);
     fetcherRef.current.load(fresh ? "/app/embed-status?fresh=1" : "/app/embed-status");
+    void refreshBridge();
   };
 
   useEffect(() => {
+    void refreshBridge();
     // Initial status comes from the page loader — only refetch in the background.
     if (!initialStatus) {
-      loadStatus(true);
+      loadStatus(true, { fresh: true });
     } else if (initialStatus.missingThemeAccess && !requestedScope.current) {
       // Ask for theme scopes without blocking the first paint.
       window.setTimeout(() => {
@@ -575,15 +602,15 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
 
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
-      const fresh = openedEditor.current;
       openedEditor.current = false;
-      loadStatus(false, { fresh });
+      // Always re-read when returning so Off/On matches Theme Editor.
+      loadStatus(false, { fresh: true });
     };
     window.addEventListener("focus", onVisible);
     document.addEventListener("visibilitychange", onVisible);
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") loadStatus(false);
-    }, 30000);
+      if (document.visibilityState === "visible") loadStatus(false, { fresh: true });
+    }, 15000);
     return () => {
       window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
@@ -596,10 +623,12 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
   }, [fetcher.state, fetcher.data]);
 
   const data = fetcher.data || initialStatus;
+  // Prefer App Bridge (published-theme activation). Fall back to settings_data parse.
+  const enabled = bridgeEnabled != null ? bridgeEnabled : data?.appEmbedEnabled;
 
   return {
-    refreshing: refreshing && data == null,
-    enabled: data?.appEmbedEnabled,
+    refreshing: refreshing && enabled == null && data == null,
+    enabled,
     missingThemeAccess: Boolean(data?.missingThemeAccess),
     activateUrl: data?.themeEditorEmbed || fallbackEmbedUrl,
     manageUrl: data?.themeEditorEmbedManage || fallbackEmbedUrl,
@@ -615,12 +644,6 @@ function formatRequestWhen(value) {
   const date = value instanceof Date ? value : new Date(value || "");
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-function requestStatusTone(status) {
-  if (status === "ACCEPTED") return "success";
-  if (status === "REJECTED") return "neutral";
-  return "warning";
 }
 
 function requestStatusLabel(status) {
@@ -683,69 +706,67 @@ function DeliveryRequestsList({
           </s-stack>
         </s-box>
       ) : sorted.length ? (
-        <s-query-container>
-          <s-stack gap="small">
-            {sorted.map((item) => {
-              const place = [item.city, item.state, item.country].filter(Boolean).join(", ");
-              const source =
-                [item.productTitle, item.widgetName].filter(Boolean).join(" · ") || "Storefront request";
-              const pending = item.status === "PENDING";
-              return (
-                <s-box
-                  key={item.id}
-                  padding="base"
-                  border="base"
-                  borderRadius="base"
-                  {...(pending ? { background: "subdued" } : {})}
-                >
-                  <s-grid
-                    gridTemplateColumns="@container (inline-size <= 520px) 1fr, 1fr auto"
-                    gap="base"
-                    alignItems="center"
-                  >
-                    <s-stack gap="small-100">
-                      <s-stack direction="inline" gap="small-200" alignItems="center">
-                        <s-text type="strong">{item.pincode}</s-text>
-                        <s-badge tone={requestStatusTone(item.status)}>
-                          {requestStatusLabel(item.status)}
-                        </s-badge>
-                      </s-stack>
-                      <s-paragraph color="subdued">{place || "Location unavailable"}</s-paragraph>
-                      <s-paragraph color="subdued">{source}</s-paragraph>
-                      <s-text color="subdued">{formatRequestWhen(item.createdAt)}</s-text>
-                    </s-stack>
-                    {pending ? (
-                      <s-button-group gap="base">
-                        <ActionButton
-                          variant="primary"
-                          disabled={saving}
-                          onClick={() => act(item, "accept-delivery-request")}
-                        >
-                          Accept
-                        </ActionButton>
-                        <ActionButton
-                          variant="secondary"
-                          disabled={saving}
-                          onClick={() => act(item, "reject-delivery-request")}
-                        >
-                          Decline
-                        </ActionButton>
-                      </s-button-group>
+        <ul className="edd-request-list">
+          {sorted.map((item) => {
+            const place = [item.city, item.state].filter(Boolean).join(", ");
+            const pending = item.status === "PENDING";
+            const status = String(item.status || "PENDING").toLowerCase();
+            return (
+              <li
+                key={item.id}
+                className={`edd-request-card edd-request-card--${status}${pending ? " edd-request-card--pending" : ""}`}
+              >
+                <div className="edd-request-card__accent" aria-hidden="true" />
+                <div className="edd-request-card__main">
+                  <div className="edd-request-card__title-row">
+                    <span className="edd-request-card__pin">{item.pincode}</span>
+                    <span className={`edd-request-status edd-request-status--${status}`}>
+                      {requestStatusLabel(item.status)}
+                    </span>
+                  </div>
+                  <div className="edd-request-card__meta-row">
+                    {item.country ? <span className="edd-request-chip">{item.country}</span> : null}
+                    {place ? <span className="edd-request-chip">{place}</span> : null}
+                    {item.productTitle ? <span className="edd-request-chip">{item.productTitle}</span> : null}
+                    {item.widgetName ? <span className="edd-request-chip edd-request-chip--muted">{item.widgetName}</span> : null}
+                    {!item.country && !place && !item.productTitle && !item.widgetName ? (
+                      <span className="edd-request-chip edd-request-chip--muted">Storefront request</span>
                     ) : null}
-                  </s-grid>
-                </s-box>
-              );
-            })}
-          </s-stack>
-        </s-query-container>
+                  </div>
+                  <p className="edd-request-card__when">{formatRequestWhen(item.createdAt)}</p>
+                </div>
+                {pending ? (
+                  <div className="edd-request-actions">
+                    <button
+                      type="button"
+                      className="edd-btn edd-btn--primary"
+                      disabled={saving}
+                      onClick={() => act(item, "accept-delivery-request")}
+                    >
+                      Accept
+                    </button>
+                    <button
+                      type="button"
+                      className="edd-btn"
+                      disabled={saving}
+                      onClick={() => act(item, "reject-delivery-request")}
+                    >
+                      Decline
+                    </button>
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
       ) : (
-        <s-box padding="base" border="base" borderRadius="base" background="subdued">
+        <div className="edd-request-empty">
           <s-empty-state heading="No delivery requests yet">
             <s-text slot="subheading">
               Requests appear when customers ask about delivery to an unavailable pincode.
             </s-text>
           </s-empty-state>
-        </s-box>
+        </div>
       )}
     </s-section>
   );
@@ -754,6 +775,54 @@ function DeliveryRequestsList({
 function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, hideCreate = false }) {
   const canCreate = !(hideCreate || location === WIDGET_LOCATIONS.CHECKOUT);
   const sectionIcon = location === WIDGET_LOCATIONS.CART ? "cart" : "product";
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+  const [page, setPage] = useState(1);
+
+  const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const mapped = widgets.map((widget) => {
+      const applyTo = widget.applyToLabel || widgetApplyToLabel(widget);
+      const statusText = homeWidgetStatusLabel(widget, now);
+      return { widget, applyTo, statusText };
+    });
+
+    const filtered = needle
+      ? mapped.filter(({ widget, applyTo, statusText }) => {
+          const haystack = [widget.name, locationLabel(widget.location), applyTo, statusText]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(needle);
+        })
+      : mapped;
+
+    if (!sortKey) return filtered;
+    return [...filtered].sort((a, b) => compareHomeRows(a, b, sortKey, sortDir));
+  }, [widgets, query, sortKey, sortDir, now]);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / HOME_TABLE_PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, sortKey, sortDir, widgets.length]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageRows = rows.slice((page - 1) * HOME_TABLE_PAGE_SIZE, page * HOME_TABLE_PAGE_SIZE);
+  const pages = homePageList(totalPages, page);
+  const showPagination = totalPages > 1;
+
+  const toggleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDir("asc");
+  };
 
   return (
     <s-section>
@@ -780,100 +849,152 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
       </div>
 
       {widgets.length ? (
-        <s-table variant="auto" className="edd-home-widget-table">
-          <s-table-header-row>
-            <s-table-header listSlot="primary">Name</s-table-header>
-            <s-table-header listSlot="labeled">Location</s-table-header>
-            <s-table-header listSlot="labeled">Apply to</s-table-header>
-            <s-table-header listSlot="labeled">Status</s-table-header>
-            <s-table-header listSlot="kicker" format="numeric">
-              Actions
-            </s-table-header>
-          </s-table-header-row>
-          <s-table-body>
-            {widgets.map((widget) => {
-              const published = widget.status === WIDGET_STATUSES.ACTIVE;
-              const scheduled = widget.status === WIDGET_STATUSES.SCHEDULED;
-              const hasActivationConflict = Boolean(widget.activationConflict?.conflicts?.length);
-              const remainingMs =
-                scheduled && widget.scheduledPublishAt
-                  ? new Date(widget.scheduledPublishAt).getTime() - now
-                  : null;
-              const countdown = formatCountdown(remainingMs);
-              const statusLabel = published
-                ? "Live"
-                : hasActivationConflict
-                  ? "Needs attention"
-                  : scheduled
-                    ? remainingMs != null && remainingMs <= 0
-                      ? "Going live"
-                      : countdown && countdown !== "now"
-                        ? `Scheduled · ${countdown}`
-                        : "Scheduled"
-                    : widget.status === "DRAFT"
-                      ? "Draft"
-                      : "Unpublished";
-              const applyTo = widget.applyToLabel || widgetApplyToLabel(widget);
-              return (
-                <s-table-row
-                  key={widget.id}
-                  id={homeWidgetAnchorId(widget.id)}
-                  className="edd-home-widget-row"
-                >
-                  <s-table-cell>
-                    <AppLink
-                      to={`/app/widgets/${widget.id}?tab=conditions`}
-                      onClick={() => {
-                        rememberHomeScroll();
-                        rememberHomeFocusWidget(widget.id);
-                      }}
+        <div className="edd-widget-table">
+          <div className="edd-widget-table__filters">
+            <label className="edd-widget-table__search">
+              <span className="edd-widget-table__search-label">Search</span>
+              <input
+                type="search"
+                className="edd-widget-table__search-input"
+                value={query}
+                placeholder="Search by name, apply to, or status"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <s-table variant="auto" className="edd-home-widget-table">
+            <s-table-header-row>
+              {HOME_TABLE_COLUMNS.map((column) => (
+                <HomeSortableHeader
+                  key={column.key}
+                  column={column}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                />
+              ))}
+            </s-table-header-row>
+            <s-table-body>
+              {pageRows.length ? (
+                pageRows.map(({ widget, applyTo, statusText }) => {
+                  const published = widget.status === WIDGET_STATUSES.ACTIVE;
+                  const scheduled = widget.status === WIDGET_STATUSES.SCHEDULED;
+                  const hasActivationConflict = Boolean(widget.activationConflict?.conflicts?.length);
+                  return (
+                    <s-table-row
+                      key={widget.id}
+                      id={homeWidgetAnchorId(widget.id)}
+                      className="edd-home-widget-row"
                     >
-                      {widget.name}
-                    </AppLink>
-                  </s-table-cell>
-                  <s-table-cell>{locationLabel(widget.location)}</s-table-cell>
+                      <s-table-cell>
+                        <AppLink
+                          to={`/app/widgets/${widget.id}?tab=conditions`}
+                          onClick={() => {
+                            rememberHomeScroll();
+                            rememberHomeFocusWidget(widget.id);
+                          }}
+                        >
+                          {widget.name}
+                        </AppLink>
+                      </s-table-cell>
+                      <s-table-cell>{locationLabel(widget.location)}</s-table-cell>
+                      <s-table-cell>
+                        <span className="edd-apply-to" title={applyTo}>
+                          {applyTo}
+                        </span>
+                      </s-table-cell>
+                      <s-table-cell>
+                        <s-badge
+                          tone={
+                            published
+                              ? "success"
+                              : hasActivationConflict
+                                ? "warning"
+                                : scheduled
+                                  ? "info"
+                                  : "neutral"
+                          }
+                          {...(published
+                            ? { icon: "check-circle" }
+                            : hasActivationConflict
+                              ? { icon: "alert-triangle" }
+                              : scheduled
+                                ? { icon: "clock" }
+                                : {})}
+                        >
+                          {statusText}
+                        </s-badge>
+                      </s-table-cell>
+                      <s-table-cell className="edd-table-actions-cell">
+                        <div className="edd-table-actions">
+                          <WidgetActions
+                            widget={widget}
+                            published={published}
+                            scheduled={scheduled}
+                            onRequestDelete={onRequestDelete}
+                          />
+                        </div>
+                      </s-table-cell>
+                    </s-table-row>
+                  );
+                })
+              ) : (
+                <s-table-row>
                   <s-table-cell>
-                    <span className="edd-apply-to" title={applyTo}>
-                      {applyTo}
-                    </span>
+                    {query.trim() ? "No widgets match your search." : `No ${heading.toLowerCase()} widgets.`}
                   </s-table-cell>
-                  <s-table-cell>
-                    <s-badge
-                      tone={
-                        published
-                          ? "success"
-                          : hasActivationConflict
-                            ? "warning"
-                            : scheduled
-                              ? "info"
-                              : "neutral"
-                      }
-                      {...(published
-                        ? { icon: "check-circle" }
-                        : hasActivationConflict
-                          ? { icon: "alert-triangle" }
-                          : scheduled
-                            ? { icon: "clock" }
-                            : {})}
-                    >
-                      {statusLabel}
-                    </s-badge>
-                  </s-table-cell>
-                  <s-table-cell className="edd-table-actions-cell">
-                    <div className="edd-table-actions">
-                      <WidgetActions
-                        widget={widget}
-                        published={published}
-                        scheduled={scheduled}
-                        onRequestDelete={onRequestDelete}
-                      />
-                    </div>
-                  </s-table-cell>
+                  <s-table-cell>—</s-table-cell>
+                  <s-table-cell>—</s-table-cell>
+                  <s-table-cell>—</s-table-cell>
+                  <s-table-cell>—</s-table-cell>
                 </s-table-row>
-              );
-            })}
-          </s-table-body>
-        </s-table>
+              )}
+            </s-table-body>
+          </s-table>
+
+          {showPagination ? (
+            <nav className="edd-table-pagination" aria-label={`${heading} pagination`}>
+              <button
+                type="button"
+                className="edd-btn edd-table-pagination__nav"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+              >
+                Previous
+              </button>
+              <div className="edd-table-pagination__pages">
+                {pages.map((pageNumber, index) => {
+                  const previous = pages[index - 1];
+                  const gap = previous != null && pageNumber - previous > 1;
+                  return (
+                    <span key={pageNumber} className="edd-table-pagination__page-wrap">
+                      {gap ? <span className="edd-table-pagination__ellipsis">…</span> : null}
+                      <button
+                        type="button"
+                        className={`edd-table-pagination__page${
+                          pageNumber === page ? " edd-table-pagination__page--active" : ""
+                        }`}
+                        aria-current={pageNumber === page ? "page" : undefined}
+                        onClick={() => setPage(pageNumber)}
+                      >
+                        {pageNumber}
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="edd-btn edd-table-pagination__nav"
+                disabled={page >= totalPages}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              >
+                Next
+              </button>
+            </nav>
+          ) : null}
+        </div>
       ) : (
         <s-box padding="base" border="base" borderRadius="base" background="subdued">
           <s-empty-state heading={`No ${heading.toLowerCase()} widgets`}>
@@ -894,6 +1015,101 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
         </s-box>
       )}
     </s-section>
+  );
+}
+
+const HOME_TABLE_PAGE_SIZE = 5;
+
+const HOME_TABLE_COLUMNS = [
+  { key: "name", label: "Name", listSlot: "primary" },
+  { key: "location", label: "Location", listSlot: "labeled" },
+  { key: "applyTo", label: "Apply to", listSlot: "labeled" },
+  { key: "status", label: "Status", listSlot: "labeled" },
+  { key: "actions", label: "Actions", listSlot: "kicker", format: "numeric", sortable: false },
+];
+
+function homeWidgetStatusLabel(widget, now) {
+  const published = widget.status === WIDGET_STATUSES.ACTIVE;
+  const scheduled = widget.status === WIDGET_STATUSES.SCHEDULED;
+  const hasActivationConflict = Boolean(widget.activationConflict?.conflicts?.length);
+  const remainingMs =
+    scheduled && widget.scheduledPublishAt
+      ? new Date(widget.scheduledPublishAt).getTime() - now
+      : null;
+  const countdown = formatCountdown(remainingMs);
+  if (published) return "Live";
+  if (hasActivationConflict) return "Needs attention";
+  if (scheduled) {
+    if (remainingMs != null && remainingMs <= 0) return "Going live";
+    if (countdown && countdown !== "now") return `Scheduled · ${countdown}`;
+    return "Scheduled";
+  }
+  if (widget.status === "DRAFT") return "Draft";
+  return "Unpublished";
+}
+
+function homeSortValue(row, key) {
+  switch (key) {
+    case "name":
+      return String(row.widget.name || "").toLowerCase();
+    case "location":
+      return locationLabel(row.widget.location).toLowerCase();
+    case "applyTo":
+      return String(row.applyTo || "").toLowerCase();
+    case "status":
+      return String(row.statusText || "").toLowerCase();
+    default:
+      return "";
+  }
+}
+
+function compareHomeRows(a, b, sortKey, sortDir) {
+  const left = homeSortValue(a, sortKey);
+  const right = homeSortValue(b, sortKey);
+  const result = String(left).localeCompare(String(right), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+  return sortDir === "asc" ? result : -result;
+}
+
+function homePageList(totalPages, currentPage) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  return [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
+}
+
+function HomeSortableHeader({ column, sortKey, sortDir, onSort }) {
+  if (column.sortable === false) {
+    return (
+      <s-table-header listSlot={column.listSlot} {...(column.format ? { format: column.format } : {})}>
+        {column.label}
+      </s-table-header>
+    );
+  }
+
+  const active = sortKey === column.key;
+  const ariaSort = active ? (sortDir === "asc" ? "ascending" : "descending") : "none";
+  return (
+    <s-table-header
+      listSlot={column.listSlot}
+      {...(column.format ? { format: column.format } : {})}
+      aria-sort={ariaSort}
+    >
+      <button
+        type="button"
+        className={`edd-table-sort${active ? " edd-table-sort--active" : ""}`}
+        onClick={() => onSort(column.key)}
+        aria-label={`Sort by ${column.label}${active ? `, ${sortDir === "asc" ? "ascending" : "descending"}` : ""}`}
+      >
+        <span>{column.label}</span>
+        <span className="edd-table-sort__icon" aria-hidden="true">
+          {active ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </s-table-header>
   );
 }
 

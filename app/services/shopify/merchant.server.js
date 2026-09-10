@@ -134,11 +134,10 @@ export async function deleteMerchantData(shopDomain) {
 
   const cleanup = [
     prisma.widgetEvent.deleteMany({ where: { merchantId: merchant.id } }),
-    prisma.deliveryRequest?.deleteMany({ where: { merchantId: merchant.id } }),
     prisma.widget.deleteMany({ where: { merchantId: merchant.id } }),
     prisma.session.deleteMany({ where: { shop: shopDomain } }),
     prisma.merchant.delete({ where: { id: merchant.id } }),
-  ].filter(Boolean);
+  ];
   await prisma.$transaction(cleanup);
 }
 
@@ -311,6 +310,15 @@ async function saveMerchantProfile(merchant, incoming) {
   const merged = mergeShopIdentity(merchant, incoming);
   const data = merchantProfileData(merged);
   if (profileUnchanged(merchant, data) && merchant.profileSyncedAt) {
+    // Touch sync timestamp so TTL keeps skipping GraphQL after unchanged fetches.
+    try {
+      await prisma.merchant.update({
+        where: { id: merchant.id },
+        data: { profileSyncedAt: data.profileSyncedAt },
+      });
+    } catch {
+      // Non-fatal — identity session apply still runs below.
+    }
     await applyIdentityToSessions(merchant.shopDomain, merged);
     return merchant;
   }
@@ -384,6 +392,8 @@ export async function persistSessionIdentity(session) {
 }
 
 const syncInFlight = new Map();
+/** Skip Admin GraphQL profile fetches on the hot path when recently synced. */
+const PROFILE_SYNC_TTL_MS = 6 * 60 * 60 * 1000;
 
 export async function syncMerchantProfile({ admin, session, sessionToken, merchant, payload } = {}) {
   const shopDomain = session?.shop || merchant?.shopDomain;
@@ -394,9 +404,18 @@ export async function syncMerchantProfile({ admin, session, sessionToken, mercha
 
   const task = (async () => {
     const current = merchant?.id ? merchant : await ensureMerchant(shopDomain);
+    const fromSession = mergeShopIdentity(profileFromSession(session), profileFromSessionToken(sessionToken));
+    const syncedAt = current.profileSyncedAt ? new Date(current.profileSyncedAt).getTime() : 0;
+    const withinTtl = Boolean(syncedAt) && Date.now() - syncedAt < PROFILE_SYNC_TTL_MS;
+
+    // Webhook payloads must apply immediately; otherwise reuse a fresh profile and avoid GraphQL.
+    if (!payload && withinTtl) {
+      return current;
+    }
+
     const incoming = mergeShopIdentity(
       mergeShopIdentity(profileFromShopUpdate(payload), await fetchShopProfile(admin)),
-      mergeShopIdentity(profileFromSession(session), profileFromSessionToken(sessionToken)),
+      fromSession,
     );
     return saveMerchantProfile(current, incoming);
   })().finally(() => {

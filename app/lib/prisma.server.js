@@ -12,8 +12,9 @@ function modelHasField(modelName, fieldName) {
   );
 }
 
+/** @deprecated Delivery requests live on WidgetEvent; kept for older imports. */
 export function hasDeliveryRequestModel() {
-  return typeof prisma.deliveryRequest?.findMany === "function";
+  return false;
 }
 
 export function hasWidgetEventKind() {

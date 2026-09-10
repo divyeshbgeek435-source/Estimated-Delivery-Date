@@ -32,6 +32,7 @@ export function mergeLiveRows(widgets, polled) {
       status: next.status,
       scheduledPublishAt: next.scheduledPublishAt,
       liveNotice: next.liveNotice,
+      activationConflict: next.activationConflict,
       updatedAt: next.updatedAt || widget.updatedAt,
     };
   });
@@ -49,6 +50,7 @@ export function applyLiveStatus(widget, polled) {
       ...widget.messageConfig,
       scheduledPublishAt: polled.scheduledPublishAt,
       liveNotice: polled.liveNotice,
+      activationConflict: polled.activationConflict,
     },
   };
 }
@@ -80,12 +82,17 @@ export function useLivePublishPoll({ widgetId = null, items = [] }) {
     const isCaughtUp = () => {
       const data = fetcherRef.current.data;
       if (widgetId) {
-        return data?.widget?.id === widgetId && data.widget.status !== WIDGET_STATUSES.SCHEDULED;
+        const row = data?.widget;
+        if (!row || row.id !== widgetId) return false;
+        if (row.activationConflict?.conflicts?.length) return true;
+        return row.status !== WIDGET_STATUSES.SCHEDULED;
       }
       if (!data?.widgets) return false;
       return scheduled.every((item) => {
         const next = data.widgets.find((row) => row.id === item.id);
-        return next && next.status !== WIDGET_STATUSES.SCHEDULED;
+        if (!next) return false;
+        if (next.activationConflict?.conflicts?.length) return true;
+        return next.status !== WIDGET_STATUSES.SCHEDULED;
       });
     };
 

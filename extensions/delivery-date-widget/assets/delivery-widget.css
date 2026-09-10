@@ -760,24 +760,70 @@
 }
 
 @container edd (max-width: 28rem) {
+  /* Keep classic Timeline horizontal on narrow product columns (match admin). */
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) {
-    grid-template-columns: 1fr;
-    gap: 0.7rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.35rem;
   }
 
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__connector {
-    display: none;
+    display: flex;
   }
 
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__step {
-    flex-direction: row;
+    flex-direction: column;
     justify-content: flex-start;
-    text-align: left;
-    gap: 0.75rem;
+    text-align: center;
+    gap: 0.35rem;
   }
 
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__meta {
+    align-items: center;
+  }
+
+  /* Keep Bubble / Express / Moment timelines horizontal (icon → label → date). */
+  .edd-anim__steps {
+    flex-direction: row;
     align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+
+  .edd-anim__step {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    justify-items: center;
+    text-align: center;
+    column-gap: 0;
+    row-gap: 0.28rem;
+  }
+
+  .edd-anim__step > .edd-anim__icon,
+  .edd-anim__step > .edd-anim__bubble,
+  .edd-anim__step > .edd-anim__circle,
+  .edd-anim__step > .edd-anim__meter-dot {
+    grid-row: auto;
+    grid-column: auto;
+    align-self: center;
+  }
+
+  .edd-anim__step > .edd-anim__label,
+  .edd-anim__step > .edd-anim__date {
+    grid-column: auto;
+  }
+
+  .edd-anim__label,
+  .edd-anim__date {
+    font-size: 0.78rem;
+  }
+
+  .edd-anim__bubble-shell .edd-anim__rail,
+  .edd-anim__express-shell .edd-anim__rail {
+    display: block;
+    left: 16%;
+    right: 16%;
+    z-index: 0;
   }
 
   .edd-widget__tracker-steps {
@@ -794,9 +840,29 @@
     background-repeat: repeat-y;
   }
 
+  .edd-widget__journey-steps {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.35rem;
+  }
+
   .edd-widget__journey-steps::before {
-    left: 18%;
-    right: 18%;
+    left: 16%;
+    right: 16%;
+    top: calc(var(--edd-icon-box, 44px) * 0.5);
+    bottom: auto;
+    width: auto;
+    height: var(--edd-journey-rail, 5px);
+    margin-top: calc(var(--edd-journey-rail, 5px) * -0.5);
+    margin-left: 0;
+  }
+
+  .edd-widget__journey-step {
+    display: grid;
+    justify-items: center;
+    text-align: center;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .edd-widget__journey-label,
@@ -929,6 +995,8 @@
   display: flex;
   justify-content: space-between;
   gap: 0.4rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .edd-anim__step,
@@ -941,6 +1009,24 @@
   gap: 0.28rem;
   text-align: center;
   animation: edd-journey-step-in 420ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.edd-anim__label {
+  font-size: var(--edd-status-size, 0.85rem);
+  font-weight: 500;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.edd-anim__date {
+  font-size: var(--edd-date-size, 0.82rem);
+  font-weight: 700;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .edd-anim__icon,
@@ -972,18 +1058,6 @@
 .edd-anim__circle.is-truck,
 .edd-anim__meter-dot.is-truck {
   animation: edd-journey-truck 720ms cubic-bezier(0.2, 0.8, 0.2, 1) 280ms both;
-}
-
-.edd-anim__label {
-  font-size: var(--edd-status-size, 0.85rem);
-  font-weight: 500;
-  line-height: 1.2;
-}
-
-.edd-anim__date {
-  font-size: var(--edd-date-size, 0.82rem);
-  font-weight: 700;
-  line-height: 1.2;
 }
 
 .edd-anim--moment .edd-anim__icon {

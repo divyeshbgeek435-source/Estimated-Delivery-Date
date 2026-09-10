@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useFetcher } from "react-router";
 import { PLACEMENT_MODES } from "../../lib/constants";
+import { describePlacement, findLivePlacementConflicts } from "../../lib/widget-conflicts";
 import { ActionButton, HostChoiceList } from "../common/ActionButton";
 
 function selectedChoice(event) {
@@ -11,7 +12,18 @@ function selectedChoice(event) {
   return String(event.currentTarget.value || "");
 }
 
-export function PlacementForm({ placement, onChange, errors = {} }) {
+export function PlacementForm({ placement, onChange, errors = {}, liveProductWidgets = [] }) {
+  const conflicts = useMemo(
+    () =>
+      findLivePlacementConflicts(
+        { id: "draft", location: "PRODUCT", placementConfig: placement },
+        liveProductWidgets,
+      ),
+    [placement, liveProductWidgets],
+  );
+  const conflictNames = conflicts.map((item) => item.name).filter(Boolean);
+  const described = describePlacement(placement);
+
   return (
     <s-stack gap="large">
       <s-section heading="Apply to">
@@ -37,6 +49,15 @@ export function PlacementForm({ placement, onChange, errors = {} }) {
             Specific Products
           </s-choice>
         </HostChoiceList>
+        {conflicts.length ? (
+          <s-banner tone="warning" heading="Placement already in use">
+            {described.mode === PLACEMENT_MODES.ALL_PRODUCTS
+              ? `All products can only have one live widget. Another live widget already covers all products (${conflictNames.join(", ") || "live widget"}).`
+              : described.mode === PLACEMENT_MODES.COLLECTIONS
+                ? `The same collection cannot be live on two widgets. This selection overlaps (${conflictNames.join(", ") || "live widget"}). Other collections can still be used on a different widget.`
+                : `The same product cannot be live on two widgets. This selection overlaps (${conflictNames.join(", ") || "live widget"}). Other products can still be used on a different widget.`}
+          </s-banner>
+        ) : null}
         {placement.mode === PLACEMENT_MODES.COLLECTIONS && !(placement.collections || []).length ? (
           <s-banner tone="warning">
             Select at least one collection. Until then, this widget stays hidden on the storefront — it will not fall back to all products.

@@ -1,16 +1,42 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher } from "react-router";
-import { locationKey } from "../../lib/geo";
+import { locationKey, namesMatch } from "../../lib/geo";
 import { PINCODE_COUNTRIES, WEIGHT_DISPLAY_MODES, groupDeliveryLocations, hasLocation } from "../../lib/pincode";
 
-async function loadCityPincodes(country, city, state = "") {
+function normalizePinEntries(entries = [], city = "") {
+  return (entries || [])
+    .map((item) =>
+      typeof item === "string" || typeof item === "number"
+        ? { code: String(item) }
+        : { code: String(item?.code || ""), label: item?.label || city },
+    )
+    .filter((item) => item.code);
+}
+
+function sameDeliveryLocation(left, right) {
+  if (!left || !right) return false;
+  if (String(left.country || "").toUpperCase() !== String(right.country || "").toUpperCase()) return false;
+  if (!namesMatch(left.city, right.city)) return false;
+  if (!left.state || !right.state) return true;
+  return namesMatch(left.state, right.state);
+}
+
+function locationIdentity(location) {
+  return locationKey(location?.country, location?.city, location?.state || "");
+}
+
+async function loadCityPincodes(country, city, state = "", { refresh = false } = {}) {
   const params = new URLSearchParams({
     country,
     city,
     state: state || "",
     pincodes: "1",
   });
-  const response = await fetch(`/app/geo?${params.toString()}`);
+  if (refresh) params.set("refresh", "1");
+  const response = await fetch(`/app/geo?${params.toString()}`, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Could not load pincodes (${response.status})`);
+  }
   const payload = await response.json();
   return {
     pincodes: Array.isArray(payload?.pincodes) ? payload.pincodes : [],
@@ -32,8 +58,10 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
   const [countryPick, setCountryPick] = useState("");
   const [addingKey, setAddingKey] = useState("");
   const [lookupError, setLookupError] = useState("");
-  const hydrated = useRef(new Set());
+  const [loadingKeys, setLoadingKeys] = useState(() => new Set());
+  const [failedKeys, setFailedKeys] = useState(() => new Set());
   const latest = useRef(pincode);
+  const inFlight = useRef(new Set());
   latest.current = pincode;
 
   const setPincode = (patch) => onChange({ pincodeRules: { ...latest.current, ...patch } });
@@ -41,36 +69,78 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
   const locations = pincode.locations || [];
   const groups = groupDeliveryLocations(pincode);
 
-  useEffect(() => {
-    const rows = latest.current.locations || [];
-    rows.forEach((location) => {
-      const key = locationKey(location.country, location.city, location.state);
-      if (!location.city || hydrated.current.has(key)) return;
-      hydrated.current.add(key);
-      loadCityPincodes(location.country, location.city, location.state)
-        .then((result) => {
-          const current = latest.current.locations || [];
-          const at = current.findIndex(
-            (item) => locationKey(item.country, item.city, item.state) === key,
-          );
-          if (at < 0) return;
-          const existing = current[at].pincodes || [];
-          if (result.pincodes.length <= existing.length && (!result.state || current[at].state)) return;
-          setPincode({
-            locations: current.map((item, currentIndex) =>
-              currentIndex === at
-                ? {
-                    ...item,
-                    state: result.state || item.state,
-                    pincodes: result.pincodes.length >= existing.length ? result.pincodes : existing,
-                  }
-                : item,
-            ),
-          });
-        })
-        .catch(() => {});
+  const markLoading = (key, busy) => {
+    setLoadingKeys((current) => {
+      const next = new Set(current);
+      if (busy) next.add(key);
+      else next.delete(key);
+      return next;
     });
-  }, [locations.length]);
+  };
+
+  const markFailed = (key, failed) => {
+    setFailedKeys((current) => {
+      const next = new Set(current);
+      if (failed) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
+
+  const fillLocationPincodes = async (location, { force = false } = {}) => {
+    if (!location?.city) return;
+    const key = locationIdentity(location);
+    if (!force && inFlight.current.has(key)) return;
+    if (!force && (location.pincodes || []).length > 0) return;
+
+    inFlight.current.add(key);
+    markLoading(key, true);
+    markFailed(key, false);
+    setLookupError("");
+
+    try {
+      const result = await loadCityPincodes(location.country, location.city, location.state, {
+        refresh: force,
+      });
+      const pins = normalizePinEntries(result.pincodes, location.city);
+      const current = latest.current.locations || [];
+      const at = current.findIndex((item) => sameDeliveryLocation(item, location));
+      if (at < 0) return;
+
+      if (!pins.length) {
+        markFailed(key, true);
+        setLookupError(`No pincodes found for ${location.city}. Try Remove and add the city again.`);
+        return;
+      }
+
+      setPincode({
+        locations: current.map((item, currentIndex) =>
+          currentIndex === at
+            ? {
+                ...item,
+                state: result.state || item.state,
+                pincodes: pins,
+              }
+            : item,
+        ),
+      });
+      markFailed(key, false);
+    } catch {
+      markFailed(key, true);
+      setLookupError(`Could not fetch pincodes for ${location.city}. Use Retry.`);
+    } finally {
+      inFlight.current.delete(key);
+      markLoading(key, false);
+    }
+  };
+
+  useEffect(() => {
+    for (const location of latest.current.locations || []) {
+      if ((location.pincodes || []).length) continue;
+      fillLocationPincodes(location);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locations.length, locations.map((item) => `${locationIdentity(item)}:${(item.pincodes || []).length}`).join("|")]);
 
   const addCountry = (iso) => {
     const current = latest.current;
@@ -89,13 +159,29 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
     setCountryPick("");
   };
 
-  const removeCountry = (iso) => {
+  const removeCountry = (event, iso) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     const current = latest.current;
-    const nextCountries = (current.countries || []).filter((item) => item !== iso);
+    const country = String(iso || "").toUpperCase();
+    const nextCountries = (current.countries || []).filter(
+      (item) => String(item || "").toUpperCase() !== country,
+    );
+    const nextLocations = (current.locations || []).filter(
+      (item) => String(item.country || "").toUpperCase() !== country,
+    );
+    for (const key of [...inFlight.current]) {
+      if (key.startsWith(`${country}|`)) inFlight.current.delete(key);
+    }
+    setLoadingKeys((currentKeys) => new Set([...currentKeys].filter((key) => !key.startsWith(`${country}|`))));
+    setFailedKeys((currentKeys) => new Set([...currentKeys].filter((key) => !key.startsWith(`${country}|`))));
+    setLookupError("");
     setPincode({
+      enabled: nextLocations.length > 0 ? current.enabled : current.enabled,
       countries: nextCountries,
-      locations: (current.locations || []).filter((item) => item.country !== iso),
-      country: nextCountries[0] || iso,
+      locations: nextLocations,
+      country: nextCountries[0] || "IN",
+      pincodes: [],
     });
   };
 
@@ -105,40 +191,64 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
     const key = locationKey(country, city, state);
     setAddingKey(key);
     setLookupError("");
+    markLoading(key, true);
     try {
       const result = await loadCityPincodes(country, city, state);
       const latestCountries = latest.current.countries || [];
-      hydrated.current.add(locationKey(country, city, result.state || state));
+      const pins = normalizePinEntries(result.pincodes, city);
+      const resolvedState = result.state || state || "";
+      const resolvedKey = locationKey(country, city, resolvedState);
+      const nextLocation = {
+        country,
+        city,
+        state: resolvedState,
+        weight: weight.value || "",
+        unit: weight.unit || "kg",
+        pincodes: pins,
+      };
       setPincode({
+        enabled: true,
         country,
         countries: latestCountries.includes(country) ? latestCountries : [...latestCountries, country],
-        locations: [
-          ...(latest.current.locations || []),
-          {
-            country,
-            city,
-            state: result.state || state || "",
-            weight: weight.value || "",
-            unit: weight.unit || "kg",
-            pincodes: result.pincodes,
-          },
-        ],
+        locations: [...(latest.current.locations || []), nextLocation],
       });
-      if (!result.pincodes.length) {
-        setLookupError(`Added ${city}, but no pincode list was found. Try another city spelling.`);
+      if (!pins.length) {
+        markFailed(resolvedKey, true);
+        setLookupError(`Added ${city}, but no pincode list was found. Try Retry on that city.`);
+      } else {
+        markFailed(resolvedKey, false);
       }
     } catch {
       setLookupError("Could not fetch pincodes for this city. Try again.");
     } finally {
       setAddingKey("");
+      markLoading(key, false);
     }
   };
 
-  const removeLocation = (index) => {
+  const removeLocation = (event, target) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
     const current = latest.current.locations || [];
-    const removed = current[index];
-    if (removed) hydrated.current.delete(locationKey(removed.country, removed.city, removed.state));
-    setPincode({ locations: current.filter((_, currentIndex) => currentIndex !== index) });
+    const nextLocations = current.filter((item) => !sameDeliveryLocation(item, target));
+    for (const item of current) {
+      if (!sameDeliveryLocation(item, target)) continue;
+      const key = locationIdentity(item);
+      inFlight.current.delete(key);
+      markLoading(key, false);
+      markFailed(key, false);
+    }
+    setLookupError("");
+    setPincode({
+      locations: nextLocations,
+      countries:
+        nextLocations.some((item) => String(item.country || "").toUpperCase() === String(target.country || "").toUpperCase())
+          ? latest.current.countries || []
+          : (latest.current.countries || []).filter(
+              (item) => String(item || "").toUpperCase() !== String(target.country || "").toUpperCase(),
+            ),
+      pincodes: [],
+    });
   };
 
   return (
@@ -195,11 +305,13 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
                 <CountryBlock
                   key={group.country}
                   group={group}
-                  locations={locations}
                   addingKey={addingKey}
+                  loadingKeys={loadingKeys}
+                  failedKeys={failedKeys}
                   onAddCity={addCity}
                   onRemoveLocation={removeLocation}
-                  onRemoveCountry={() => removeCountry(group.country)}
+                  onRemoveCountry={removeCountry}
+                  onRetry={(city) => fillLocationPincodes(city, { force: true })}
                 />
               ))}
             </div>
@@ -216,13 +328,35 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
   );
 }
 
-function CountryBlock({ group, locations, addingKey, onAddCity, onRemoveLocation, onRemoveCountry }) {
+function CountryBlock({
+  group,
+  addingKey,
+  loadingKeys,
+  failedKeys,
+  onAddCity,
+  onRemoveLocation,
+  onRemoveCountry,
+  onRetry,
+}) {
   const busy = addingKey.startsWith(`${group.country}|`);
   return (
     <div className="edd-geo-country">
       <div className="edd-geo-country__head">
         <strong>{group.label}</strong>
-        <button type="button" className="edd-pin-list__remove" onClick={onRemoveCountry}>
+        <button
+          type="button"
+          className="edd-pin-list__remove"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onRemoveCountry(event, group.country);
+          }}
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onRemoveCountry(event, group.country);
+          }}
+        >
           Remove
         </button>
       </div>
@@ -236,13 +370,10 @@ function CountryBlock({ group, locations, addingKey, onAddCity, onRemoveLocation
       {group.cities.length ? (
         <ul className="edd-geo-cities">
           {group.cities.map((city) => {
-            const index = locations.findIndex(
-              (item) =>
-                locationKey(item.country, item.city, item.state) ===
-                locationKey(city.country, city.city, city.state),
-            );
-            const key = locationKey(city.country, city.city, city.state);
+            const key = locationIdentity(city);
             const pins = city.pincodes || [];
+            const loading = loadingKeys.has(key) || loadingKeys.has(locationKey(city.country, city.city, ""));
+            const failed = failedKeys.has(key) || failedKeys.has(locationKey(city.country, city.city, ""));
             return (
               <li key={key} className="edd-geo-city">
                 <div className="edd-geo-city__head">
@@ -253,11 +384,46 @@ function CountryBlock({ group, locations, addingKey, onAddCity, onRemoveLocation
                       {pins.length} pincodes
                     </span>
                   </div>
-                  <button type="button" className="edd-pin-list__remove" onClick={() => onRemoveLocation(index)}>
-                    Remove
-                  </button>
+                  <div className="edd-geo-city__actions">
+                    {failed || (!pins.length && !loading) ? (
+                      <button
+                        type="button"
+                        className="edd-pin-list__remove"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onRetry(city);
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onRetry(city);
+                        }}
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="edd-pin-list__remove"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onRemoveLocation(event, city);
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onRemoveLocation(event, city);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                {pins.length ? (
+                {loading ? (
+                  <p className="edd-help">Fetching pincodes for this city…</p>
+                ) : pins.length ? (
                   <ul className="edd-geo-pins">
                     {pins.map((item) => (
                       <li key={item.code || item} className="edd-geo-pin">
@@ -266,7 +432,7 @@ function CountryBlock({ group, locations, addingKey, onAddCity, onRemoveLocation
                     ))}
                   </ul>
                 ) : (
-                  <p className="edd-help">Fetching pincodes for this city…</p>
+                  <p className="edd-help">No pincodes loaded yet. Click Retry.</p>
                 )}
               </li>
             );

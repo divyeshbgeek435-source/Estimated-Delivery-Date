@@ -113,16 +113,24 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
       handledRef.current = token;
       const revision = Number(data.revision || 0);
       const isCurrent = !revision || revision === inFlightRef.current;
-      if (isCurrent && !pendingRef.current) {
+      if (isCurrent) {
         if (data.errors) {
           setErrors(data.errors);
           setStatus(SAVE_STATUS.ERROR);
-        } else {
+        } else if (!pendingRef.current) {
           setErrors(null);
           lastSavedRef.current = submittedSnapshotRef.current || snapshotOf();
           setStatus(snapshotOf() === lastSavedRef.current ? SAVE_STATUS.SAVED : SAVE_STATUS.UNSAVED);
         }
+      } else if (!pendingRef.current) {
+        // Stale response after a newer edit — don't leave the UI stuck on "Saving".
+        setStatus(snapshotOf() === lastSavedRef.current ? SAVE_STATUS.SAVED : SAVE_STATUS.UNSAVED);
       }
+    } else if (!pendingRef.current) {
+      setStatus((current) => {
+        if (current !== SAVE_STATUS.SAVING) return current;
+        return snapshotOf() === lastSavedRef.current ? SAVE_STATUS.SAVED : SAVE_STATUS.UNSAVED;
+      });
     }
 
     if (pendingRef.current) {

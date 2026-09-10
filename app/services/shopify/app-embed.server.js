@@ -10,8 +10,8 @@ const cache = new Map();
 const embedPings = new Map();
 const inflight = new Map();
 
-const EMBED_STATUS_QUERY = `#graphql
-  query DeliveryDateAppEmbedStatus {
+const INSTALLATION_QUERY = `#graphql
+  query DeliveryDateAppEmbedInstallation {
     currentAppInstallation {
       accessScopes {
         handle
@@ -21,6 +21,11 @@ const EMBED_STATUS_QUERY = `#graphql
         apiKey
       }
     }
+  }
+`;
+
+const THEME_EMBED_QUERY = `#graphql
+  query DeliveryDateAppEmbedTheme {
     themes(first: 1, roles: [MAIN]) {
       nodes {
         id
@@ -114,6 +119,14 @@ function hasThemeAccess(installation) {
   return scopes.includes("read_themes") || scopes.includes("write_themes");
 }
 
+function sessionHasThemeAccess(session) {
+  const scopes = String(session?.scope || "")
+    .toLowerCase()
+    .split(/[,\s]+/)
+    .filter(Boolean);
+  return scopes.includes("read_themes") || scopes.includes("write_themes");
+}
+
 function recentEmbedPing(shop) {
   const at = embedPings.get(shop);
   return Boolean(at && Date.now() - at < 15 * 60 * 1000);
@@ -138,34 +151,75 @@ export function editorLinksForShop(shop, themeId) {
   };
 }
 
+export function buildEmbedStatusPayload(shop, result) {
+  return {
+    appEmbedEnabled: result.checked ? Boolean(result.enabled) : null,
+    missingThemeAccess: Boolean(result.missingThemeAccess),
+    checked: Boolean(result.checked),
+    ...editorLinksForShop(shop, result?.themeId),
+  };
+}
+
 export async function loadEditorLinks(admin, shop, themeId) {
   return editorLinksForShop(shop, themeId);
 }
 
-export async function readAppEmbedEnabled(admin, session, shop, { fresh = false } = {}) {
-  const data = await graphqlData(admin, EMBED_STATUS_QUERY);
-  const installation = data?.currentAppInstallation;
-  const identifiers = buildIdentifiers(installation);
-  const missingThemeAccess = !hasThemeAccess(installation);
+async function readThemeEmbedStatus(admin, identifiers) {
+  const themeData = await graphqlData(admin, THEME_EMBED_QUERY);
+  const main = themeData?.themes?.nodes?.[0];
+  if (!main) {
+    return { enabled: false, checked: true, missingThemeAccess: false, themeId: null };
+  }
+  const content = await settingsForTheme(main);
+  return {
+    enabled: Boolean(content) && parseAppEmbedEnabled(content, identifiers),
+    checked: Boolean(content),
+    missingThemeAccess: false,
+    themeId: main.id,
+  };
+}
 
-  if (!missingThemeAccess) {
+export async function readAppEmbedEnabled(admin, session, shop, { fresh = false } = {}) {
+  // Prefer session scopes to skip an extra Admin API round-trip on the hot path.
+  if (sessionHasThemeAccess(session)) {
     try {
-      const main = data?.themes?.nodes?.[0];
-      if (main) {
-        const content = await settingsForTheme(main);
-        return {
-          enabled: Boolean(content) && parseAppEmbedEnabled(content, identifiers),
-          checked: Boolean(content),
-          missingThemeAccess: false,
-          themeId: main.id,
-        };
-      }
+      return await readThemeEmbedStatus(admin, staticIdentifiers());
     } catch (error) {
       console.warn("[edd-app-embed] theme read failed", error?.message || error);
+      return {
+        enabled: null,
+        checked: false,
+        missingThemeAccess: /access|scope|denied/i.test(String(error?.message || "")),
+        themeId: null,
+      };
     }
   }
 
-  return { enabled: false, checked: !missingThemeAccess, missingThemeAccess };
+  const installationData = await graphqlData(admin, INSTALLATION_QUERY);
+  const installation = installationData?.currentAppInstallation;
+  const identifiers = buildIdentifiers(installation);
+  const missingThemeAccess = !hasThemeAccess(installation);
+
+  if (missingThemeAccess) {
+    return {
+      enabled: null,
+      checked: false,
+      missingThemeAccess: true,
+      themeId: null,
+    };
+  }
+
+  try {
+    return await readThemeEmbedStatus(admin, identifiers);
+  } catch (error) {
+    console.warn("[edd-app-embed] theme read failed", error?.message || error);
+    return {
+      enabled: null,
+      checked: false,
+      missingThemeAccess: /access|scope|denied/i.test(String(error?.message || "")),
+      themeId: null,
+    };
+  }
 }
 
 export async function syncAppEmbedMetafield(admin, enabled) {
@@ -205,7 +259,7 @@ export async function loadLiveAppEmbedStatus(admin, shop, session, { fresh = fal
         const now = Date.now();
         const latest = cache.get(shop);
         const shouldSync = !latest?.metafieldAt || now - latest.metafieldAt > METAFIELD_SYNC_MS;
-        if (shouldSync) {
+        if (shouldSync && typeof result.enabled === "boolean") {
           cache.set(shop, { ...cache.get(shop), metafieldAt: now });
           syncAppEmbedMetafield(admin, result.enabled).catch(() => {});
         }
@@ -214,9 +268,10 @@ export async function loadLiveAppEmbedStatus(admin, shop, session, { fresh = fal
     } catch (error) {
       console.warn("[edd-app-embed] status failed", error?.message || error);
       return {
-        enabled: cached?.enabled ?? false,
+        enabled: cached?.result?.enabled ?? null,
         checked: false,
         missingThemeAccess: true,
+        themeId: cached?.result?.themeId || null,
       };
     } finally {
       inflight.delete(key);
@@ -231,14 +286,14 @@ export async function isAppEmbedEnabledForShop(shop) {
   if (!shop) return false;
   if (recentEmbedPing(shop)) return true;
   const cached = cache.get(shop);
-  if (cached && cached.expires > Date.now()) return cached.enabled;
+  if (cached && cached.expires > Date.now()) return Boolean(cached.enabled);
 
   try {
     const { admin, session } = await unauthenticated.admin(shop);
     const result = await loadLiveAppEmbedStatus(admin, shop, session);
-    if (result.missingThemeAccess) return recentEmbedPing(shop);
-    return result.enabled;
+    if (result.missingThemeAccess || result.enabled == null) return recentEmbedPing(shop);
+    return Boolean(result.enabled);
   } catch {
-    return cached?.enabled ?? recentEmbedPing(shop);
+    return Boolean(cached?.enabled) || recentEmbedPing(shop);
   }
 }

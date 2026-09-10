@@ -9,7 +9,17 @@ Lightweight app embed fallback. Assets load only on product and cart pages.
     fetch("/apps/delivery-date/embed-ping", { keepalive: true }).catch(function () {});
   </script>
   {% if template.name == "product" %}
-    {% render "edd-product-root", product: product, collection: collection %}
+    {% liquid
+      assign edd_product = closest.product
+      if edd_product == blank
+        assign edd_product = product
+      endif
+      assign edd_collection = closest.collection
+      if edd_collection == blank
+        assign edd_collection = collection
+      endif
+    %}
+    {% render "edd-product-root", product: edd_product, collection: edd_collection %}
   {% else %}
     {% render "edd-cart-root" %}
   {% endif %}

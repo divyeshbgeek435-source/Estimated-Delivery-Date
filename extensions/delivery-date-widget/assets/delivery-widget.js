@@ -102,9 +102,22 @@
   }
 
   function hideRoot(root) {
+    // Keep a visible placeholder in the theme editor so merchants can find the block.
+    if (isThemeEditor()) {
+      root.hidden = false;
+      root.removeAttribute("hidden");
+      root.style.removeProperty("display");
+      if (!root.querySelector("[data-edd-editor-placeholder]")) {
+        root.innerHTML =
+          '<div data-edd-editor-placeholder class="edd-widget essential-estimated-delivery-widget" style="padding:12px 14px;border:1px dashed #8c9196;border-radius:8px;color:#6d7175;font-size:13px;line-height:1.4;background:#fff;">Estimated delivery will appear here when a live widget can be loaded.</div>';
+      }
+      return;
+    }
     root.innerHTML = "";
     root.hidden = true;
     root.style.display = "none";
+    const host = movableNode(root);
+    if (host !== root) host.style.display = "none";
   }
 
   function isThemeEditor() {
@@ -122,12 +135,16 @@
 
   function isProductPage() {
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
-    return path.includes("/products/");
-  }
+    if (path.includes("/products/")) return true;
+    if (isThemeEditor() && document.querySelector("[data-edd-root][data-location='PRODUCT']")) return true;
+    return false;
+   }
 
   function isCollectionPage() {
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
-    return /\/collections\/[^/]+/.test(path) && !path.includes("/products/");
+    if (/\/collections\/[^/]+/.test(path) && !path.includes("/products/")) return true;
+    if (isThemeEditor() && document.querySelector("[data-edd-root][data-page='collection']")) return true;
+    return false;
   }
 
   function compactResourceIds(value) {
@@ -174,6 +191,11 @@
     const location = root.dataset.location || "PRODUCT";
     const roots = [...document.querySelectorAll(`[data-edd-root][data-location="${location}"]`)];
     if (roots.length <= 1) return roots[0] || root;
+    if (location === "PRODUCT") {
+      const withProduct = roots.find((item) => item.dataset.productId);
+      if (withProduct) return withProduct;
+      return roots[0];
+    }
     if (location !== "CART") return roots[0];
     const checkout = checkoutButton();
     if (!checkout) return roots[roots.length - 1] || roots[0];
@@ -316,6 +338,15 @@
     if (mode === "DIRECT" || !pincode.enabled) return true;
     if (mode === "PINCODE") return pincode.available === true;
     return pincode.available !== false;
+  }
+
+  function formatCartItemDeliveryDates(delivery) {
+    const from = String(delivery?.delivery_from || "").trim();
+    const to = String(delivery?.delivery_to || "").trim();
+    if (!from && !to) return "";
+    // Always show the product's own delivery window (start and end).
+    if (from && to) return from === to ? from : `${from} – ${to}`;
+    return to || from;
   }
 
   function ensureShell(root) {
@@ -552,9 +583,17 @@
           }${titleEnabled ? `<p class="edd-widget__heading" style="${titleStyle}">${escapeHtml(headingText)}</p>` : ""}</div>`
         : "";
     const items = widget.items || [];
-    const dateKeys = items.map((item) => `${item.delivery?.delivery_from || ""}|${item.delivery?.delivery_to || ""}`);
-    const mixedDates = new Set(dateKeys).size > 1;
-    const perProduct = isCart && widget.cart?.displayMode === "PER_PRODUCT" && items.length > 1 && mixedDates;
+    const perProduct = isCart && widget.cart?.displayMode === "PER_PRODUCT" && items.length > 0;
+    const itemRows = perProduct
+      ? items
+          .map((item) => {
+            const dates = formatCartItemDeliveryDates(item.delivery);
+            // Products without a configured date show nothing (omit the row).
+            if (!dates) return "";
+            return `<div class="edd-widget__item"><span class="edd-widget__item-title">${escapeHtml(item.title || "")}</span><span class="edd-widget__item-dates">${escapeHtml(dates)}</span></div>`;
+          })
+          .join("")
+      : "";
     const iconSize = readablePx(style.iconSize, 24, 22);
     const steps = [
       {
@@ -675,13 +714,8 @@
       ${showDescriptionRow ? descriptionRow(true) : ""}
       ${timeline}
       ${
-        perProduct
-          ? `<div class="edd-widget__items">${items
-              .map(
-                (item) =>
-                  `<div class="edd-widget__item"><span class="edd-widget__item-title">${escapeHtml(item.title || "")}</span><span class="edd-widget__item-dates">${escapeHtml(item.delivery?.delivery_from || "")} – ${escapeHtml(item.delivery?.delivery_to || "")}</span></div>`,
-              )
-              .join("")}</div>`
+        perProduct && itemRows
+          ? `<div class="edd-widget__items">${itemRows}</div>`
           : ""
       }
     `;
@@ -953,12 +987,16 @@
 
       const encoded = configUrl.searchParams.toString();
       const requestUrl = `${configUrl.pathname}?${encoded}`;
-      let response = await fetch(requestUrl, {
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok || location === "CART") {
+      // Cart payloads include cartItems JSON — prefer POST so long carts don't fail GET/proxy URL limits.
+      let response =
+        location === "CART"
+          ? null
+          : await fetch(requestUrl, {
+              credentials: "same-origin",
+              cache: "no-store",
+              headers: { Accept: "application/json" },
+            });
+      if (!response?.ok || location === "CART") {
         const posted = await fetch(configUrl.pathname, {
           method: "POST",
           credentials: "same-origin",
@@ -972,22 +1010,14 @@
         if (posted && posted.ok) response = posted;
       }
       if (!response?.ok) {
-        if (location !== "CART") {
-          delete root.dataset.eddReady;
-          hideRoot(root);
-        } else {
-          revealRoot(root);
-        }
+        delete root.dataset.eddReady;
+        hideRoot(root);
         return;
       }
       const payload = await response.json().catch(() => ({}));
       if (!payload.widget) {
-        if (location !== "CART") {
-          delete root.dataset.eddReady;
-          hideRoot(root);
-        } else {
-          revealRoot(root);
-        }
+        delete root.dataset.eddReady;
+        hideRoot(root);
         return;
       }
       revealRoot(root);
@@ -1005,12 +1035,8 @@
       startCountdown(root, payload);
       bindTracking(root, payload);
     } catch {
-      if (location !== "CART") {
-        delete root.dataset.eddReady;
-        hideRoot(root);
-      } else {
-        revealRoot(root);
-      }
+      delete root.dataset.eddReady;
+      hideRoot(root);
     }
   }
 
@@ -1047,8 +1073,25 @@
     root.dataset.eddPlaced = "COLLECTION";
   }
 
+  function shouldAutoPlaceProductRoot(root) {
+    // Section app blocks are already where the merchant placed them.
+    // Only reposition body-level embed roots.
+    if (
+      root.closest(
+        ".product__info-container, .product__info, .product-information, .product-form, product-info, .product-single__meta, buy-buttons, .product__blocks, .product-blocks",
+      )
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   function placeProductRoot(root, position) {
     if ((root.dataset.location || "") !== "PRODUCT" || !isProductPage()) return;
+    if (!shouldAutoPlaceProductRoot(root)) {
+      root.dataset.eddPlaced = "SECTION";
+      return;
+    }
 
     const key =
       position === "ABOVE_ATC" || position === "PRODUCT_INFO" || position === "BELOW_ATC"
@@ -1058,30 +1101,48 @@
 
     const node = movableNode(root);
     const atc = firstMatch([
-      '[name="add"]',
+      'form[action*="/cart/add"] button[type="submit"]',
+      'form[action*="/cart/add"] button[name="add"]',
       'button[name="add"]',
       'form[action*="/cart/add"] [type="submit"]',
       ".product-form__submit",
       ".product-form__cart-submit",
       "button.product-form__cart-submit",
+      ".product-form__buttons button[type='submit']",
+      ".product-form__buttons",
       "[data-add-to-cart]",
+      "buy-buttons",
+      ".shopify-payment-button",
     ]);
     const info = firstMatch([
       ".product__info-container",
       ".product__info",
+      ".product-information",
       ".product-single__meta",
       ".product__title",
       "h1.product-title",
+      "h1.product__title",
       ".product__description",
     ]);
 
+    let placed = false;
     if (key === "PRODUCT_INFO" && info) {
       info.after(node);
-    } else if (atc?.parentElement) {
-      if (key === "ABOVE_ATC") atc.parentElement.insertBefore(node, atc);
-      else atc.parentElement.insertBefore(node, atc.nextSibling);
+      placed = true;
+    } else if (atc) {
+      const mount = atc.closest(".product-form__buttons") || atc.parentElement || atc;
+      if (key === "ABOVE_ATC") {
+        mount.parentElement ? mount.parentElement.insertBefore(node, mount) : mount.before(node);
+      } else {
+        mount.after(node);
+      }
+      placed = true;
+    } else if (info) {
+      info.append(node);
+      placed = true;
     }
-    root.dataset.eddPlaced = key;
+
+    if (placed) root.dataset.eddPlaced = key;
   }
 
   function placeCartRoot(root, position) {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { WEIGHT_DISPLAY_MODES, WEIGHT_UNITS } from "../../lib/pincode";
 
 const OPTIONS = [
@@ -14,15 +14,63 @@ const OPTIONS = [
   },
 ];
 
-export function WeightDisplayPicker({ shipping, onChange, autoOpen = false }) {
+function promptKey(widgetId) {
+  return `edd.weight-display-prompted:${widgetId}`;
+}
+
+function wasPrompted(widgetId) {
+  if (!widgetId || typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(promptKey(widgetId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markPrompted(widgetId) {
+  if (!widgetId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(promptKey(widgetId), "1");
+  } catch {
+    // Ignore private-mode / storage failures.
+  }
+}
+
+/** True when the merchant already picked (or effectively configured) a weight display mode. */
+export function hasWeightDisplayChoice(shipping = {}) {
+  const mode = shipping?.weightRules?.displayMode;
+  if (mode === WEIGHT_DISPLAY_MODES.PINCODE || mode === WEIGHT_DISPLAY_MODES.DIRECT) return true;
+  if (shipping?.pincodeRules?.enabled) return true;
+  if (shipping?.weightRules?.value || shipping?.weightRules?.useProductWeight) return true;
+  return false;
+}
+
+export function inferredWeightDisplayMode(shipping = {}) {
+  const mode = shipping?.weightRules?.displayMode;
+  if (mode === WEIGHT_DISPLAY_MODES.PINCODE || mode === WEIGHT_DISPLAY_MODES.DIRECT) return mode;
+  if (shipping?.pincodeRules?.enabled) return WEIGHT_DISPLAY_MODES.PINCODE;
+  if (shipping?.weightRules?.value || shipping?.weightRules?.useProductWeight) {
+    return WEIGHT_DISPLAY_MODES.DIRECT;
+  }
+  return "";
+}
+
+export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widgetId }) {
   const weight = shipping.weightRules || {};
-  const [open, setOpen] = useState(Boolean(autoOpen && !weight.displayMode));
+  const effectiveMode = inferredWeightDisplayMode(shipping);
+  const [open, setOpen] = useState(() => {
+    if (!autoOpen) return false;
+    if (hasWeightDisplayChoice(shipping) || wasPrompted(widgetId)) return false;
+    markPrompted(widgetId);
+    return true;
+  });
 
   const setWeight = (patch) => onChange({ weightRules: { ...weight, ...patch } });
-  const selected = OPTIONS.find((item) => item.value === weight.displayMode);
+  const selected = OPTIONS.find((item) => item.value === (weight.displayMode || effectiveMode));
 
   const choose = (displayMode) => {
     const pincode = shipping.pincodeRules || {};
+    markPrompted(widgetId);
     onChange({
       weightRules: { ...weight, displayMode },
       pincodeRules:
@@ -32,6 +80,15 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false }) {
     });
     setOpen(false);
   };
+
+  // Persist an inferred mode once so later edits never treat it as "unset".
+  useEffect(() => {
+    if (weight.displayMode || !effectiveMode) return;
+    onChange({ weightRules: { ...weight, displayMode: effectiveMode } });
+    markPrompted(widgetId);
+    // Intentionally run once per mount for backfill.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <s-section heading="Weight display">
@@ -101,7 +158,7 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false }) {
                 <button
                   key={option.value}
                   type="button"
-                  className={`edd-weight-option ${weight.displayMode === option.value ? "is-selected" : ""}`}
+                  className={`edd-weight-option ${(weight.displayMode || effectiveMode) === option.value ? "is-selected" : ""}`}
                   onClick={() => choose(option.value)}
                 >
                   <strong>{option.title}</strong>

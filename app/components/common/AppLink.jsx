@@ -9,10 +9,12 @@ function pathOf(to) {
  * Polaris s-link href can leave the embedded app (full reload, lost session).
  * Route in-app links through React Router instead.
  */
-export function AppLink({ to, children, nav = false, ...props }) {
+export function AppLink({ to, children, nav = false, onClick, ...props }) {
   const navigate = useNavigate();
   const location = useLocation();
   const ref = useRef(null);
+  const onClickRef = useRef(onClick);
+  onClickRef.current = onClick;
   const path = pathOf(to);
   const active = nav
     ? path === "/app"
@@ -28,6 +30,7 @@ export function AppLink({ to, children, nav = false, ...props }) {
       if (!chain.includes(node) && event.target !== node && !node.contains(event.target)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
+      onClickRef.current?.(event);
       navigate(to);
     };
     window.addEventListener("click", handleClick, true);

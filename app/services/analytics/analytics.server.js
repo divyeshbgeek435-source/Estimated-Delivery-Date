@@ -1,6 +1,31 @@
 import prisma, { hasWidgetEventKind } from "../../lib/prisma.server";
 import { ACTIVITY_KINDS, EVENT_TYPES } from "../../lib/constants";
 import { publicPincodeState, resolveWeightDisplayMode } from "../../lib/pincode";
+import { resolveDesignTemplate } from "../../lib/widget-design";
+
+const TOTALS_CACHE_MS = 5_000;
+const totalsCache = new Map();
+
+function readTotalsCache(key) {
+  const hit = totalsCache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expires) {
+    totalsCache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+
+function writeTotalsCache(key, value, ttl = TOTALS_CACHE_MS) {
+  totalsCache.set(key, { value, expires: Date.now() + ttl });
+  return value;
+}
+
+export function invalidateMerchantTotalsCache(merchantId) {
+  if (!merchantId) return;
+  totalsCache.delete(`home:${merchantId}`);
+  totalsCache.delete(`full:${merchantId}`);
+}
 
 function newEventKey(type, widgetId) {
   const rand = Math.random().toString(36).slice(2, 10);
@@ -29,7 +54,7 @@ export async function recordWidgetEvent({
   }
 
   try {
-    return await prisma.widgetEvent.create({
+    const saved = await prisma.widgetEvent.create({
       data: {
         widgetId,
         merchantId,
@@ -43,6 +68,8 @@ export async function recordWidgetEvent({
       },
       select: { id: true },
     });
+    invalidateMerchantTotalsCache(merchantId);
+    return saved;
   } catch (error) {
     // Only treat unique conflicts as success when the caller asked for dedupe.
     if (error?.code === "P2002" && eventKey) return { id: null };
@@ -64,6 +91,26 @@ function emptyMetrics() {
     clickThroughRate: 0,
     addToCartRate: 0,
   };
+}
+
+/** Fast path for the home metric tile — impressions only, index-friendly count. */
+export async function getMerchantHomeTotals(merchantId, options = {}) {
+  const cacheKey = `home:${merchantId}`;
+  if (!options.fresh) {
+    const cached = readTotalsCache(cacheKey);
+    if (cached) return cached;
+  }
+
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const impressions = await prisma.widgetEvent.count({
+    where: {
+      merchantId,
+      type: EVENT_TYPES.IMPRESSION,
+      timestamp: { gte: since },
+    },
+  });
+
+  return writeTotalsCache(cacheKey, { impressions });
 }
 
 export async function getWidgetMetrics(widgetIds, options = {}) {
@@ -104,6 +151,10 @@ export async function getWidgetMetrics(widgetIds, options = {}) {
 }
 
 export async function getMerchantTotals(merchantId) {
+  const cacheKey = `full:${merchantId}`;
+  const cached = readTotalsCache(cacheKey);
+  if (cached) return cached;
+
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const grouped = await prisma.widgetEvent.groupBy({
     by: ["type"],
@@ -121,19 +172,23 @@ export async function getMerchantTotals(merchantId) {
   totals.conversionRate = rate(totals.conversions, totals.impressions);
   totals.clickThroughRate = rate(totals.clicks, totals.impressions);
   totals.addToCartRate = rate(totals.addToCart, totals.impressions);
-  return totals;
+
+  writeTotalsCache(`home:${merchantId}`, { impressions: totals.impressions });
+  return writeTotalsCache(cacheKey, totals);
 }
 
 export function publicStorefrontConfig(widget, delivery, options = {}) {
   const locale = String(options.locale || "en").slice(0, 2).toLowerCase();
   const translation = widget.messageConfig.translations?.[locale] || {};
-  const pincodeRaw = publicPincodeState(widget.shippingRules?.pincodeRules, {
-    code: options.pincode,
-    weightRules: widget.shippingRules?.weightRules,
-    place: options.place,
-    productWeight: options.productWeight,
-    shipping: widget.shippingRules,
-  });
+  const pincodeRaw =
+    options.pincodeState ||
+    publicPincodeState(widget.shippingRules?.pincodeRules, {
+      code: options.pincode,
+      weightRules: widget.shippingRules?.weightRules,
+      place: options.place,
+      productWeight: options.productWeight,
+      shipping: widget.shippingRules,
+    });
   const pincode = widget.location === "CART" || widget.location === "CHECKOUT"
     ? { ...pincodeRaw, enabled: false }
     : pincodeRaw;
@@ -145,7 +200,7 @@ export function publicStorefrontConfig(widget, delivery, options = {}) {
     heading: widget.messageConfig.heading,
     message: translation.template || widget.messageConfig.template,
     layout: widget.messageConfig.widgetLayout || "FULL",
-    design: widget.messageConfig.designTemplate || "TIMELINE",
+    design: resolveDesignTemplate(widget.messageConfig, widget.styleConfig),
     descriptionEnabled: widget.messageConfig.descriptionEnabled !== false,
     headingEnabled: widget.messageConfig.headingEnabled !== false,
     pincode,

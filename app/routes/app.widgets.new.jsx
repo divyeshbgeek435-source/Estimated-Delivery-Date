@@ -37,7 +37,7 @@ export const action = async ({ request }) => {
       displayMode: formData.get("displayMode") || "GENERAL",
       timezone,
     });
-    return redirect(`/app/widgets/${widget.id}?tab=conditions`);
+    return redirect(`/app/widgets/${widget.id}?tab=conditions&created=1`);
   } catch (error) {
     if (error?.code === "CART_MODE_EXISTS" || error?.code === "CHECKOUT_UNAVAILABLE") {
       return { errors: { form: error.message } };

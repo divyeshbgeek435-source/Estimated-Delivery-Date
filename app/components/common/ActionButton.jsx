@@ -42,13 +42,24 @@ export function HostChoiceList({ onChange, children, ...props }) {
   useEffect(() => {
     const node = ref.current;
     if (!node) return undefined;
-    const handleChange = (event) => onChangeRef.current?.(event);
+    const handleChange = (event) => {
+      const target = event?.currentTarget || event?.target || node;
+      // Snapshot values before React state updaters run — web component events can
+      // clear currentTarget, which caused "Cannot read properties of null (reading 'values')".
+      const values = target?.values ? [...target.values] : undefined;
+      const value = target?.value;
+      onChangeRef.current?.({
+        ...event,
+        currentTarget: { values, value },
+        target: { values, value },
+      });
+    };
     node.addEventListener("change", handleChange);
     return () => node.removeEventListener("change", handleChange);
   }, []);
 
   return (
-    <s-choice-list ref={ref} {...props} onChange={onChange}>
+    <s-choice-list ref={ref} {...props}>
       {children}
     </s-choice-list>
   );

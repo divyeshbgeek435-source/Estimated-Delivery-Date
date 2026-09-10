@@ -152,8 +152,9 @@ export function normalizePincodeEntry(entry = {}, fallbackMin = 1, fallbackMax =
 function normalizeLocation(entry = {}, shipping = {}) {
   const city = String(entry.city || entry.name || "").trim().slice(0, 80);
   if (!city) return null;
-  const fallbackMin = Number(shipping.transitMinDays) || 1;
-  const fallbackMax = Number(shipping.transitMaxDays) || fallbackMin;
+  const ship = shipping || {};
+  const fallbackMin = Number(ship.transitMinDays) || 1;
+  const fallbackMax = Number(ship.transitMaxDays) || fallbackMin;
   const unit = normalizeWeightUnit(entry?.unit);
   const pincodes = Array.isArray(entry.pincodes)
     ? entry.pincodes
@@ -184,38 +185,40 @@ function normalizeLocation(entry = {}, shipping = {}) {
   };
 }
 
-export function normalizePincodeRules(rules = {}, shipping = {}) {
-  const fallbackMin = Number(shipping.transitMinDays) || 1;
-  const fallbackMax = Number(shipping.transitMaxDays) || fallbackMin;
-  const extraPincodes = Array.isArray(rules?.pincodes)
-    ? rules.pincodes
+export function normalizePincodeRules(rules, shipping) {
+  const source = rules && typeof rules === "object" ? rules : {};
+  const ship = shipping && typeof shipping === "object" ? shipping : {};
+  const fallbackMin = Number(ship.transitMinDays) || 1;
+  const fallbackMax = Number(ship.transitMaxDays) || fallbackMin;
+  const extraPincodes = Array.isArray(source.pincodes)
+    ? source.pincodes
         .map((entry) => normalizePincodeEntry(entry, fallbackMin, fallbackMax))
         .filter((entry) => entry.code || (entry.from && entry.to))
     : [];
-  let locations = Array.isArray(rules?.locations)
-    ? rules.locations.map((entry) => normalizeLocation(entry, shipping)).filter(Boolean).slice(0, 80)
+  let locations = Array.isArray(source.locations)
+    ? source.locations.map((entry) => normalizeLocation(entry, ship)).filter(Boolean).slice(0, 80)
     : [];
-  if (!locations.length && Array.isArray(rules?.cities) && rules.cities.length) {
-    locations = rules.cities
+  if (!locations.length && Array.isArray(source.cities) && source.cities.length) {
+    locations = source.cities
       .map((city) => {
         const entry = normalizeCityEntry(city);
         if (!entry) return null;
         return normalizeLocation(
           {
-            country: rules?.country,
+            country: source.country,
             city: entry.name,
             state: entry.state,
             weight: entry.weight,
             unit: entry.unit,
             pincodes: extraPincodes.filter((item) => namesMatch(item.city, entry.name)),
           },
-          shipping,
+          ship,
         );
       })
       .filter(Boolean);
   }
   const locationPincodes = locations.flatMap((location) =>
-    location.pincodes.map((entry) => ({
+    (location.pincodes || []).map((entry) => ({
       ...entry,
       city: entry.city || location.city,
       state: entry.state || location.state,
@@ -231,21 +234,21 @@ export function normalizePincodeRules(rules = {}, shipping = {}) {
     unit: location.unit,
   }));
   const countries = uniqueNames([
-    ...(Array.isArray(rules?.countries) ? rules.countries.map(normalizeCountry) : []),
+    ...(Array.isArray(source.countries) ? source.countries.map(normalizeCountry) : []),
     ...locations.map((location) => location.country),
   ]).slice(0, 40);
 
   return {
-    enabled: Boolean(rules?.enabled),
-    country: normalizeCountry(rules?.country || countries[0]),
+    enabled: Boolean(source.enabled),
+    country: normalizeCountry(source.country || countries[0]),
     countries,
     locations,
-    stateMode: normalizeSelection(rules?.stateMode),
+    stateMode: normalizeSelection(source.stateMode),
     states: uniqueNames([
-      ...(Array.isArray(rules?.states) ? rules.states : []),
+      ...(Array.isArray(source.states) ? source.states : []),
       ...locations.map((location) => location.state),
     ]).slice(0, 80),
-    cityMode: normalizeSelection(rules?.cityMode),
+    cityMode: normalizeSelection(source.cityMode),
     cities,
     pincodes,
   };
@@ -342,13 +345,26 @@ export function hasAreaCoverage(rules = {}) {
 }
 
 export function placeFromLookup(payload = {}) {
+  const primaryCity = String(payload.city || "").trim();
+  const cities = uniqueNames([
+    primaryCity,
+    ...(Array.isArray(payload.cities) ? payload.cities : []),
+    ...(Array.isArray(payload.districts) ? payload.districts : []),
+  ]);
   return {
     ok: payload?.ok !== false,
     country: normalizeCountry(payload.country),
-    city: String(payload.city || "").trim(),
+    city: primaryCity,
     state: String(payload.state || "").trim(),
     label: String(payload.label || "").trim(),
+    cities,
   };
+}
+
+function placeMatchesCity(place, cityName) {
+  if (!cityName) return false;
+  const candidates = place.cities?.length ? place.cities : [place.city];
+  return candidates.some((city) => namesMatch(city, cityName));
 }
 
 export function selectionAllowsPlace(rules = {}, place = {}) {
@@ -360,7 +376,7 @@ export function selectionAllowsPlace(rules = {}, place = {}) {
     return normalized.locations.some((location) => {
       if (location.country !== resolved.country) return false;
       if (location.state && resolved.state && !namesMatch(location.state, resolved.state)) return false;
-      return namesMatch(location.city, resolved.city);
+      return placeMatchesCity(resolved, location.city);
     });
   }
 
@@ -372,7 +388,7 @@ export function selectionAllowsPlace(rules = {}, place = {}) {
   }
 
   if (normalized.cityMode === LOCATION_SELECTION.SPECIFIC && normalized.cities.length) {
-    const allowed = normalized.cities.some((city) => namesMatch(city.name, resolved.city));
+    const allowed = normalized.cities.some((city) => placeMatchesCity(resolved, city.name));
     if (!allowed) return false;
   }
 
@@ -517,12 +533,13 @@ export async function resolveDeliveryAvailabilityAsync(options = {}, lookup) {
   return resolveDeliveryAvailability({ ...options, place });
 }
 
-export function shippingWithPincodeRule(shipping = {}, rule) {
-  if (!rule) return shipping;
+export function shippingWithPincodeRule(shipping, rule) {
+  const ship = shipping && typeof shipping === "object" ? shipping : {};
+  if (!rule) return ship;
   return {
-    ...shipping,
-    transitMinDays: rule.minDays ?? shipping.transitMinDays,
-    transitMaxDays: rule.maxDays ?? shipping.transitMaxDays,
+    ...ship,
+    transitMinDays: rule.minDays ?? ship.transitMinDays,
+    transitMaxDays: rule.maxDays ?? ship.transitMaxDays,
   };
 }
 

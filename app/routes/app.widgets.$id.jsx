@@ -13,6 +13,9 @@ import {
 import { readJsonField, syncedPlacementIds } from "../lib/form.server";
 import {
   acknowledgeLiveNotice,
+  findLiveConflicts,
+  listLiveProductWidgets,
+  resolvePlacementConflict,
   saveWidgetEditor,
   serializeWidget,
 } from "../services/widgets/widget.server";
@@ -22,7 +25,8 @@ import {
   setDeliveryRequestStatus,
 } from "../services/widgets/delivery-requests.server";
 import { WidgetWorkspace } from "../components/editor/WidgetWorkspace";
-import { DEFAULT_STYLE, DEFAULT_WORKING_DAYS, WIDGET_STATUSES, WORKING_DAYS } from "../lib/constants";
+import { DEFAULT_STYLE, DEFAULT_WORKING_DAYS, WIDGET_LOCATIONS, WIDGET_STATUSES, WORKING_DAYS } from "../lib/constants";
+import { describePlacement, supportsLiveConflict } from "../lib/widget-conflicts";
 import { normalizePosition } from "../lib/widget-profiles";
 import { confirmKindForStatus, resolveEditorStatus } from "../lib/widget-status";
 import { resolveTimeZone } from "../lib/timezone";
@@ -61,9 +65,12 @@ async function firstProductHandle(admin, widget) {
 
 export const loader = async ({ request, params }) => {
   const { admin, widget, shop, merchant } = await requireWidget(request, params.id);
-  const [productHandle, deliveryRequests] = await Promise.all([
+  const [productHandle, deliveryRequests, liveProductWidgets] = await Promise.all([
     firstProductHandle(admin, widget),
     listDeliveryRequests(widget.merchantId, widget.id),
+    widget.location === WIDGET_LOCATIONS.PRODUCT
+      ? listLiveProductWidgets(merchant.id, { excludeId: widget.id })
+      : Promise.resolve([]),
   ]);
   const iconLibrary = mergeIconLibraries(merchant?.iconLibrary, widget.iconConfig?.savedIcons);
   return {
@@ -76,6 +83,13 @@ export const loader = async ({ request, params }) => {
     }),
     iconLibrary,
     deliveryRequests,
+    liveProductWidgets: liveProductWidgets.map((item) => ({
+      id: item.id,
+      name: item.name,
+      status: item.status,
+      placementConfig: item.placementConfig,
+      placementLabel: describePlacement(item.placementConfig || {}).label,
+    })),
     themeEditorUrl: widgetThemeEditorUrl(shop, widget.location, {
       position: widget.placementConfig?.position,
     }),
@@ -141,6 +155,10 @@ function flattenDraft(widget, draft = {}) {
       savedIcons: icons.savedIcons || [],
       scheduledPublishAt: message.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt || null,
       liveNotice: message.liveNotice || widget.messageConfig?.liveNotice || null,
+      activationConflict:
+        message.activationConflict === null
+          ? null
+          : message.activationConflict || widget.messageConfig?.activationConflict || null,
     },
     style,
     placement: {
@@ -207,12 +225,54 @@ export const action = async ({ request, params }) => {
     };
   }
 
+  if (intent === "resolve-conflict") {
+    const keepWidgetId = String(formData.get("keepWidgetId") || widget.id);
+    const conflictMode = String(formData.get("conflictMode") || "publish");
+    try {
+      const saved = await resolvePlacementConflict({
+        merchantId: merchant.id,
+        widgetId: widget.id,
+        keepWidgetId,
+        placement: values.placement,
+        publishNow: conflictMode !== "schedule",
+        scheduledPublishAt:
+          conflictMode === "schedule"
+            ? values.message.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt || null
+            : null,
+      });
+      if (!saved) return { errors: { form: "Could not resolve the placement conflict." } };
+      queueWidgetStorefrontSync(admin, session, saved);
+      const keptThis = keepWidgetId === widget.id;
+      return {
+        widget: serializeWidget(saved),
+        revision,
+        toast: keptThis
+          ? conflictMode === "activation"
+            ? "Scheduled widget is now live"
+            : "Widget published"
+          : "Kept the existing live widget",
+        confirm: keptThis
+          ? {
+              kind: confirmKindForStatus(
+                conflictMode === "schedule" ? WIDGET_STATUSES.SCHEDULED : WIDGET_STATUSES.ACTIVE,
+              ),
+              scheduledAt: conflictMode === "schedule" ? values.message.scheduledPublishAt : null,
+            }
+          : null,
+        published: keptThis && conflictMode !== "schedule",
+      };
+    } catch (error) {
+      return { errors: { form: error?.message || "Could not resolve the placement conflict." } };
+    }
+  }
+
   if (intent === "unpublish") {
     try {
       const saved = await saveWidgetEditor(merchant.id, widget.id, {
         ...values.shipping,
         ...values.message,
         scheduledPublishAt: null,
+        activationConflict: null,
         ...values.style,
         ...values.placement,
         ...values.editor,
@@ -252,6 +312,64 @@ export const action = async ({ request, params }) => {
   }
   const { status, scheduledPublishAt } = resolved;
 
+  if (
+    intent !== "autosave" &&
+    supportsLiveConflict(widget.location) &&
+    status === WIDGET_STATUSES.ACTIVE
+  ) {
+    const conflicts = await findLiveConflicts(merchant.id, widget.id, {
+      location: widget.location,
+      placement: placementParsed.data,
+      cartConfig: {
+        ...(widget.cartConfig || {}),
+        displayMode: values.editor.displayMode || widget.cartConfig?.displayMode,
+      },
+    });
+    if (conflicts.length) {
+      try {
+        const saved = await saveWidgetEditor(
+          merchant.id,
+          widget.id,
+          {
+            ...shippingParsed.data,
+            ...messageParsed.data,
+            scheduledPublishAt: null,
+            activationConflict: null,
+            liveNotice: null,
+            ...styleParsed.data,
+            ...placementParsed.data,
+            ...editorParsed.data,
+            currentStep: String(formData.get("currentStep") || "conditions"),
+            status: WIDGET_STATUSES.DRAFT,
+          },
+          { location: widget.location },
+        );
+        if (widget.status === WIDGET_STATUSES.ACTIVE) {
+          queueWidgetStorefrontSync(admin, session, saved);
+        }
+        return {
+          widget: serializeWidget(saved),
+          revision,
+          conflict: {
+            mode: "publish",
+            location: widget.location,
+            widgetId: widget.id,
+            widgetName: saved.name || widget.name,
+            placementLabel:
+              widget.location === WIDGET_LOCATIONS.CART
+                ? values.editor.displayMode === "PER_PRODUCT"
+                  ? "Cart · Per product"
+                  : "Cart page"
+                : describePlacement(placementParsed.data).label,
+            conflicts,
+          },
+        };
+      } catch (error) {
+        return { errors: { form: error?.message || "Could not save the widget. Try again." } };
+      }
+    }
+  }
+
   try {
     const saved = await saveWidgetEditor(
       merchant.id,
@@ -261,6 +379,10 @@ export const action = async ({ request, params }) => {
         ...messageParsed.data,
         scheduledPublishAt,
         liveNotice: intent === "autosave" ? values.message.liveNotice || null : null,
+        activationConflict:
+          status === WIDGET_STATUSES.ACTIVE || status === WIDGET_STATUSES.DRAFT
+            ? null
+            : values.message.activationConflict || null,
         ...styleParsed.data,
         ...placementParsed.data,
         ...editorParsed.data,
@@ -322,7 +444,7 @@ export default function WidgetEditorRoute() {
   const widget = currentWidget(actionData?.widget, loaderData.widget);
 
   useEffect(() => {
-    if (actionData?.silent || actionData?.confirm) return;
+    if (actionData?.silent || actionData?.confirm || actionData?.conflict) return;
     if (actionData?.toast) shopify.toast.show(actionData.toast);
     if (actionData?.errors) {
       shopify.toast.show("Could not save. Check the highlighted fields.", { isError: true });
@@ -334,6 +456,8 @@ export default function WidgetEditorRoute() {
       widget={widget}
       errors={actionData?.errors}
       deliveryRequests={actionData?.deliveryRequests || loaderData.deliveryRequests || []}
+      liveProductWidgets={loaderData.liveProductWidgets || []}
+      conflict={actionData?.conflict || null}
       themeEditorUrl={loaderData.themeEditorUrl}
       shop={loaderData.shop}
       storefrontUrl={loaderData.storefrontUrl}

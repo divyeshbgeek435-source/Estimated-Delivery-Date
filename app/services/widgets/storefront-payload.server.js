@@ -4,10 +4,9 @@ import { parseIdList, pickStorefrontWidget } from "../../lib/form.server";
 import {
   asksForPincode,
   matchPincodeRule,
-  publicPincodeState,
   shippingWithPincodeRule,
 } from "../../lib/pincode";
-import { lookupPlaceForRules } from "../../lib/pincode.server";
+import { resolveStorefrontPincodeState } from "../../lib/pincode.server";
 
 export function parseCartItems(value) {
   if (!value) return [];
@@ -49,31 +48,37 @@ export function storefrontOptions(url, extras = {}) {
 
 export async function widgetPayload(widget, extras = {}) {
   const pincodeValue = extras.pincode || "";
-  const options = {
-    code: pincodeValue,
+  const { state: pincodeState, rules: pincodeRules, place } = await resolveStorefrontPincodeState({
     rules: widget.shippingRules?.pincodeRules,
-    weightRules: widget.shippingRules?.weightRules,
-    productWeight: extras.productWeight,
     shipping: widget.shippingRules,
-  };
-  let pincodeState = publicPincodeState(widget.shippingRules?.pincodeRules, options);
-  if (pincodeState.needsLookup) {
-    const place = await lookupPlaceForRules(widget.shippingRules?.pincodeRules, pincodeValue);
-    pincodeState = publicPincodeState(widget.shippingRules?.pincodeRules, { ...options, place });
-    extras = { ...extras, place };
-  }
+    weightRules: widget.shippingRules?.weightRules,
+    code: pincodeValue,
+    productWeight: extras.productWeight,
+  });
   const pincodeRule =
     pincodeState.enabled && pincodeState.available
-      ? matchPincodeRule(pincodeValue, widget.shippingRules?.pincodeRules) || {
+      ? matchPincodeRule(pincodeValue, pincodeRules) || {
           minDays: pincodeState.minDays,
           maxDays: pincodeState.maxDays,
         }
       : null;
-  const askPincode = asksForPincode(widget.shippingRules?.weightRules, widget.shippingRules?.pincodeRules);
+  const askPincode = asksForPincode(widget.shippingRules?.weightRules, pincodeRules);
   const hideUntilCheck = askPincode && pincodeState.available !== true;
   const hideDelivery = Boolean(askPincode && pincodeValue && pincodeState.available === false);
-  const delivery = hideDelivery || hideUntilCheck ? null : estimateFor(widget, { ...extras, pincodeRule });
-  return publicStorefrontConfig(widget, delivery, extras);
+  const nextExtras = { ...extras, place, pincodeState };
+  const delivery =
+    hideDelivery || hideUntilCheck ? null : estimateFor(widget, { ...nextExtras, pincodeRule });
+  return publicStorefrontConfig(
+    {
+      ...widget,
+      shippingRules: {
+        ...widget.shippingRules,
+        pincodeRules,
+      },
+    },
+    delivery,
+    nextExtras,
+  );
 }
 
 export function safeEstimate(widget, extras = {}) {
@@ -86,10 +91,18 @@ export function safeEstimate(widget, extras = {}) {
 }
 
 export async function estimateFromProductWidget(widget, extras = {}) {
-  const payload = await widgetPayload(widget, extras);
-  if (payload?.delivery) return payload.delivery;
-  if (extras.pincode) return null;
-  return safeEstimate(widget, extras);
+  try {
+    const payload = await widgetPayload(widget, extras);
+    if (payload?.delivery) return payload.delivery;
+    // A provided pincode that produced no delivery means unavailable / failed check.
+    if (extras.pincode) return null;
+    // Cart/checkout never collect a pincode — still estimate from base shipping when
+    // the product widget would otherwise wait for a pincode check on the PDP.
+    return safeEstimate(widget, extras);
+  } catch (error) {
+    console.warn("[edd] product widget estimate failed", error?.message || error);
+    return null;
+  }
 }
 
 export async function deliveriesFromCartItems({

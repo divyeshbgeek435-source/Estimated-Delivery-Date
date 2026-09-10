@@ -3,7 +3,7 @@ import { widgetSnippet } from "../../lib/constants";
 import { normalizePosition, widgetProfile } from "../../lib/widget-profiles";
 import { HostChoiceList } from "../common/ActionButton";
 
-export function PlacementTab({ widget, draft, onChange, errors = {} }) {
+export function PlacementTab({ widget, draft, onChange, errors = {}, liveProductWidgets = [] }) {
   const profile = widgetProfile(widget.location);
   const position = normalizePosition(widget.location, draft.placementConfig.position);
   const snippet = widgetSnippet(widget.location, draft.cartConfig?.displayMode);
@@ -15,6 +15,7 @@ export function PlacementTab({ widget, draft, onChange, errors = {} }) {
           placement={draft.placementConfig}
           onChange={(placement) => onChange({ ...draft, placementConfig: placement })}
           errors={errors}
+          liveProductWidgets={liveProductWidgets}
         />
       ) : (
         <>

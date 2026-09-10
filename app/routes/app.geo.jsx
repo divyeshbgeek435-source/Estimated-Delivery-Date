@@ -7,7 +7,7 @@ import {
   listStatesForCountry,
   suggestCitiesForCountry,
 } from "../lib/geo.server";
-import { listPincodesForCity } from "../lib/pincode.server";
+import { listPincodesForCity, clearPincodeLookupCache } from "../lib/pincode.server";
 
 export const loader = async ({ request }) => {
   await requireAdmin(request);
@@ -22,6 +22,7 @@ export const loader = async ({ request }) => {
     .filter(Boolean);
 
   if (url.searchParams.get("pincodes")) {
+    if (url.searchParams.get("refresh")) clearPincodeLookupCache();
     const result = await listPincodesForCity({ country, state, city });
     const pincodes = Array.isArray(result) ? result : result?.pincodes || [];
     return { country, state: result?.state || state, city, pincodes };

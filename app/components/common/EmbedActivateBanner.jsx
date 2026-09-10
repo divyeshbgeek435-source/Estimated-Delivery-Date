@@ -31,14 +31,14 @@ export function EmbedActivateBanner() {
     };
   }, []);
 
-  if (dismissed || enabled !== false) return null;
+  if (dismissed || enabled !== false || fetcher.data?.missingThemeAccess) return null;
 
   return (
     <div className="edd-embed-banner" role="status">
       <div className="edd-embed-banner__copy">
         <p className="edd-embed-banner__title">Estimated Delivery Date app is not activated yet.</p>
         <p className="edd-embed-banner__text">
-          Please activate the app by clicking 'Activate' button below and then 'Save' in the following page.
+          Open the theme editor, turn on Estimated delivery embed, then click Save.
         </p>
         <button
           type="button"
@@ -49,7 +49,7 @@ export function EmbedActivateBanner() {
             window.open(activateUrl, "_blank", "noopener,noreferrer");
           }}
         >
-          Activate
+          Open theme editor
         </button>
       </div>
       <button

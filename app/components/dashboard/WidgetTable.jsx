@@ -10,40 +10,56 @@ function statusLabel(status) {
 
 export function WidgetTable({ widgets, metrics }) {
   return (
-    <div className="edd-card edd-widget-list__table edd-analytics-table">
-      <div className="edd-widget-row edd-analytics-row edd-widget-row--head">
-        <span>Widget name</span>
-        <span>Location</span>
-        <span>Impressions</span>
-        <span>Clicks</span>
-        <span>Add to cart</span>
-        <span>Conversion</span>
-        <span>Status</span>
-      </div>
-      {widgets.map((widget) => {
-        const metric = metrics[widget.id] || {
-          impressions: 0,
-          clicks: 0,
-          addToCart: 0,
-          conversionRate: 0,
-        };
-        const active = widget.status === WIDGET_STATUSES.ACTIVE;
-        return (
-          <div key={widget.id} className="edd-widget-row edd-analytics-row">
-            <AppLink to={`/app/widgets/${widget.id}?tab=conditions`}>{widget.name}</AppLink>
-            <span>{locationLabel(widget.location)}</span>
-            <span>{metric.impressions}</span>
-            <span>{metric.clicks}</span>
-            <span>{metric.addToCart || 0}</span>
-            <span>{metric.conversionRate}%</span>
-            <span>
-              <s-badge tone={active ? "success" : widget.status === WIDGET_STATUSES.SCHEDULED ? "info" : "neutral"}>
-                {statusLabel(widget.status)}
-              </s-badge>
-            </span>
-          </div>
-        );
-      })}
-    </div>
+    <s-table variant="auto">
+      <s-table-header-row>
+        <s-table-header listSlot="primary">Widget name</s-table-header>
+        <s-table-header listSlot="labeled">Location</s-table-header>
+        <s-table-header listSlot="labeled" format="numeric">
+          Impressions
+        </s-table-header>
+        <s-table-header listSlot="labeled" format="numeric">
+          Clicks
+        </s-table-header>
+        <s-table-header listSlot="labeled" format="numeric">
+          Add to cart
+        </s-table-header>
+        <s-table-header listSlot="labeled" format="numeric">
+          Conversion
+        </s-table-header>
+        <s-table-header listSlot="inline">Status</s-table-header>
+      </s-table-header-row>
+      <s-table-body>
+        {widgets.map((widget) => {
+          const metric = metrics[widget.id] || {
+            impressions: 0,
+            clicks: 0,
+            addToCart: 0,
+            conversionRate: 0,
+          };
+          const active = widget.status === WIDGET_STATUSES.ACTIVE;
+          return (
+            <s-table-row key={widget.id}>
+              <s-table-cell>
+                <AppLink to={`/app/widgets/${widget.id}?tab=conditions`}>{widget.name}</AppLink>
+              </s-table-cell>
+              <s-table-cell>{locationLabel(widget.location)}</s-table-cell>
+              <s-table-cell>{metric.impressions}</s-table-cell>
+              <s-table-cell>{metric.clicks}</s-table-cell>
+              <s-table-cell>{metric.addToCart || 0}</s-table-cell>
+              <s-table-cell>{metric.conversionRate}%</s-table-cell>
+              <s-table-cell>
+                <s-badge
+                  tone={
+                    active ? "success" : widget.status === WIDGET_STATUSES.SCHEDULED ? "info" : "neutral"
+                  }
+                >
+                  {statusLabel(widget.status)}
+                </s-badge>
+              </s-table-cell>
+            </s-table-row>
+          );
+        })}
+      </s-table-body>
+    </s-table>
   );
 }

@@ -45,6 +45,14 @@ const asEnabled = z.preprocess((value) => {
 
 const asOptionalString = z.preprocess((value) => (value == null || value === "" ? undefined : value), z.string().optional());
 
+const asPincodeCode = z.preprocess(
+  (value) => {
+    if (value == null || value === "") return undefined;
+    return String(value).trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16) || undefined;
+  },
+  z.string().max(16).optional(),
+);
+
 const ianaTimezoneSchema = z.preprocess(
   (value) => (value == null || value === "" ? undefined : String(value).trim()),
   z
@@ -115,9 +123,9 @@ export const shippingSchema = z
                 pincodes: z
                   .array(
                     z.union([
-                      asString("").pipe(z.string().trim().max(16)),
+                      asPincodeCode,
                       z.object({
-                        code: asOptionalString.pipe(z.string().trim().max(16).optional()),
+                        code: asPincodeCode,
                         label: asOptionalString.pipe(z.string().trim().max(80).optional()),
                         minDays: z.coerce.number().int().min(0).max(60).optional(),
                         maxDays: z.coerce.number().int().min(0).max(90).optional(),
@@ -126,7 +134,7 @@ export const shippingSchema = z
                       }),
                     ]),
                   )
-                  .max(400)
+                  .max(2000)
                   .default([]),
               }),
             )
@@ -158,11 +166,11 @@ export const shippingSchema = z
           pincodes: z
             .array(
               z.object({
-                code: asOptionalString.pipe(z.string().trim().max(16).optional()),
-                from: asOptionalString.pipe(z.string().trim().max(16).optional()),
-                to: asOptionalString.pipe(z.string().trim().max(16).optional()),
-                minDays: z.coerce.number().int().min(0).max(60),
-                maxDays: z.coerce.number().int().min(0).max(90),
+                code: asPincodeCode,
+                from: asPincodeCode,
+                to: asPincodeCode,
+                minDays: z.coerce.number().int().min(0).max(60).optional().default(1),
+                maxDays: z.coerce.number().int().min(0).max(90).optional().default(2),
                 label: asOptionalString.pipe(z.string().trim().max(80).optional()),
                 city: asOptionalString.pipe(z.string().trim().max(80).optional()),
                 state: asOptionalString.pipe(z.string().trim().max(80).optional()),
@@ -170,7 +178,7 @@ export const shippingSchema = z
                 unit: asOptionalString.pipe(z.string().trim().max(16).optional()),
               }),
             )
-            .max(2500)
+            .max(8000)
             .default([]),
         })
         .transform((value) => normalizePincodeRules(value)),
@@ -193,6 +201,24 @@ export const shippingSchema = z
         .transform((value) => normalizeWeightRules(value)),
     ),
   })
+  .transform((value) => {
+    const processingMinDays = Number(value.processingMinDays) || 0;
+    const processingMaxDays = Math.max(Number(value.processingMaxDays) || 0, processingMinDays);
+    const transitMinDays = Number(value.transitMinDays) || 0;
+    const transitMaxDays = Math.max(Number(value.transitMaxDays) || 0, transitMinDays);
+    const next = {
+      ...value,
+      processingMinDays,
+      processingMaxDays,
+      transitMinDays,
+      transitMaxDays,
+    };
+    if (next.weightRules?.displayMode !== WEIGHT_DISPLAY_MODES.DIRECT) return next;
+    return {
+      ...next,
+      pincodeRules: { ...next.pincodeRules, enabled: false },
+    };
+  })
   .refine((value) => value.processingMaxDays >= value.processingMinDays, {
     message: "Longest processing time must be greater than or equal to the shortest.",
     path: ["processingMaxDays"],
@@ -200,13 +226,6 @@ export const shippingSchema = z
   .refine((value) => value.transitMaxDays >= value.transitMinDays, {
     message: "Longest transit time must be greater than or equal to the shortest.",
     path: ["transitMaxDays"],
-  })
-  .transform((value) => {
-    if (value.weightRules?.displayMode !== WEIGHT_DISPLAY_MODES.DIRECT) return value;
-    return {
-      ...value,
-      pincodeRules: { ...value.pincodeRules, enabled: false },
-    };
   });
 
 export const messageSchema = z.object({
@@ -251,18 +270,25 @@ export const messageSchema = z.object({
     (value) => value === true || value === "true" || value === "on" || value === "1" || value === undefined,
     z.boolean(),
   ),
-  translations: z
-    .record(
-      z.string(),
-      z.object({
-        template: asOptionalString,
-        purchasedTitle: asOptionalString,
-        processingTitle: asOptionalString,
-        deliveredTitle: asOptionalString,
-      }),
-    )
-    .nullish()
-    .transform((value) => value || {}),
+  translations: z.preprocess(
+    (value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+      // Drop internal meta keys (__design, etc.) before locale shape validation.
+      return Object.fromEntries(Object.entries(value).filter(([key]) => !String(key).startsWith("__")));
+    },
+    z
+      .record(
+        z.string(),
+        z.object({
+          template: asOptionalString,
+          purchasedTitle: asOptionalString,
+          processingTitle: asOptionalString,
+          deliveredTitle: asOptionalString,
+        }),
+      )
+      .nullish()
+      .transform((value) => value || {}),
+  ),
   purchased: asString("bag").pipe(z.string().min(1).max(400000)),
   processing: asString("truck").pipe(z.string().min(1).max(400000)),
   delivered: asString("pin").pipe(z.string().min(1).max(400000)),

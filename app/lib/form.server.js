@@ -1,4 +1,12 @@
 import { PLACEMENT_MODES, WORKING_DAYS } from "./constants";
+import { idsIntersect, mergeIdLists } from "./form-ids";
+
+export {
+  idsIntersect,
+  mergeIdLists,
+  parseIdList,
+  shopifyNumericId,
+} from "./form-ids";
 
 export function readWorkingDays(formData, prefix = "workingDay_") {
   return WORKING_DAYS.filter((day) => {
@@ -17,49 +25,6 @@ export function readJsonField(formData, name, fallback) {
   }
 }
 
-export function shopifyNumericId(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  const match = raw.match(/(\d+)\s*$/);
-  return match ? match[1] : raw;
-}
-
-export function parseIdList(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => String(item || "").trim()).filter(Boolean);
-  }
-  return String(value || "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function idKeys(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return [];
-  const numeric = shopifyNumericId(raw);
-  return numeric && numeric !== raw ? [raw, numeric] : [raw];
-}
-
-export function idsIntersect(left = [], right = []) {
-  const wanted = new Set((right || []).flatMap(idKeys));
-  return (left || []).some((id) => idKeys(id).some((key) => wanted.has(key)));
-}
-
-export function mergeIdLists(...lists) {
-  const seen = new Set();
-  const result = [];
-  for (const list of lists) {
-    for (const value of parseIdList(list)) {
-      const key = shopifyNumericId(value) || value;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      result.push(value);
-    }
-  }
-  return result;
-}
-
 function placementIds(placement, idKey, listKey) {
   return mergeIdLists(
     placement?.[idKey],
@@ -67,10 +32,11 @@ function placementIds(placement, idKey, listKey) {
   );
 }
 
-export function syncedPlacementIds(placement = {}) {
+export function syncedPlacementIds(placement) {
+  const source = placement && typeof placement === "object" ? placement : {};
   return {
-    productIds: placementIds(placement, "productIds", "products"),
-    collectionIds: placementIds(placement, "collectionIds", "collections"),
+    productIds: placementIds(source, "productIds", "products"),
+    collectionIds: placementIds(source, "collectionIds", "collections"),
   };
 }
 
@@ -103,6 +69,13 @@ export function widgetAppliesToMarket(widget, marketHandle, country) {
   return false;
 }
 
+function placementSpecificity(widget) {
+  const mode = widget?.placementConfig?.mode || PLACEMENT_MODES.ALL_PRODUCTS;
+  if (mode === PLACEMENT_MODES.PRODUCTS) return 3;
+  if (mode === PLACEMENT_MODES.COLLECTIONS) return 2;
+  return 1;
+}
+
 export function pickStorefrontWidget(widgets, { productId, collectionIds = [], marketHandle, country, pageType } = {}) {
   const list = widgets || [];
   let matching = list.filter((widget) => widgetAppliesToProduct(widget, productId, collectionIds));
@@ -112,6 +85,11 @@ export function pickStorefrontWidget(widgets, { productId, collectionIds = [], m
     );
     if (collectionWidgets.length) matching = collectionWidgets;
   }
+  matching = [...matching].sort((left, right) => {
+    const bySpecificity = placementSpecificity(right) - placementSpecificity(left);
+    if (bySpecificity) return bySpecificity;
+    return new Date(right.updatedAt || 0).getTime() - new Date(left.updatedAt || 0).getTime();
+  });
   const specific = matching.filter(
     (widget) => widget.marketMode === "SPECIFIC" && widgetAppliesToMarket(widget, marketHandle, country),
   );

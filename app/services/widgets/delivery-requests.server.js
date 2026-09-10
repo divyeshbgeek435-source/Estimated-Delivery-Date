@@ -63,6 +63,27 @@ export function serializeDeliveryRequest(row) {
 
 let migrated = false;
 
+async function getMerchantWidgets(merchantId) {
+  return prisma.widget.findMany({
+    where: { merchantId },
+    select: { id: true, name: true, location: true },
+  });
+}
+
+async function purgeOrphanDeliveryRequests(merchantId, validWidgetIds) {
+  const model = requests();
+  if (!merchantId || typeof model?.deleteMany !== "function") return;
+  const ids = Array.isArray(validWidgetIds) ? validWidgetIds : [];
+  await model
+    .deleteMany({
+      where: requestWhere({
+        merchantId,
+        ...(ids.length ? { widgetId: { notIn: ids } } : {}),
+      }),
+    })
+    .catch(() => {});
+}
+
 export async function migrateLegacyDeliveryRequests() {
   if (migrated || hasDeliveryRequestModel() || !hasWidgetEventKind()) {
     migrated = true;
@@ -76,12 +97,20 @@ export async function migrateLegacyDeliveryRequests() {
       limit: 5000,
     });
     const rows = result?.cursor?.firstBatch || [];
+    const widgetIds = [...new Set(rows.map((doc) => asId(doc.widgetId)).filter(Boolean))];
+    const existingWidgets = widgetIds.length
+      ? await prisma.widget.findMany({
+          where: { id: { in: widgetIds } },
+          select: { id: true },
+        })
+      : [];
+    const existingIds = new Set(existingWidgets.map((widget) => widget.id));
     await Promise.all(
       rows.map(async (doc) => {
         const widgetId = asId(doc.widgetId);
         const merchantId = asId(doc.merchantId);
         const sourceId = asId(doc._id);
-        if (!widgetId || !merchantId || !sourceId) return;
+        if (!widgetId || !merchantId || !sourceId || !existingIds.has(widgetId)) return;
         const createdAt = doc.createdAt ? new Date(asDate(doc.createdAt)) : new Date();
         await prisma.widgetEvent
           .create({
@@ -124,20 +153,37 @@ export async function listDeliveryRequests(merchantId, widgetId) {
 export async function listMerchantDeliveryRequests(merchantId) {
   if (!merchantId) return [];
   await migrateLegacyDeliveryRequests();
+
+  // Avoid Prisma include on required widget: orphaned events (deleted widgets)
+  // make findMany throw "Field widget is required to return data, got null".
+  const widgets = await getMerchantWidgets(merchantId);
+  const widgetIds = widgets.map((widget) => widget.id);
+  await purgeOrphanDeliveryRequests(merchantId, widgetIds);
+  if (!widgetIds.length) return [];
+
+  const widgetById = new Map(widgets.map((widget) => [widget.id, widget]));
   const rows = await requests().findMany({
-    where: requestWhere({ merchantId }),
+    where: requestWhere({ merchantId, widgetId: { in: widgetIds } }),
     orderBy: { createdAt: "desc" },
     take: 200,
-    include: { widget: { select: { id: true, name: true, location: true } } },
   });
-  return rows.map(serializeDeliveryRequest);
+  return rows.map((row) =>
+    serializeDeliveryRequest({ ...row, widget: widgetById.get(asId(row.widgetId)) }),
+  );
 }
 
 export async function countPendingDeliveryRequests(merchantId) {
   if (!merchantId) return 0;
   await migrateLegacyDeliveryRequests();
+  const widgets = await getMerchantWidgets(merchantId);
+  const widgetIds = widgets.map((widget) => widget.id);
+  if (!widgetIds.length) return 0;
   return requests().count({
-    where: requestWhere({ merchantId, status: REQUEST_STATUSES.PENDING }),
+    where: requestWhere({
+      merchantId,
+      widgetId: { in: widgetIds },
+      status: REQUEST_STATUSES.PENDING,
+    }),
   });
 }
 

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { EDITOR_TABS, locationLabel, WIDGET_STATUSES } from "../../lib/constants";
+import { rememberHomeFocusWidget } from "../../lib/home-scroll";
 import { applyLiveStatus, formatCountdown, useLivePublishPoll } from "../../lib/use-live-publish";
 import { SAVE_STATUS, useEditorSave } from "../../lib/use-editor-save";
 import { normalizePosition, widgetProfile } from "../../lib/widget-profiles";
@@ -19,6 +21,8 @@ import { LiveWidgetPreview } from "../widgets/PlacementPreview";
 import { EmbedActivateBanner } from "../common/EmbedActivateBanner";
 import { ErrorBanner } from "../common/Feedback";
 import { WidgetConfirmDialog } from "../common/LivePublishedDialog";
+import { PlacementConflictDialog } from "../common/PlacementConflictDialog";
+import { conflictDialogCopy } from "../../lib/widget-conflicts";
 import { ConditionsTab } from "./ConditionsTab";
 import { DesignTab } from "./DesignTab";
 import { PlacementTab } from "./PlacementTab";
@@ -64,10 +68,13 @@ export function WidgetWorkspace({
   widget,
   errors,
   deliveryRequests = [],
+  liveProductWidgets = [],
+  conflict: conflictProp = null,
   themeEditorUrl = "",
   storefrontUrl = "",
 }) {
   const shopify = useAppBridge();
+  const navigate = useNavigate();
   const [tab, setTab] = useState(tabFromUrl);
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([tabFromUrl()]));
   const [draft, setDraft] = useState(() => structuredClone(widget));
@@ -78,6 +85,9 @@ export function WidgetWorkspace({
   );
   const seenConfirm = useRef("");
   const [confirm, setConfirm] = useState(null);
+  const [conflict, setConflict] = useState(conflictProp);
+  const resolvingConflict = useRef(false);
+  const conflictSubmitStarted = useRef(false);
   const {
     fetcher: saveFetcher,
     status: saveStatus,
@@ -112,6 +122,10 @@ export function WidgetWorkspace({
   const next = NEXT_TAB[tab];
   const profile = widgetProfile(widget.location);
   const pageLabel = storefrontPageLabel(widget.location);
+  const activationConflict =
+    livePoll.data?.widget?.activationConflict ||
+    liveWidget.messageConfig?.activationConflict ||
+    null;
 
   useEffect(() => {
     setDraft(structuredClone(widget));
@@ -120,6 +134,10 @@ export function WidgetWorkspace({
       toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
     );
   }, [widget.id]);
+
+  useEffect(() => {
+    if (conflictProp) setConflict(conflictProp);
+  }, [conflictProp]);
 
   useEffect(() => {
     if (liveWidget.status === WIDGET_STATUSES.ACTIVE && saveAction === SAVE_ACTIONS.SCHEDULE) {
@@ -140,7 +158,15 @@ export function WidgetWorkspace({
   }, [saveStatus, saveErrors, shopify]);
 
   useEffect(() => {
-    if (saveFetcher.state !== "idle" || saveFetcher.data?.errors || !saveFetcher.data?.confirm) return;
+    if (saveFetcher.state !== "idle" || saveFetcher.data?.errors) return;
+    if (saveFetcher.data?.conflict) {
+      const key = `conflict:${saveFetcher.data.widget?.updatedAt}:${saveFetcher.data.conflict.mode}`;
+      if (seenConfirm.current === key) return;
+      seenConfirm.current = key;
+      setConflict(saveFetcher.data.conflict);
+      return;
+    }
+    if (!saveFetcher.data?.confirm) return;
     const key = `save:${saveFetcher.data.widget?.updatedAt}:${saveFetcher.data.confirm.kind}`;
     if (seenConfirm.current === key) return;
     seenConfirm.current = key;
@@ -163,6 +189,21 @@ export function WidgetWorkspace({
       fromSchedule: true,
     });
   }, [liveWidget.id, liveWidget.status, liveWidget.messageConfig?.liveNotice, liveWidget.name, draft.name]);
+
+  useEffect(() => {
+    if (!activationConflict?.conflicts?.length || conflict) return;
+    const key = `activation:${liveWidget.id}:${activationConflict.dueAt || ""}`;
+    if (seenConfirm.current === key) return;
+    seenConfirm.current = key;
+    setConflict({
+      mode: "activation",
+      location: liveWidget.location || widget.location,
+      widgetId: liveWidget.id,
+      widgetName: liveWidget.name || draft.name,
+      placementLabel: null,
+      conflicts: activationConflict.conflicts,
+    });
+  }, [activationConflict, conflict, liveWidget.id, liveWidget.name, liveWidget.location, widget.location, draft.name]);
 
   const goTab = (id) => {
     if (id === tab) return;
@@ -198,13 +239,40 @@ export function WidgetWorkspace({
     submitIntent("save", { saveAction });
   };
 
+  const resolveConflict = (keepWidgetId) => {
+    if (!conflict || saving) return;
+    resolvingConflict.current = true;
+    conflictSubmitStarted.current = false;
+    submitIntent("resolve-conflict", {
+      keepWidgetId,
+      conflictMode: conflict.mode === "activation" ? "activation" : "publish",
+      saveAction: SAVE_ACTIONS.PUBLISH,
+    });
+  };
+
+  useEffect(() => {
+    if (!resolvingConflict.current) return;
+    if (saveFetcher.state !== "idle") {
+      conflictSubmitStarted.current = true;
+      return;
+    }
+    if (!conflictSubmitStarted.current) return;
+    resolvingConflict.current = false;
+    conflictSubmitStarted.current = false;
+    if (!saveFetcher.data?.errors) setConflict(null);
+  }, [saveFetcher.state, saveFetcher.data]);
+
   const previewMessage = draft.messageConfig;
   const position = normalizePosition(widget.location, draft.placementConfig?.position);
   const editorUrl = widget.location === "CHECKOUT" ? "" : themeEditorUrl;
 
   return (
     <s-page heading={draft.name || widget.name} inlineSize="large">
-      <AppLink slot="breadcrumb-actions" to="/app">
+      <AppLink
+        slot="breadcrumb-actions"
+        to="/app"
+        onClick={() => rememberHomeFocusWidget(widget.id)}
+      >
         Home
       </AppLink>
       <ActionButton
@@ -217,23 +285,24 @@ export function WidgetWorkspace({
       </ActionButton>
 
       <div className="edd-page edd-page--wide">
-      <p className="edd-editor__kicker">
-        <span>
-          {profile.editorHeading} · {locationLabel(widget.location)}
-        </span>
-        {published ? (
-          <s-badge tone="success">Live</s-badge>
-        ) : scheduled ? (
-          <s-badge tone="info">
-            {remainingMs != null && remainingMs <= 0
-              ? "Going live"
-              : `Scheduled${countdown && countdown !== "now" ? ` · ${countdown}` : ""}`}
-          </s-badge>
-        ) : (
-          <s-badge>Draft</s-badge>
-        )}
-        <SaveStatus status={saveStatus} onRetry={retry} />
-      </p>
+      <s-stack gap="base">
+        <s-stack direction="inline" gap="small-200" alignItems="center">
+          <s-text color="subdued">
+            {profile.editorHeading} · {locationLabel(widget.location)}
+          </s-text>
+          {published ? (
+            <s-badge tone="success">Live</s-badge>
+          ) : scheduled ? (
+            <s-badge tone="info">
+              {remainingMs != null && remainingMs <= 0
+                ? "Going live"
+                : `Scheduled${countdown && countdown !== "now" ? ` · ${countdown}` : ""}`}
+            </s-badge>
+          ) : (
+            <s-badge>Draft</s-badge>
+          )}
+          <SaveStatus status={saveStatus} onRetry={retry} />
+        </s-stack>
       {widget.location === "CHECKOUT" ? (
         <s-banner tone="warning" heading="Checkout placement is no longer available">
           Shopify only supports checkout UI extensions on Plus. Product and cart widgets still work on all plans. Unpublish or delete this widget.
@@ -268,7 +337,8 @@ export function WidgetWorkspace({
       ) : null}
       {saveStatus === SAVE_STATUS.ERROR ? (
         <s-banner tone="critical" heading="Changes were not saved">
-          The editor still shows your latest placement. The storefront will keep using the last saved value until this save succeeds.
+          Fix the highlighted fields below, then save again. The storefront will keep using the last saved
+          values until this save succeeds.
           <s-stack direction="inline" gap="base" paddingBlockStart="small-200">
             <ActionButton type="button" variant="primary" onClick={retry}>
               Retry save
@@ -280,7 +350,7 @@ export function WidgetWorkspace({
 
       <div className="edd-tabs-row">
         <nav className="edd-tabs" aria-label="Widget settings">
-          {EDITOR_TABS.map((item) => (
+          {EDITOR_TABS.map((item, index) => (
             <button
               key={item.id}
               type="button"
@@ -288,6 +358,7 @@ export function WidgetWorkspace({
               aria-current={tab === item.id ? "page" : undefined}
               onClick={() => goTab(item.id)}
             >
+              <span className="edd-tab__index">{index + 1}</span>
               {item.label}
             </button>
           ))}
@@ -319,6 +390,7 @@ export function WidgetWorkspace({
                 draft={draft}
                 onChange={setDraft}
                 errors={saveErrors || errors}
+                liveProductWidgets={liveProductWidgets}
               />
             </div>
           ) : null}
@@ -330,71 +402,83 @@ export function WidgetWorkspace({
               scheduleAt={scheduleAt}
               onScheduleAtChange={setScheduleAt}
             />
-            {next ? (
-              <button type="button" className="edd-btn" onClick={() => goTab(next.id)}>
-                {next.label}
-              </button>
-            ) : null}
-            <button type="button" className="edd-btn edd-btn--primary" onClick={submitSave}>
-              Save
-            </button>
-            {published || scheduled ? (
-              <button type="button" className="edd-btn" onClick={() => submitIntent("unpublish")}>
-                {scheduled ? "Cancel schedule" : "Unpublish"}
-              </button>
-            ) : null}
+            <s-button-group gap="base">
+              {next ? (
+                <ActionButton type="button" variant="secondary" onClick={() => goTab(next.id)}>
+                  {next.label}
+                </ActionButton>
+              ) : null}
+              <ActionButton
+                type="button"
+                variant="primary"
+                {...(saving ? { loading: true } : {})}
+                onClick={submitSave}
+              >
+                Save
+              </ActionButton>
+              {published || scheduled ? (
+                <ActionButton type="button" variant="tertiary" onClick={() => submitIntent("unpublish")}>
+                  {scheduled ? "Cancel schedule" : "Unpublish"}
+                </ActionButton>
+              ) : null}
+            </s-button-group>
           </div>
         </div>
         <aside className="edd-editor__preview" aria-label="Live preview">
-          <div className="edd-preview-toolbar">
-            <span className="edd-preview-toolbar__live">Live preview</span>
-            <div className="edd-preview-devices" role="group" aria-label="Preview size">
-              <button
-                type="button"
-                className="edd-preview-device"
-                aria-pressed={previewDevice === "desktop"}
-                aria-label="Desktop preview"
-                onClick={() => setPreviewDevice("desktop")}
-              >
-                <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-                  <rect x="2" y="4" width="16" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
-                  <path d="M7 16h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="edd-preview-device"
-                aria-pressed={previewDevice === "mobile"}
-                aria-label="Mobile preview"
-                onClick={() => setPreviewDevice("mobile")}
-              >
-                <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-                  <rect x="6" y="2" width="8" height="16" rx="1.8" fill="none" stroke="currentColor" strokeWidth="1.6" />
-                  <circle cx="10" cy="15.2" r="0.7" fill="currentColor" />
-                </svg>
-              </button>
+          <s-box padding="base" border="base" borderRadius="base" background="subdued">
+            <div className="edd-preview-toolbar">
+              <s-stack direction="inline" gap="small-200" alignItems="center">
+                <s-badge tone="success">Live preview</s-badge>
+              </s-stack>
+              <div className="edd-preview-devices" role="group" aria-label="Preview size">
+                <button
+                  type="button"
+                  className="edd-preview-device"
+                  aria-pressed={previewDevice === "desktop"}
+                  aria-label="Desktop preview"
+                  onClick={() => setPreviewDevice("desktop")}
+                >
+                  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+                    <rect x="2" y="4" width="16" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M7 16h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="edd-preview-device"
+                  aria-pressed={previewDevice === "mobile"}
+                  aria-label="Mobile preview"
+                  onClick={() => setPreviewDevice("mobile")}
+                >
+                  <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+                    <rect x="6" y="2" width="8" height="16" rx="1.8" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                    <circle cx="10" cy="15.2" r="0.7" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </div>
-          <div className={`edd-preview-frame edd-preview-frame--${previewDevice}`}>
-            <LiveWidgetPreview
-              location={widget.location}
-              position={position}
-              cartDisplayMode={draft.cartConfig?.displayMode}
-              heading={previewMessage.heading || ""}
-              template={previewMessage.template}
-              icons={draft.iconConfig}
-              style={draft.styleConfig}
-              shipping={draft.shippingRules}
-              timezone={draft.timezone}
-              dateSettings={draft.messageConfig}
-              layout={previewMessage.widgetLayout || "FULL"}
-              design={previewMessage.designTemplate || "TIMELINE"}
-              showDescription={previewMessage.descriptionEnabled !== false}
-              showHeading={previewMessage.headingEnabled !== false}
-            />
-          </div>
+            <div className={`edd-preview-frame edd-preview-frame--${previewDevice}`}>
+              <LiveWidgetPreview
+                location={widget.location}
+                position={position}
+                cartDisplayMode={draft.cartConfig?.displayMode}
+                heading={previewMessage.heading || ""}
+                template={previewMessage.template}
+                icons={draft.iconConfig}
+                style={draft.styleConfig}
+                shipping={draft.shippingRules}
+                timezone={draft.timezone}
+                dateSettings={draft.messageConfig}
+                layout={previewMessage.widgetLayout || "FULL"}
+                design={previewMessage.designTemplate || "TIMELINE"}
+                showDescription={previewMessage.descriptionEnabled !== false}
+                showHeading={previewMessage.headingEnabled !== false}
+              />
+            </div>
+          </s-box>
         </aside>
       </div>
+      </s-stack>
       </div>
 
       <WidgetConfirmDialog
@@ -403,9 +487,36 @@ export function WidgetWorkspace({
         location={widget.location}
         scheduledLabel={confirm?.scheduledLabel}
         onClose={() => {
+          const focusId = saveFetcher.data?.widget?.id || widget.id;
           if (confirm?.kind === "live") submitIntent("ack-live");
+          if (focusId) rememberHomeFocusWidget(focusId);
           setConfirm(null);
+          navigate(focusId ? `/app?widget=${encodeURIComponent(focusId)}` : "/app");
         }}
+      />
+      <PlacementConflictDialog
+        open={Boolean(conflict)}
+        title={
+          conflictDialogCopy(
+            conflict?.location || widget.location,
+            conflict?.mode === "activation" ? "activation" : "publish",
+          ).title
+        }
+        body={
+          conflictDialogCopy(
+            conflict?.location || widget.location,
+            conflict?.mode === "activation" ? "activation" : "publish",
+          ).body
+        }
+        candidate={{
+          id: widget.id,
+          name: conflict?.widgetName || draft.name || widget.name,
+          placementLabel: conflict?.placementLabel || "This widget",
+        }}
+        conflicts={conflict?.conflicts || []}
+        confirming={saving}
+        onCancel={() => setConflict(null)}
+        onChoose={(keepWidgetId) => resolveConflict(keepWidgetId)}
       />
     </s-page>
   );

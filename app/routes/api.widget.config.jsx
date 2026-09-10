@@ -2,12 +2,12 @@ import { authenticate, unauthenticated } from "../shopify.server";
 import { getActiveStorefrontWidgets } from "../services/widgets/widget.server";
 import { publicStorefrontConfig } from "../services/analytics/analytics.server";
 import { mergeIdLists, parseIdList, pickStorefrontWidget } from "../lib/form.server";
+import { shopifyNumericId } from "../lib/form-ids";
 import { getProductCollectionIds } from "../services/shopify/catalog.server";
 import { PLACEMENT_MODES, WIDGET_LOCATIONS } from "../lib/constants";
 import {
   deliveriesFromCartItems,
   parseCartItems,
-  safeEstimate,
   storefrontOptions,
   widgetPayload,
 } from "../services/widgets/storefront-payload.server";
@@ -108,6 +108,8 @@ async function handleConfig(request) {
     if (!displayWidget) return json({ widget: null });
 
     const productWidgets = await getActiveStorefrontWidgets(shop, WIDGET_LOCATIONS.PRODUCT);
+    // Match each cart line to a live PRODUCT widget only — never fall back to the cart
+    // widget, or products without their own date config inherit a fake shared date.
     const withDelivery = await deliveriesFromCartItems({
       productWidgets,
       cartItems,
@@ -115,20 +117,33 @@ async function handleConfig(request) {
       marketHandle,
       country,
       collectionIds,
-      fallbackWidget: displayWidget,
     });
-    const cartDelivery = withDelivery[0]?.delivery || safeEstimate(displayWidget, options);
-    const perProduct = displayWidget.cartConfig?.displayMode === "PER_PRODUCT" && withDelivery.length;
+    if (!withDelivery.length) return json({ widget: null });
+
+    const cartDelivery = withDelivery[0]?.delivery || null;
+    if (!cartDelivery) return json({ widget: null });
+
+    const perProduct = displayWidget.cartConfig?.displayMode === "PER_PRODUCT";
+    const deliveryByProductId = new Map();
+    for (const entry of withDelivery) {
+      const rawId = entry.item.id || entry.item.productId;
+      const key = shopifyNumericId(rawId) || String(rawId || "");
+      if (key) deliveryByProductId.set(key, entry.delivery);
+    }
 
     return json({
       widget: publicStorefrontConfig(displayWidget, cartDelivery, {
         ...options,
         items: perProduct
-          ? withDelivery.map((entry) => ({
-              id: entry.item.id,
-              title: entry.item.title,
-              delivery: entry.delivery,
-            }))
+          ? (cartItems.length ? cartItems : withDelivery.map((entry) => entry.item)).map((item) => {
+              const id = item.id || item.productId;
+              const key = shopifyNumericId(id) || String(id || "");
+              return {
+                id,
+                title: item.title,
+                delivery: deliveryByProductId.get(key) || null,
+              };
+            })
           : [],
       }),
     });

@@ -1,13 +1,41 @@
 {% doc %}
 Renders the estimated delivery date widget on product and collection pages only.
-@param {product} [product] - The current product
-@param {collection} [collection] - The current collection
+App blocks should use closest.* — global product/collection are often blank inside nested sections.
 {% enddoc %}
-
-{% if product %}
-  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, product: product, collection: collection %}
-{% elsif collection %}
-  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, collection: collection %}
+{% liquid
+  assign edd_product = closest.product
+  if edd_product == blank
+    assign edd_product = product
+  endif
+  assign edd_collection = closest.collection
+  if edd_collection == blank
+    assign edd_collection = collection
+  endif
+%}
+{% if edd_product != blank %}
+  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, product: edd_product, collection: edd_collection %}
+{% elsif edd_collection != blank %}
+  {% render "edd-product-root", shopify_attributes: block.shopify_attributes, collection: edd_collection %}
+{% else %}
+  <div
+    class="edd-root"
+    data-edd-root
+    data-location="PRODUCT"
+    data-page="{{ template.name }}"
+    data-locale="{{ request.locale.iso_code }}"
+    data-country="{{ localization.country.iso_code }}"
+    data-market="{{ localization.market.handle }}"
+    data-config-url="/apps/delivery-date/config"
+    data-events-url="/apps/delivery-date/events"
+    data-request-url="/apps/delivery-date/delivery-request"
+    {{ block.shopify_attributes }}
+  >
+    {% if request.design_mode %}
+      <div class="edd-widget essential-estimated-delivery-widget" style="padding:12px 14px;border:1px dashed #8c9196;border-radius:8px;color:#6d7175;font-size:13px;line-height:1.4;background:#fff;">
+        Estimated delivery will appear here for live widgets.
+      </div>
+    {% endif %}
+  </div>
 {% endif %}
 
 {% schema %}

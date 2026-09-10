@@ -11,11 +11,6 @@ function storeHandle(shop) {
   return String(shop || "").replace(/\.myshopify\.com$/i, "");
 }
 
-function shopDomain(shop) {
-  const handle = storeHandle(shop);
-  return handle.includes(".") ? handle : `${handle}.myshopify.com`;
-}
-
 function themeSegment(themeId) {
   const id = String(themeId || "").split("/").pop();
   return id && /^\d+$/.test(id) ? id : "current";
@@ -32,7 +27,8 @@ export function appEmbedEditorUrl(shop, { themeId, productHandle, activate = tru
   if (productHandle) {
     params.set("previewPath", `/products/${productHandle}`);
   }
-  return `https://${shopDomain(shop)}/admin/themes/${themeSegment(themeId)}/editor?${params.toString()}`;
+  const handle = storeHandle(shop);
+  return `https://admin.shopify.com/store/${handle}/themes/${themeSegment(themeId)}/editor?${params.toString()}`;
 }
 
 export function appBlockEditorUrl(shop, { themeId, productHandle, activate = true } = {}) {
@@ -46,7 +42,8 @@ export function appBlockEditorUrl(shop, { themeId, productHandle, activate = tru
   if (productHandle) {
     params.set("previewPath", `/products/${productHandle}`);
   }
-  return `https://${shopDomain(shop)}/admin/themes/${themeSegment(themeId)}/editor?${params.toString()}`;
+  const handle = storeHandle(shop);
+  return `https://admin.shopify.com/store/${handle}/themes/${themeSegment(themeId)}/editor?${params.toString()}`;
 }
 
 export function productThemeEditorUrl(shop, options = {}) {
@@ -61,7 +58,8 @@ export function cartBlockEditorUrl(shop, { themeId, activate = true } = {}) {
   if (activate) {
     params.set("addAppBlockId", `${APP_CLIENT_ID}/${APP_CART_BLOCK_HANDLE}`);
   }
-  return `https://${shopDomain(shop)}/admin/themes/${themeSegment(themeId)}/editor?${params.toString()}`;
+  const handle = storeHandle(shop);
+  return `https://admin.shopify.com/store/${handle}/themes/${themeSegment(themeId)}/editor?${params.toString()}`;
 }
 
 export function checkoutEditorUrl(shop, { page, position } = {}) {

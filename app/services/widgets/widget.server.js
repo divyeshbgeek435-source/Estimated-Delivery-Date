@@ -11,17 +11,28 @@ import {
   DEFAULT_WEIGHT_RULES,
   defaultPosition,
   defaultWidgetName,
+  WIDGET_LOCATIONS,
   WIDGET_STATUSES,
 } from "../../lib/constants";
 import { normalizePincodeRules, normalizeWeightRules, toCountryRules } from "../../lib/pincode";
+import { expandPincodeRulesForCheck } from "../../lib/pincode.server";
 import { syncedPlacementIds } from "../../lib/form.server";
 import { normalizePosition } from "../../lib/widget-profiles";
 import { resolveTimeZone } from "../../lib/timezone";
 import { normalizeIconLibrary } from "../../lib/icon-media";
+import {
+  ACTIVATION_CONFLICT_KEY,
+  describePlacement,
+  findLivePlacementConflicts,
+  supportsLiveConflict,
+  widgetApplyToLabel,
+} from "../../lib/widget-conflicts";
+import { DESIGN_KEY, resolveDesignTemplate } from "../../lib/widget-design";
 import { findMerchantByShopDomain } from "../shopify/merchant.server";
 import { syncWidgetStorefrontByShop } from "../shopify/store-block.server";
 
-function compact(value = {}) {
+function compact(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item != null));
 }
 
@@ -49,22 +60,34 @@ async function replaceWidgetFields(widgetId, fields, { reload = true } = {}) {
   return prisma.widget.findUnique({ where: { id: widgetId } });
 }
 
-const DESIGN_KEY = "__design";
 const PUBLISH_AT_KEY = "__publishAt";
 const LIVE_NOTICE_KEY = "__liveNotice";
 
-function prismaMessageData(message = {}) {
-  const merged = { ...DEFAULT_MESSAGE, ...message };
+function prismaMessageData(message) {
+  const source = message && typeof message === "object" ? message : {};
+  const merged = { ...DEFAULT_MESSAGE, ...source };
   const translations = { ...(merged.translations || {}) };
+  const preservedConflict =
+    merged.activationConflict === undefined ? translations[ACTIVATION_CONFLICT_KEY] : null;
+  const designTemplate = resolveDesignTemplate(merged);
   delete translations[DESIGN_KEY];
   delete translations[PUBLISH_AT_KEY];
   delete translations[LIVE_NOTICE_KEY];
-  translations[DESIGN_KEY] = merged.designTemplate || "TIMELINE";
+  delete translations[ACTIVATION_CONFLICT_KEY];
+  translations[DESIGN_KEY] = designTemplate;
   if (merged.scheduledPublishAt) {
     translations[PUBLISH_AT_KEY] = merged.scheduledPublishAt;
   }
   if (merged.liveNotice) {
     translations[LIVE_NOTICE_KEY] = merged.liveNotice;
+  }
+  if (merged.activationConflict) {
+    translations[ACTIVATION_CONFLICT_KEY] =
+      typeof merged.activationConflict === "string"
+        ? merged.activationConflict
+        : JSON.stringify(merged.activationConflict);
+  } else if (merged.activationConflict === undefined && preservedConflict) {
+    translations[ACTIVATION_CONFLICT_KEY] = preservedConflict;
   }
   return {
     heading: merged.heading,
@@ -73,80 +96,274 @@ function prismaMessageData(message = {}) {
     dateSeparator: merged.dateSeparator,
     includeYear: merged.includeYear,
     widgetLayout: merged.widgetLayout || "FULL",
+    // Do not write designTemplate here — Prisma MessageConfig has no such field
+    // (and older clients reject it). Canonical store is translations.__design.
     descriptionEnabled: merged.descriptionEnabled !== false,
     headingEnabled: merged.headingEnabled !== false,
     translations,
   };
 }
 
-function messageFromRecord(message = {}) {
-  const translations = { ...(message.translations || {}) };
-  const designTemplate = message.designTemplate || translations[DESIGN_KEY] || "TIMELINE";
-  const scheduledPublishAt = translations[PUBLISH_AT_KEY] || message.scheduledPublishAt || null;
-  const liveNotice = translations[LIVE_NOTICE_KEY] || message.liveNotice || null;
-  delete translations[DESIGN_KEY];
+/** Strip app-only message fields (designTemplate, etc.) before Prisma embed writes. */
+function toPrismaMessageConfig(message) {
+  return prismaMessageData(message);
+}
+
+function parseActivationConflict(value) {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+}
+
+function messageFromRecord(message, styleConfig) {
+  const source = message && typeof message === "object" ? message : {};
+  const translations = { ...(source.translations || {}) };
+  const designTemplate = resolveDesignTemplate(source, styleConfig);
+  const scheduledPublishAt = translations[PUBLISH_AT_KEY] || source.scheduledPublishAt || null;
+  const liveNotice = translations[LIVE_NOTICE_KEY] || source.liveNotice || null;
+  const activationConflict =
+    parseActivationConflict(translations[ACTIVATION_CONFLICT_KEY]) || source.activationConflict || null;
+  // Keep __design in translations so storefront fallbacks still work if top-level
+  // designTemplate is missing from an older Prisma client / cached document.
   delete translations[PUBLISH_AT_KEY];
   delete translations[LIVE_NOTICE_KEY];
+  delete translations[ACTIVATION_CONFLICT_KEY];
+  translations[DESIGN_KEY] = designTemplate;
   return {
     ...DEFAULT_MESSAGE,
-    ...compact(message),
+    ...compact(source),
     designTemplate,
     scheduledPublishAt,
     liveNotice,
+    activationConflict,
     translations,
   };
 }
 
 function withDefaults(widget) {
   if (!widget) return null;
+  const shipping = widget.shippingRules && typeof widget.shippingRules === "object" ? widget.shippingRules : {};
+  const icons = widget.iconConfig && typeof widget.iconConfig === "object" ? widget.iconConfig : {};
+  const style = widget.styleConfig && typeof widget.styleConfig === "object" ? widget.styleConfig : {};
+  const placement = widget.placementConfig && typeof widget.placementConfig === "object" ? widget.placementConfig : {};
+  const cart = widget.cartConfig && typeof widget.cartConfig === "object" ? widget.cartConfig : {};
+  const checkout = widget.checkoutConfig && typeof widget.checkoutConfig === "object" ? widget.checkoutConfig : {};
+  const styleConfig = { ...DEFAULT_STYLE, ...compact(style) };
+  const messageConfig = messageFromRecord(widget.messageConfig, styleConfig);
   return {
     ...widget,
     shippingRules: {
       ...DEFAULT_SHIPPING,
-      ...compact(widget.shippingRules || {}),
-      blockedDates: widget.shippingRules?.blockedDates || [],
-      transitBlockedDates: widget.shippingRules?.transitBlockedDates || [],
-      transitWorkingDays: widget.shippingRules?.transitWorkingDays?.length
-        ? widget.shippingRules.transitWorkingDays
+      ...compact(shipping),
+      blockedDates: shipping.blockedDates || [],
+      transitBlockedDates: shipping.transitBlockedDates || [],
+      transitWorkingDays: shipping.transitWorkingDays?.length
+        ? shipping.transitWorkingDays
         : DEFAULT_SHIPPING.transitWorkingDays,
-      pincodeRules: normalizePincodeRules(
-        widget.shippingRules?.pincodeRules || DEFAULT_PINCODE_RULES,
-        widget.shippingRules,
-      ),
-      weightRules: normalizeWeightRules(widget.shippingRules?.weightRules || DEFAULT_WEIGHT_RULES),
-      countryRules: widget.shippingRules?.countryRules || toCountryRules(widget.shippingRules?.pincodeRules),
+      pincodeRules: normalizePincodeRules(shipping.pincodeRules || DEFAULT_PINCODE_RULES, shipping),
+      weightRules: normalizeWeightRules(shipping.weightRules || DEFAULT_WEIGHT_RULES),
+      countryRules: shipping.countryRules || toCountryRules(shipping.pincodeRules),
     },
-    messageConfig: messageFromRecord(widget.messageConfig),
+    messageConfig,
     iconConfig: {
       ...DEFAULT_ICONS,
-      ...compact(widget.iconConfig || {}),
-      headerIcon: widget.iconConfig?.headerIcon || DEFAULT_ICONS.headerIcon,
-      headerIconEnabled: widget.iconConfig?.headerIconEnabled !== false,
-      purchasedEnabled: widget.iconConfig?.purchasedEnabled !== false,
-      processingEnabled: widget.iconConfig?.processingEnabled !== false,
-      deliveredEnabled: widget.iconConfig?.deliveredEnabled !== false,
-      purchasedTitle: widget.iconConfig?.purchasedTitle || DEFAULT_ICONS.purchasedTitle,
-      processingTitle: widget.iconConfig?.processingTitle || DEFAULT_ICONS.processingTitle,
-      deliveredTitle: widget.iconConfig?.deliveredTitle || DEFAULT_ICONS.deliveredTitle,
-      savedIcons: normalizeIconLibrary(widget.iconConfig?.savedIcons),
+      ...compact(icons),
+      headerIcon: icons.headerIcon || DEFAULT_ICONS.headerIcon,
+      headerIconEnabled: icons.headerIconEnabled !== false,
+      purchasedEnabled: icons.purchasedEnabled !== false,
+      processingEnabled: icons.processingEnabled !== false,
+      deliveredEnabled: icons.deliveredEnabled !== false,
+      purchasedTitle: icons.purchasedTitle || DEFAULT_ICONS.purchasedTitle,
+      processingTitle: icons.processingTitle || DEFAULT_ICONS.processingTitle,
+      deliveredTitle: icons.deliveredTitle || DEFAULT_ICONS.deliveredTitle,
+      savedIcons: normalizeIconLibrary(icons.savedIcons),
     },
-    styleConfig: { ...DEFAULT_STYLE, ...compact(widget.styleConfig || {}) },
+    styleConfig,
     placementConfig: {
       ...DEFAULT_PLACEMENT,
-      ...compact(widget.placementConfig || {}),
-      ...syncedPlacementIds(widget.placementConfig || {}),
-      products: widget.placementConfig?.products || [],
-      collections: widget.placementConfig?.collections || [],
-      position: normalizePosition(widget.location, widget.placementConfig?.position),
+      ...compact(placement),
+      ...syncedPlacementIds(placement),
+      products: placement.products || [],
+      collections: placement.collections || [],
+      position: normalizePosition(widget.location, placement.position),
     },
-    cartConfig: { ...DEFAULT_CART, ...compact(widget.cartConfig || {}) },
-    checkoutConfig: { ...DEFAULT_CHECKOUT, ...compact(widget.checkoutConfig || {}) },
+    cartConfig: { ...DEFAULT_CART, ...compact(cart) },
+    checkoutConfig: { ...DEFAULT_CHECKOUT, ...compact(checkout) },
     marketMode: widget.marketMode || "ALL",
     marketIds: widget.marketIds || [],
     markets: widget.markets || [],
     timezone: resolveTimeZone(widget.timezone),
-    scheduledPublishAt: messageFromRecord(widget.messageConfig).scheduledPublishAt,
+    scheduledPublishAt: messageConfig.scheduledPublishAt,
   };
+}
+
+export async function listLiveWidgetsByLocation(merchantId, location, { excludeId } = {}) {
+  const widgets = await prisma.widget.findMany({
+    where: {
+      merchantId,
+      location,
+      status: WIDGET_STATUSES.ACTIVE,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      location: true,
+      placementConfig: true,
+      cartConfig: true,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+  return widgets.map((widget) => ({
+    ...widget,
+    placementConfig: {
+      ...DEFAULT_PLACEMENT,
+      ...(widget.placementConfig || {}),
+      ...syncedPlacementIds(widget.placementConfig || {}),
+    },
+  }));
+}
+
+export async function listLiveProductWidgets(merchantId, options = {}) {
+  return listLiveWidgetsByLocation(merchantId, WIDGET_LOCATIONS.PRODUCT, options);
+}
+
+export async function findLiveConflicts(merchantId, widgetId, { location, placement, cartConfig } = {}) {
+  if (!supportsLiveConflict(location)) return [];
+  const live = await listLiveWidgetsByLocation(merchantId, location, { excludeId: widgetId });
+  return findLivePlacementConflicts(
+    {
+      id: widgetId,
+      location,
+      placementConfig: placement,
+      cartConfig,
+    },
+    live,
+  );
+}
+
+export async function findProductPlacementConflicts(merchantId, widgetId, placement) {
+  return findLiveConflicts(merchantId, widgetId, {
+    location: WIDGET_LOCATIONS.PRODUCT,
+    placement,
+  });
+}
+
+async function unpublishWidgets(merchantId, widgetIds = []) {
+  const ids = [...new Set((widgetIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+  const unpublished = [];
+  for (const id of ids) {
+    const widget = await prisma.widget.findFirst({
+      where: { id, merchantId },
+    });
+    if (!widget) continue;
+    const translations = { ...(widget.messageConfig?.translations || {}) };
+    delete translations[PUBLISH_AT_KEY];
+    delete translations[LIVE_NOTICE_KEY];
+    delete translations[ACTIVATION_CONFLICT_KEY];
+    await prisma.widget.update({
+      where: { id },
+      data: {
+        status: WIDGET_STATUSES.DRAFT,
+        messageConfig: embedSet(toPrismaMessageConfig({ ...(widget.messageConfig || {}), translations })),
+      },
+    });
+    unpublished.push(id);
+  }
+  return unpublished;
+}
+
+export async function resolvePlacementConflict({
+  merchantId,
+  widgetId,
+  keepWidgetId,
+  placement,
+  scheduledPublishAt = null,
+  publishNow = true,
+}) {
+  const widget = await prisma.widget.findFirst({
+    where: { id: widgetId, merchantId },
+  });
+  if (!widget) return null;
+
+  const live = await listLiveWidgetsByLocation(merchantId, widget.location);
+  const candidatePlacement = placement || widget.placementConfig || DEFAULT_PLACEMENT;
+  const conflicts = findLivePlacementConflicts(
+    {
+      id: widgetId,
+      location: widget.location,
+      placementConfig: candidatePlacement,
+      cartConfig: widget.cartConfig,
+    },
+    live,
+  );
+
+  const keepId = keepWidgetId || widgetId;
+  const conflictIds = conflicts.map((item) => item.id).filter(Boolean);
+  // Only the chosen widget stays live — demote this candidate and every other overlap.
+  const demoteIds =
+    keepId === widgetId
+      ? conflictIds
+      : [...new Set([widgetId, ...conflictIds.filter((id) => id !== keepId)])];
+
+  await unpublishWidgets(merchantId, demoteIds);
+
+  if (keepId !== widgetId) {
+    // Keep existing live widget(s); cancel this widget's schedule/publish.
+    const translations = { ...(widget.messageConfig?.translations || {}) };
+    delete translations[PUBLISH_AT_KEY];
+    delete translations[LIVE_NOTICE_KEY];
+    delete translations[ACTIVATION_CONFLICT_KEY];
+    await prisma.widget.update({
+      where: { id: widgetId },
+      data: {
+        status: WIDGET_STATUSES.DRAFT,
+        messageConfig: embedSet(toPrismaMessageConfig({ ...(widget.messageConfig || {}), translations })),
+      },
+    });
+    return getWidgetForMerchant(merchantId, widgetId);
+  }
+
+  const publishedAt = new Date().toISOString();
+  const translations = { ...(widget.messageConfig?.translations || {}) };
+  delete translations[ACTIVATION_CONFLICT_KEY];
+  if (publishNow) {
+    delete translations[PUBLISH_AT_KEY];
+    translations[LIVE_NOTICE_KEY] = publishedAt;
+  } else if (scheduledPublishAt) {
+    translations[PUBLISH_AT_KEY] = scheduledPublishAt;
+    delete translations[LIVE_NOTICE_KEY];
+  }
+
+  await prisma.widget.update({
+    where: { id: widgetId },
+    data: {
+      status: publishNow ? WIDGET_STATUSES.ACTIVE : WIDGET_STATUSES.SCHEDULED,
+      ...(placement
+        ? {
+            placementConfig: embedSet(
+              placementCreateData(
+                {
+                  ...DEFAULT_PLACEMENT,
+                  ...placement,
+                  ...syncedPlacementIds(placement),
+                },
+                widget.location,
+              ),
+            ),
+          }
+        : {}),
+      messageConfig: embedSet(toPrismaMessageConfig({ ...(widget.messageConfig || {}), translations })),
+    },
+  });
+
+  return getWidgetForMerchant(merchantId, widgetId);
 }
 
 export async function activateDueWidgets(merchantId) {
@@ -155,6 +372,9 @@ export async function activateDueWidgets(merchantId) {
     select: {
       id: true,
       name: true,
+      location: true,
+      placementConfig: true,
+      cartConfig: true,
       messageConfig: true,
     },
   });
@@ -167,29 +387,62 @@ export async function activateDueWidgets(merchantId) {
   if (!due.length) return [];
 
   const publishedAt = new Date().toISOString();
-  await Promise.all(
-    due.map((widget) => {
-      const translations = { ...(widget.messageConfig?.translations || {}) };
-      translations[LIVE_NOTICE_KEY] = publishedAt;
-      return prisma.widget.update({
-        where: { id: widget.id },
-        data: {
-          status: WIDGET_STATUSES.ACTIVE,
-          messageConfig: embedSet({
-            ...(widget.messageConfig || prismaMessageData()),
-            translations,
-          }),
+  const activated = [];
+  const conflicted = [];
+
+  for (const widget of due) {
+    const translations = { ...(widget.messageConfig?.translations || {}) };
+    if (supportsLiveConflict(widget.location)) {
+      const live = await listLiveWidgetsByLocation(merchantId, widget.location, { excludeId: widget.id });
+      const conflicts = findLivePlacementConflicts(
+        {
+          id: widget.id,
+          location: widget.location,
+          name: widget.name,
+          placementConfig: widget.placementConfig || DEFAULT_PLACEMENT,
+          cartConfig: widget.cartConfig,
         },
-      });
-    }),
-  );
+        live,
+      );
+      if (conflicts.length) {
+        translations[ACTIVATION_CONFLICT_KEY] = JSON.stringify({
+          dueAt: translations[PUBLISH_AT_KEY] || publishedAt,
+          conflicts,
+        });
+        await prisma.widget.update({
+          where: { id: widget.id },
+          data: {
+            messageConfig: embedSet(toPrismaMessageConfig({ ...(widget.messageConfig || {}), translations })),
+          },
+        });
+        conflicted.push({
+          id: widget.id,
+          name: widget.name,
+          conflicts,
+          dueAt: translations[PUBLISH_AT_KEY] || publishedAt,
+        });
+        continue;
+      }
+    }
+
+    delete translations[ACTIVATION_CONFLICT_KEY];
+    translations[LIVE_NOTICE_KEY] = publishedAt;
+    await prisma.widget.update({
+      where: { id: widget.id },
+      data: {
+        status: WIDGET_STATUSES.ACTIVE,
+        messageConfig: embedSet(toPrismaMessageConfig({ ...(widget.messageConfig || {}), translations })),
+      },
+    });
+    activated.push({ id: widget.id, name: widget.name, at: publishedAt });
+  }
 
   const merchant = await prisma.merchant.findUnique({
     where: { id: merchantId },
     select: { shopDomain: true },
   });
   if (merchant?.shopDomain) {
-    due.forEach((item) => {
+    activated.forEach((item) => {
       prisma.widget
         .findFirst({ where: { id: item.id, merchantId } })
         .then((widget) => {
@@ -202,7 +455,38 @@ export async function activateDueWidgets(merchantId) {
     });
   }
 
-  return due.map((widget) => ({ id: widget.id, name: widget.name, at: publishedAt }));
+  return activated;
+}
+
+export async function listActivationConflicts(merchantId) {
+  await activateDueWidgets(merchantId);
+  const widgets = await prisma.widget.findMany({
+    where: {
+      merchantId,
+      location: { in: [WIDGET_LOCATIONS.PRODUCT, WIDGET_LOCATIONS.CART] },
+    },
+    select: {
+      id: true,
+      name: true,
+      location: true,
+      status: true,
+      messageConfig: { select: { translations: true } },
+    },
+  });
+  return widgets
+    .map((widget) => {
+      const conflict = parseActivationConflict(widget.messageConfig?.translations?.[ACTIVATION_CONFLICT_KEY]);
+      if (!conflict?.conflicts?.length) return null;
+      return {
+        id: widget.id,
+        name: widget.name,
+        location: widget.location,
+        status: widget.status,
+        dueAt: conflict.dueAt || null,
+        conflicts: conflict.conflicts,
+      };
+    })
+    .filter(Boolean);
 }
 
 export async function listLiveNotices(merchantId) {
@@ -236,10 +520,7 @@ export async function acknowledgeLiveNotice(merchantId, widgetId) {
   await prisma.widget.update({
     where: { id: widgetId },
     data: {
-      messageConfig: embedSet({
-        ...widget.messageConfig,
-        translations,
-      }),
+      messageConfig: embedSet(toPrismaMessageConfig({ ...widget.messageConfig, translations })),
     },
   });
   return true;
@@ -252,10 +533,21 @@ const summarySelect = {
   status: true,
   updatedAt: true,
   messageConfig: { select: { translations: true } },
+  placementConfig: true,
+  cartConfig: true,
 };
 
 function mapWidgetSummary(widget) {
   const translations = widget.messageConfig?.translations || {};
+  const placement = widget.placementConfig && typeof widget.placementConfig === "object" ? widget.placementConfig : {};
+  const placementConfig = {
+    ...DEFAULT_PLACEMENT,
+    ...placement,
+    ...syncedPlacementIds(placement),
+    products: placement.products || [],
+    collections: placement.collections || [],
+  };
+  const cartConfig = { ...DEFAULT_CART, ...(widget.cartConfig || {}) };
   return {
     id: widget.id,
     name: widget.name,
@@ -264,6 +556,14 @@ function mapWidgetSummary(widget) {
     updatedAt: widget.updatedAt,
     scheduledPublishAt: translations[PUBLISH_AT_KEY] || null,
     liveNotice: translations[LIVE_NOTICE_KEY] || null,
+    activationConflict: parseActivationConflict(translations[ACTIVATION_CONFLICT_KEY]),
+    placementConfig,
+    cartConfig,
+    applyToLabel: widgetApplyToLabel({
+      location: widget.location,
+      placementConfig,
+      cartConfig,
+    }),
   };
 }
 
@@ -303,6 +603,16 @@ export async function getPublishStatus(merchantId, widgetId = null) {
         name: widget.name,
         location: widget.location,
         at: widget.liveNotice,
+      })),
+    activationConflicts: summaries
+      .filter((widget) => widget.activationConflict?.conflicts?.length)
+      .map((widget) => ({
+        id: widget.id,
+        name: widget.name,
+        location: widget.location,
+        status: widget.status,
+        dueAt: widget.activationConflict.dueAt || null,
+        conflicts: widget.activationConflict.conflicts,
       })),
   };
 }
@@ -420,17 +730,6 @@ export async function createDraftWidget(merchantId, options = {}) {
   let timezone = resolveTimeZone(options.timezone);
   const name = String(options.name || "").trim() || defaultWidgetName(location);
 
-  if (location === "CART") {
-    const existing = await prisma.widget.findMany({
-      where: { merchantId, location: "CART" },
-    });
-    if (existing.some((item) => (item.cartConfig?.displayMode || "GENERAL") === displayMode)) {
-      const error = new Error("You can only have one cart widget per mode (General or Per product).");
-      error.code = "CART_MODE_EXISTS";
-      throw error;
-    }
-  }
-
   if (location === "CHECKOUT") {
     const error = new Error("Checkout widgets are not available. Shopify only supports checkout UI extensions on Plus.");
     error.code = "CHECKOUT_UNAVAILABLE";
@@ -491,7 +790,7 @@ export async function saveShippingRules(merchantId, widgetId, shipping) {
   });
   if (!widget) return null;
 
-  const payload = {
+  const shippingBase = {
     processingMinDays: shipping.processingMinDays,
     processingMaxDays: shipping.processingMaxDays,
     cutoffTime: shipping.cutoffTime,
@@ -501,9 +800,16 @@ export async function saveShippingRules(merchantId, widgetId, shipping) {
     transitMaxDays: shipping.transitMaxDays,
     transitWorkingDays: shipping.transitWorkingDays,
     transitBlockedDates: shipping.transitBlockedDates,
-    pincodeRules: shipping.pincodeRules || DEFAULT_PINCODE_RULES,
+  };
+  const pincodeRules = await expandPincodeRulesForCheck(
+    shipping.pincodeRules || DEFAULT_PINCODE_RULES,
+    shippingBase,
+  );
+  const payload = {
+    ...shippingBase,
+    pincodeRules,
     weightRules: shipping.weightRules || DEFAULT_WEIGHT_RULES,
-    countryRules: shipping.countryRules || toCountryRules(shipping.pincodeRules),
+    countryRules: shipping.countryRules || toCountryRules(pincodeRules),
   };
 
   await prisma.widget.update({
@@ -636,7 +942,46 @@ export async function saveCheckoutConfig(merchantId, widgetId, values) {
   return getWidgetForMerchant(merchantId, widgetId);
 }
 
-export async function setWidgetStatus(merchantId, widgetId, status) {
+export async function setWidgetStatus(merchantId, widgetId, status, { force = false } = {}) {
+  if (status === WIDGET_STATUSES.ACTIVE && !force) {
+    const widget = await prisma.widget.findFirst({
+      where: { id: widgetId, merchantId },
+      select: { id: true, name: true, location: true, placementConfig: true, cartConfig: true },
+    });
+    if (widget && supportsLiveConflict(widget.location)) {
+      const placement = {
+        ...DEFAULT_PLACEMENT,
+        ...(widget.placementConfig || {}),
+        ...syncedPlacementIds(widget.placementConfig || {}),
+      };
+      const conflicts = await findLiveConflicts(merchantId, widgetId, {
+        location: widget.location,
+        placement,
+        cartConfig: widget.cartConfig,
+      });
+      if (conflicts.length) {
+        const error = new Error(
+          widget.location === WIDGET_LOCATIONS.CART
+            ? "Another cart widget is already live. Choose which widget should stay live."
+            : "Another live widget already uses the same products or collections. Choose which widget should stay live.",
+        );
+        error.code = "PLACEMENT_CONFLICT";
+        error.conflicts = conflicts;
+        error.widget = {
+          id: widget.id,
+          name: widget.name,
+          location: widget.location,
+          placementLabel:
+            widget.location === WIDGET_LOCATIONS.CART
+              ? widget.cartConfig?.displayMode === "PER_PRODUCT"
+                ? "Cart · Per product"
+                : "Cart page"
+              : describePlacement(placement).label,
+        };
+        throw error;
+      }
+    }
+  }
   return updateWidget(merchantId, widgetId, { status });
 }
 
@@ -703,6 +1048,7 @@ export async function getActiveStorefrontWidgets(shopDomain, location) {
       status: WIDGET_STATUSES.ACTIVE,
       location,
     },
+    orderBy: { updatedAt: "desc" },
   });
 
   const mapped = widgets.map(withDefaults);
@@ -730,7 +1076,7 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     )?.location;
   if (!location) return null;
 
-  const shippingPayload = {
+  const shippingBase = {
     processingMinDays: values.processingMinDays,
     processingMaxDays: values.processingMaxDays,
     cutoffTime: values.cutoffTime,
@@ -740,12 +1086,27 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     transitMaxDays: values.transitMaxDays,
     transitWorkingDays: values.transitWorkingDays,
     transitBlockedDates: values.transitBlockedDates,
-    pincodeRules: values.pincodeRules || DEFAULT_PINCODE_RULES,
+  };
+  // Fill city pincode lists on save so storefront checks don't depend on admin-only hydration.
+  const pincodeRules = await expandPincodeRulesForCheck(
+    values.pincodeRules || DEFAULT_PINCODE_RULES,
+    shippingBase,
+  );
+  const shippingPayload = {
+    ...shippingBase,
+    pincodeRules,
     weightRules: values.weightRules || DEFAULT_WEIGHT_RULES,
-    countryRules: values.countryRules || toCountryRules(values.pincodeRules),
+    countryRules: values.countryRules || toCountryRules(pincodeRules),
   };
 
-  const messagePayload = prismaMessageData(values);
+  const messagePayload = prismaMessageData({
+    ...values,
+    // Going live or cancelling a schedule clears deferred activation conflicts.
+    activationConflict:
+      values.status === WIDGET_STATUSES.ACTIVE || values.activationConflict === null
+        ? null
+        : values.activationConflict,
+  });
 
   const iconPayload = {
     purchased: values.purchased,
@@ -820,8 +1181,8 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     iconConfig: iconPayload,
     styleConfig: stylePayload,
     placementConfig: placementPayload,
-    ...(location === "CART" && values.displayMode
-      ? { cartConfig: cartCreateData({}, values.displayMode) }
+    ...(location === "CART"
+      ? { cartConfig: cartCreateData({}, values.displayMode || DEFAULT_CART.displayMode) }
       : {}),
     ...(location === "CHECKOUT"
       ? {
@@ -841,7 +1202,11 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
 
   if (!saved) return null;
   if (options.returnWidget === false) return true;
-  return withDefaults(saved);
+  const withSavedDefaults = withDefaults(saved);
+  if (location === "CART") {
+    return inheritCartShipping(withSavedDefaults, merchantId);
+  }
+  return withSavedDefaults;
 }
 
 export function serializeWidget(widget) {

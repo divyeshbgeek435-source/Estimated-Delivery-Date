@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   calculateDeliveryDate,
   formatTimelineLabel,
+  formatWidgetDate,
   getCountdownToCutoff,
   getZonedParts,
   messageSegments,
@@ -220,31 +221,28 @@ export function DeliveryWidgetPreview({
   const shownWeight = check?.available ? check.weight : showWeight ? directWeight : "";
   const showPerProduct =
     location === WIDGET_LOCATIONS.CART && cartDisplayMode === CART_DISPLAY_MODES.PER_PRODUCT;
-  const sampleAltDelivery = useMemo(
-    () =>
-      calculateDeliveryDate({
-        orderDate: now,
-        processingMinDays: Math.max(0, Number(matchedShipping.processingMinDays) || 1),
-        processingMaxDays: Math.max(0, (Number(matchedShipping.processingMaxDays) || 2) - 1),
-        cutoffTime: matchedShipping.cutoffTime,
-        workingDays: matchedShipping.workingDays,
-        blockedDates: matchedShipping.blockedDates,
-        transitMinDays: Math.max(0, (Number(matchedShipping.transitMinDays) || 2) - 1),
-        transitMaxDays: Math.max(0, (Number(matchedShipping.transitMaxDays) || 5) - 1),
-        transitWorkingDays: matchedShipping.transitWorkingDays,
-        transitBlockedDates: matchedShipping.transitBlockedDates,
-        timezone: zone,
-      }),
-    [now, matchedShipping, zone],
-  );
+  const deliveryFrom = values.delivery_from || formatWidgetDate(delivery.deliveryDateMin, dateSettings);
+  const deliveryTo = values.delivery_to || formatWidgetDate(delivery.deliveryDateMax, dateSettings);
   const cartItems = showPerProduct
     ? [
-        { title: "Sample product A", dates: deliveredDate },
         {
-          title: "Sample product B",
-          dates: formatTimelineLabel(sampleAltDelivery.deliveryDateMin, sampleAltDelivery.deliveryDateMax),
+          title: "Configured product",
+          dates:
+            deliveryFrom && deliveryTo
+              ? deliveryFrom === deliveryTo
+                ? deliveryFrom
+                : `${deliveryFrom} – ${deliveryTo}`
+              : deliveryTo || deliveryFrom || "",
         },
-      ]
+        {
+          title: "Another configured product",
+          dates: deliveryTo
+            ? deliveryFrom && deliveryFrom !== deliveryTo
+              ? `${deliveryFrom} – ${deliveryTo}`
+              : deliveryTo
+            : "",
+        },
+      ].filter((item) => item.dates)
     : [];
 
   const deliveredRange = deliveredDate;

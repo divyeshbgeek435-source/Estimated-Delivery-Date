@@ -8,6 +8,7 @@ import {
   duplicateWidget,
   getWidgetForMerchant,
   listWidgetSummaries,
+  resolvePlacementConflict,
   setWidgetStatus,
   acknowledgeLiveNotice,
 } from "../services/widgets/widget.server";
@@ -18,11 +19,25 @@ import {
 import { WIDGET_STATUSES } from "../lib/constants";
 import { queueWidgetStorefrontSync } from "../services/shopify/store-block.server";
 import { appEmbedEditorUrl } from "../lib/theme-editor";
+import { loadHomeImpressionTotals } from "../lib/analytics.server";
+import {
+  buildEmbedStatusPayload,
+  loadLiveAppEmbedStatus,
+} from "../services/shopify/app-embed.server";
 import { DashboardHome } from "../components/dashboard/DashboardHome";
 
 export const loader = async ({ request }) => {
-  const { merchant, shop } = await requireAdmin(request);
-  const widgets = await listWidgetSummaries(merchant.id);
+  const { admin, session, merchant, shop } = await requireAdmin(request);
+  const [widgets, totals, embedResult] = await Promise.all([
+    listWidgetSummaries(merchant.id),
+    loadHomeImpressionTotals(merchant.id).catch(() => ({ impressions: 0 })),
+    loadLiveAppEmbedStatus(admin, shop, session).catch(() => ({
+      enabled: null,
+      checked: false,
+      missingThemeAccess: true,
+      themeId: null,
+    })),
+  ]);
   const liveNotices = widgets
     .filter((widget) => widget.status === WIDGET_STATUSES.ACTIVE && widget.liveNotice)
     .map((widget) => ({
@@ -31,12 +46,25 @@ export const loader = async ({ request }) => {
       location: widget.location,
       at: widget.liveNotice,
     }));
+  const activationConflicts = widgets
+    .filter((widget) => widget.activationConflict?.conflicts?.length)
+    .map((widget) => ({
+      id: widget.id,
+      name: widget.name,
+      location: widget.location,
+      status: widget.status,
+      dueAt: widget.activationConflict.dueAt || null,
+      conflicts: widget.activationConflict.conflicts,
+    }));
 
   return {
     widgets,
+    totals,
+    embedStatus: buildEmbedStatusPayload(shop, embedResult),
     liveNotices,
+    activationConflicts,
     shop,
-    themeEditorEmbed: appEmbedEditorUrl(shop),
+    themeEditorEmbed: appEmbedEditorUrl(shop, { themeId: embedResult?.themeId }),
   };
 };
 
@@ -79,10 +107,47 @@ export const action = async ({ request }) => {
       await duplicateWidget(merchant.id, widgetId);
       return { toast: "Widget duplicated" };
     }
-    if (intent === "activate") {
-      const saved = await setWidgetStatus(merchant.id, widgetId, WIDGET_STATUSES.ACTIVE);
+    if (intent === "resolve-conflict") {
+      const keepWidgetId = String(formData.get("keepWidgetId") || widgetId);
+      const conflictMode = String(formData.get("conflictMode") || "publish");
+      const saved = await resolvePlacementConflict({
+        merchantId: merchant.id,
+        widgetId,
+        keepWidgetId,
+        publishNow: conflictMode !== "schedule",
+      });
+      if (!saved) return { error: "Could not resolve the placement conflict." };
       queueWidgetStorefrontSync(admin, session, saved);
-      return { toast: "Widget published" };
+      const keptThis = keepWidgetId === widgetId;
+      return {
+        toast: keptThis
+          ? conflictMode === "activation"
+            ? "Scheduled widget is now live"
+            : "Widget published"
+          : "Kept the existing live widget",
+        conflictResolved: true,
+      };
+    }
+    if (intent === "activate") {
+      try {
+        const saved = await setWidgetStatus(merchant.id, widgetId, WIDGET_STATUSES.ACTIVE);
+        queueWidgetStorefrontSync(admin, session, saved);
+        return { toast: "Widget published" };
+      } catch (error) {
+        if (error?.code === "PLACEMENT_CONFLICT") {
+          return {
+            conflict: {
+              mode: "publish",
+              location: error.widget?.location || null,
+              widgetId,
+              widgetName: error.widget?.name || "This widget",
+              placementLabel: error.widget?.placementLabel || null,
+              conflicts: error.conflicts || [],
+            },
+          };
+        }
+        throw error;
+      }
     }
     if (intent === "deactivate") {
       const saved = await setWidgetStatus(merchant.id, widgetId, WIDGET_STATUSES.DRAFT);
@@ -131,7 +196,10 @@ export default function Dashboard() {
   return (
     <DashboardHome
       widgets={data.widgets}
+      totals={data.totals}
+      embedStatus={data.embedStatus}
       liveNotices={data.liveNotices}
+      activationConflicts={data.activationConflicts}
       themeEditorEmbed={data.themeEditorEmbed}
       saving={navigation.state !== "idle"}
       error={actionData?.error}

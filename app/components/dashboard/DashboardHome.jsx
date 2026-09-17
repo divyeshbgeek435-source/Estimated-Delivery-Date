@@ -652,6 +652,52 @@ function requestStatusLabel(status) {
   return "Pending";
 }
 
+const REQUESTS_PAGE_SIZE = 5;
+
+const REQUEST_TABLE_COLUMNS = [
+  { key: "widget", label: "Widget", listSlot: "primary" },
+  { key: "pincode", label: "Pincode", listSlot: "labeled" },
+  { key: "requested", label: "Requested", listSlot: "labeled" },
+  { key: "status", label: "Status", listSlot: "kicker" },
+];
+
+function requestStatusRank(status) {
+  if (status === "PENDING") return 0;
+  if (status === "ACCEPTED") return 1;
+  if (status === "REJECTED") return 2;
+  return 3;
+}
+
+function requestSortValue(item, key) {
+  switch (key) {
+    case "widget":
+      return String(item.widgetName || "").trim().toLowerCase() || "untitled widget";
+    case "pincode":
+      return String(item.pincode || "");
+    case "requested":
+      return new Date(item.createdAt || 0).getTime() || 0;
+    case "status":
+      return requestStatusRank(item.status);
+    default:
+      return "";
+  }
+}
+
+function compareRequestRows(a, b, sortKey, sortDir) {
+  const left = requestSortValue(a, sortKey);
+  const right = requestSortValue(b, sortKey);
+  let result = 0;
+  if (typeof left === "number" && typeof right === "number") {
+    result = left - right;
+  } else {
+    result = String(left).localeCompare(String(right), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  }
+  return sortDir === "asc" ? result : -result;
+}
+
 function DeliveryRequestsList({
   requests = [],
   pendingCount = 0,
@@ -661,16 +707,45 @@ function DeliveryRequestsList({
   onRefresh,
 }) {
   const submit = useSubmit();
+  const [page, setPage] = useState(1);
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
   const act = (item, intent) => {
     submit({ intent, requestId: item.id, widgetId: item.widgetId }, { method: "post" });
   };
-  const sorted = [...requests].sort((a, b) => {
-    const rank = (status) => (status === "PENDING" ? 0 : status === "ACCEPTED" ? 1 : 2);
-    const byStatus = rank(a.status) - rank(b.status);
-    if (byStatus) return byStatus;
-    return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-  });
+  const sorted = useMemo(() => {
+    const rows = [...requests];
+    if (!sortKey) {
+      return rows.sort((a, b) => {
+        const byStatus = requestStatusRank(a.status) - requestStatusRank(b.status);
+        if (byStatus) return byStatus;
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+    }
+    return rows.sort((a, b) => compareRequestRows(a, b, sortKey, sortDir));
+  }, [requests, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / REQUESTS_PAGE_SIZE));
+  useEffect(() => {
+    setPage(1);
+  }, [requests.length, sortKey, sortDir]);
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const pageRows = sorted.slice((page - 1) * REQUESTS_PAGE_SIZE, page * REQUESTS_PAGE_SIZE);
+  const pages = homePageList(totalPages, page);
+  const showPagination = totalPages > 1;
   const showInitialLoad = !ready && refreshing;
+
+  const toggleSort = (key) => {
+    if (sortKey === key) {
+      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
+      return;
+    }
+    setSortKey(key);
+    setSortDir("asc");
+  };
 
   return (
     <s-section id="delivery-requests">
@@ -686,6 +761,7 @@ function DeliveryRequestsList({
         </s-stack>
         <ActionButton
           variant="secondary"
+          icon="refresh"
           disabled={refreshing || saving}
           {...(refreshing ? { loading: true } : {})}
           onClick={() => onRefresh?.()}
@@ -694,9 +770,9 @@ function DeliveryRequestsList({
         </ActionButton>
       </div>
 
-      <s-paragraph color="subdued">
+      <p className="edd-section-help">
         When a shopper asks for delivery to a pincode you don’t cover yet, their request shows up here.
-      </s-paragraph>
+      </p>
 
       {showInitialLoad ? (
         <s-box padding="base" background="subdued" borderRadius="base">
@@ -706,59 +782,127 @@ function DeliveryRequestsList({
           </s-stack>
         </s-box>
       ) : sorted.length ? (
-        <ul className="edd-request-list">
-          {sorted.map((item) => {
-            const place = [item.city, item.state].filter(Boolean).join(", ");
-            const pending = item.status === "PENDING";
-            const status = String(item.status || "PENDING").toLowerCase();
-            return (
-              <li
-                key={item.id}
-                className={`edd-request-card edd-request-card--${status}${pending ? " edd-request-card--pending" : ""}`}
+        <div className="edd-request-panel">
+          <s-table variant="auto" className="edd-request-table">
+            <s-table-header-row>
+              {REQUEST_TABLE_COLUMNS.map((column) => (
+                <HomeSortableHeader
+                  key={column.key}
+                  column={column}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={toggleSort}
+                />
+              ))}
+            </s-table-header-row>
+            <s-table-body>
+              {pageRows.map((item) => {
+                const pending = item.status === "PENDING";
+                const status = String(item.status || "PENDING").toLowerCase();
+                const when = formatRequestWhen(item.createdAt);
+                const widgetName = String(item.widgetName || "").trim() || "Untitled widget";
+                return (
+                  <s-table-row
+                    key={item.id}
+                    className={`edd-request-row edd-request-row--${status}`}
+                  >
+                    <s-table-cell>
+                      <span className="edd-request-card__widget" title={widgetName}>
+                        {widgetName}
+                      </span>
+                    </s-table-cell>
+                    <s-table-cell>
+                      <span className="edd-request-card__pin">{item.pincode}</span>
+                    </s-table-cell>
+                    <s-table-cell>
+                      {when ? (
+                        <span className="edd-request-card__when">
+                          <s-icon type="clock" />
+                          {when}
+                        </span>
+                      ) : (
+                        <span className="edd-request-muted">—</span>
+                      )}
+                    </s-table-cell>
+                    <s-table-cell className="edd-table-actions-cell">
+                      <div className="edd-request-status-cell">
+                        {pending ? (
+                          <div className="edd-table-actions edd-request-actions">
+                            <button
+                              type="button"
+                              className="edd-btn edd-btn--primary"
+                              disabled={saving}
+                              onClick={() => act(item, "accept-delivery-request")}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="edd-btn"
+                              disabled={saving}
+                              onClick={() => act(item, "reject-delivery-request")}
+                            >
+                              Decline
+                            </button>
+                          </div>
+                        ) : (
+                          <span className={`edd-request-status edd-request-status--${status}`}>
+                            <s-icon
+                              type={status === "accepted" ? "check-circle" : "x-circle"}
+                            />
+                            {requestStatusLabel(item.status)}
+                          </span>
+                        )}
+                      </div>
+                    </s-table-cell>
+                  </s-table-row>
+                );
+              })}
+            </s-table-body>
+          </s-table>
+
+          {showPagination ? (
+            <nav className="edd-table-pagination" aria-label="Delivery requests pagination">
+              <button
+                type="button"
+                className="edd-btn edd-table-pagination__nav"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
               >
-                <div className="edd-request-card__accent" aria-hidden="true" />
-                <div className="edd-request-card__main">
-                  <div className="edd-request-card__title-row">
-                    <span className="edd-request-card__pin">{item.pincode}</span>
-                    <span className={`edd-request-status edd-request-status--${status}`}>
-                      {requestStatusLabel(item.status)}
+                Previous
+              </button>
+              <div className="edd-table-pagination__pages">
+                {pages.map((pageNumber, index) => {
+                  const previous = pages[index - 1];
+                  const gap = previous != null && pageNumber - previous > 1;
+                  return (
+                    <span key={pageNumber} className="edd-table-pagination__page-wrap">
+                      {gap ? <span className="edd-table-pagination__ellipsis">…</span> : null}
+                      <button
+                        type="button"
+                        className={`edd-table-pagination__page${
+                          pageNumber === page ? " edd-table-pagination__page--active" : ""
+                        }`}
+                        aria-current={pageNumber === page ? "page" : undefined}
+                        onClick={() => setPage(pageNumber)}
+                      >
+                        {pageNumber}
+                      </button>
                     </span>
-                  </div>
-                  <div className="edd-request-card__meta-row">
-                    {item.country ? <span className="edd-request-chip">{item.country}</span> : null}
-                    {place ? <span className="edd-request-chip">{place}</span> : null}
-                    {item.productTitle ? <span className="edd-request-chip">{item.productTitle}</span> : null}
-                    {item.widgetName ? <span className="edd-request-chip edd-request-chip--muted">{item.widgetName}</span> : null}
-                    {!item.country && !place && !item.productTitle && !item.widgetName ? (
-                      <span className="edd-request-chip edd-request-chip--muted">Storefront request</span>
-                    ) : null}
-                  </div>
-                  <p className="edd-request-card__when">{formatRequestWhen(item.createdAt)}</p>
-                </div>
-                {pending ? (
-                  <div className="edd-request-actions">
-                    <button
-                      type="button"
-                      className="edd-btn edd-btn--primary"
-                      disabled={saving}
-                      onClick={() => act(item, "accept-delivery-request")}
-                    >
-                      Accept
-                    </button>
-                    <button
-                      type="button"
-                      className="edd-btn"
-                      disabled={saving}
-                      onClick={() => act(item, "reject-delivery-request")}
-                    >
-                      Decline
-                    </button>
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                className="edd-btn edd-table-pagination__nav"
+                disabled={page >= totalPages}
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              >
+                Next
+              </button>
+            </nav>
+          ) : null}
+        </div>
       ) : (
         <div className="edd-request-empty">
           <s-empty-state heading="No delivery requests yet">

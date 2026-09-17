@@ -11,7 +11,7 @@ const OPTIONS = [
   {
     value: WIDGET_LOCATIONS.CART,
     title: "Cart page",
-    badge: "Beta",
+    // badge: "Beta",
     description: "Add an app block to cart page or cart drawer.",
     sketch: "cart",
   },

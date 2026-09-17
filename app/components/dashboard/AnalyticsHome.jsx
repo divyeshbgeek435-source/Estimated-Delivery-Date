@@ -36,7 +36,7 @@ function buildInsights(totals, widgets, metrics, pendingRequests) {
     },
     {
       label: "Top widget",
-      value: top?.widget?.name || "—",
+      value: top?.widget?.name || "-",
       help: top?.metric?.impressions
         ? `${top.metric.impressions} impressions · ${locationLabel(top.widget.location)}`
         : "No events yet",

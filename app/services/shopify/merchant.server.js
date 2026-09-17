@@ -317,7 +317,7 @@ async function saveMerchantProfile(merchant, incoming) {
         data: { profileSyncedAt: data.profileSyncedAt },
       });
     } catch {
-      // Non-fatal — identity session apply still runs below.
+      // Non-fatal - identity session apply still runs below.
     }
     await applyIdentityToSessions(merchant.shopDomain, merged);
     return merchant;

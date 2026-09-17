@@ -24,7 +24,7 @@ import { DashboardHome } from "../components/dashboard/DashboardHome";
 export const loader = async ({ request }) => {
   // Keep the document critical path lean: widgets only. Embed status + impression
   // totals load after paint via /app/embed-status and /app/home-data (DashboardHome).
-  const { merchant, shop } = await requireAdmin(request);
+  const { merchant, shop } = await requireAdmin(request, { syncProfile: false });
   const widgets = await listWidgetSummaries(merchant.id);
   const liveNotices = widgets
     .filter((widget) => widget.status === WIDGET_STATUSES.ACTIVE && widget.liveNotice)

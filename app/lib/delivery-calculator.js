@@ -32,15 +32,53 @@ function partsFromDate(date, timeZone) {
   const parts = Object.fromEntries(
     formatter.formatToParts(date).map((part) => [part.type, part.value]),
   );
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
   return {
-    year: Number(parts.year),
-    month: Number(parts.month),
-    day: Number(parts.day),
+    year,
+    month,
+    day,
     hour: Number(parts.hour),
     minute: Number(parts.minute),
     second: Number(parts.second),
-    dateStr: `${parts.year}-${parts.month}-${parts.day}`,
+    dateStr: `${year}-${pad(month)}-${pad(day)}`,
   };
+}
+
+function toIsoDay(value) {
+  if (!value && value !== 0) return "";
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+    return format(value, "yyyy-MM-dd");
+  }
+  const match = String(value).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!match) return "";
+  const day = `${match[1]}-${pad(match[2])}-${pad(match[3])}`;
+  const date = parseISO(`${day}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? "" : day;
+}
+
+function dayDate(value) {
+  const day = toIsoDay(value);
+  if (!day) return null;
+  const date = parseISO(`${day}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDay(value, pattern) {
+  const date = dayDate(value);
+  if (!date) return "";
+  try {
+    return format(date, pattern);
+  } catch {
+    return "";
+  }
+}
+
+function addCalendarDays(value, amount) {
+  const date = dayDate(value) || new Date();
+  return format(addDays(date, amount), "yyyy-MM-dd");
 }
 
 export function getZonedParts(date, timeZone) {
@@ -114,6 +152,7 @@ export function isWorkingDate(dateStr, workingDays, blockedDates) {
 }
 
 export function nextValidWorkingDay(dateStr, workingDays, blockedDates, includeToday = true) {
+  if (!(workingDays || []).length) return dateStr;
   let current = dateStr;
   for (let i = 0; i < 366; i += 1) {
     if ((includeToday || i > 0) && isWorkingDate(current, workingDays, blockedDates)) {
@@ -126,8 +165,11 @@ export function nextValidWorkingDay(dateStr, workingDays, blockedDates, includeT
 
 function addWorkingDays(dateStr, days, workingDays, blockedDates) {
   let current = dateStr;
-  let remaining = Math.max(0, days);
-  while (remaining > 0) {
+  let remaining = Math.max(0, Math.floor(Number(days) || 0));
+  if (!remaining || !(workingDays || []).length) return current;
+  // Cap the search so a calendar with no valid days cannot hang the UI.
+  const maxSteps = Math.max(366, remaining * 14);
+  for (let step = 0; step < maxSteps && remaining > 0; step += 1) {
     current = format(addDays(parseISO(`${current}T12:00:00`), 1), "yyyy-MM-dd");
     if (isWorkingDate(current, workingDays, blockedDates)) {
       remaining -= 1;

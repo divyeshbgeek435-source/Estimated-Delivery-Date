@@ -28,7 +28,7 @@ function cached(key, loader) {
       const count = Array.isArray(value?.pincodes)
         ? value.pincodes.length
         : value?.codes?.size || (value instanceof Map ? value.size : 0);
-      // Never cache empty geo results — transient API failures were locking cities at 0 pins.
+      // Never cache empty geo results - transient API failures were locking cities at 0 pins.
       if (count > 0 || value?.ok === true || value?.ok === false) {
         lookupCache.set(key, { at: Date.now(), value });
       }
@@ -301,7 +301,7 @@ export async function listPincodesForCity({ country, state, city } = {}) {
   if (!place) return { pincodes: [], state: String(state || "").trim() };
   const region = String(state || "").trim();
   return cached(`city-pins-v3:${iso}:${normalizePlaceName(region)}:${normalizePlaceName(place)}`, async () => {
-    // India Post first — fast and reliable for Indian cities. Geonames/Zippo enrich in parallel
+    // India Post first - fast and reliable for Indian cities. Geonames/Zippo enrich in parallel
     // but must not block the admin UI for minutes when OpenDataSoft is slow.
     if (iso === "IN") {
       const india = await indiaPostOfficeCodes(place, region);
@@ -520,7 +520,7 @@ export async function resolveStorefrontPincodeState({
     };
   }
 
-  // Always try postal lookup for selected cities — even when the first pass already
+  // Always try postal lookup for selected cities - even when the first pass already
   // marked unavailable (e.g. empty saved pin lists / country-only coverage).
   if ((expanded.locations || []).length || state.needsLookup) {
     const place = await lookupPlaceForRules(expanded, code);

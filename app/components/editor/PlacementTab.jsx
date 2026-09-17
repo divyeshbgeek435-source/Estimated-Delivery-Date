@@ -1,12 +1,10 @@
 import { PlacementForm } from "../placement/PlacementForm";
-import { widgetSnippet } from "../../lib/constants";
 import { normalizePosition, widgetProfile } from "../../lib/widget-profiles";
 import { HostChoiceList } from "../common/ActionButton";
 
 export function PlacementTab({ widget, draft, onChange, errors = {}, liveProductWidgets = [] }) {
   const profile = widgetProfile(widget.location);
   const position = normalizePosition(widget.location, draft.placementConfig.position);
-  const snippet = widgetSnippet(widget.location, draft.cartConfig?.displayMode);
 
   return (
     <s-stack gap="large">
@@ -28,10 +26,12 @@ export function PlacementTab({ widget, draft, onChange, errors = {}, liveProduct
       )}
 
       <s-section heading={profile.placementTitle}>
+        <s-paragraph color="subdued">Choose where this widget appears on the page.</s-paragraph>
         <input type="hidden" name="position" value={position} />
         <HostChoiceList
           label={profile.placementTitle}
           name="positionField"
+          labelAccessibilityVisibility="exclusive"
           onChange={(event) =>
             onChange({
               ...draft,
@@ -57,25 +57,11 @@ export function PlacementTab({ widget, draft, onChange, errors = {}, liveProduct
         <s-banner tone="warning" heading="Checkout placement is no longer available">
           Shopify only supports checkout UI extensions on Plus. Unpublish or delete this widget. Product and cart widgets still work on all plans.
         </s-banner>
-      ) : position === "CUSTOM" ? (
-        <s-section heading="Code snippet">
-          <s-paragraph color="subdued">
-            Paste this snippet in your theme where the widget should appear.
-          </s-paragraph>
-          <s-text-field label="Snippet" name="snippet" value={snippet} readOnly></s-text-field>
-        </s-section>
-      ) : widget.location === "CART" ? (
+      ) : widget.location === "CART" && position !== "CUSTOM" ? (
         <s-banner>
           Publishing adds this widget to the cart page automatically, above the checkout button.
         </s-banner>
-      ) : (
-        <s-section heading="Code snippet">
-          <s-paragraph color="subdued">
-            Use this only if you chose a custom theme placement.
-          </s-paragraph>
-          <s-text-field label="Snippet" name="snippet" value={snippet} readOnly></s-text-field>
-        </s-section>
-      )}
+      ) : null}
     </s-stack>
   );
 }

@@ -67,7 +67,7 @@ export function widgetApplyToLabel(widget = {}) {
 
 /**
  * Two PRODUCT widgets conflict when their live placements would overlap.
- * Two CART widgets always conflict — only one cart widget can be live.
+ * Two CART widgets always conflict - only one cart widget can be live.
  */
 export function placementsConflict(left = {}, right = {}) {
   const modeA = left.mode || PLACEMENT_MODES.ALL_PRODUCTS;
@@ -210,6 +210,6 @@ export function conflictDialogCopy(location, mode = "publish") {
   }
   return {
     title: "Another widget is already live",
-    body: "All products can only have one live widget. The same collection or product cannot be live on two widgets. Choose which widget should stay live — only that one remains published.",
+    body: "All products can only have one live widget. The same collection or product cannot be live on two widgets. Choose which widget should stay live - only that one remains published.",
   };
 }

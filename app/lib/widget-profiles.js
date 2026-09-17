@@ -63,7 +63,7 @@ const CART_PROFILE = {
     {
       value: PLACEMENT_POSITIONS.CUSTOM,
       label: "Custom",
-      help: "Use a code snippet in your theme, or place the app block in the theme editor.",
+      help: "Place the app block yourself in the theme editor.",
     },
   ],
 };

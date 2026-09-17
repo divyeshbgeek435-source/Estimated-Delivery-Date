@@ -206,7 +206,7 @@ async function dropOrphans(names) {
       continue;
     }
     if (!ORPHAN_COLLECTIONS.includes(name)) {
-      kept.push(`${name} (unknown — not dropped)`);
+      kept.push(`${name} (unknown - not dropped)`);
       continue;
     }
     if (!APPLY || !DROP) {

@@ -1,14 +1,17 @@
 import { GRADIENT_DIRECTIONS } from "../../lib/constants";
+import { boundedIntFromEvent, STYLE_NUMBER_LIMITS } from "../../lib/number-input";
 import { HostChoiceList } from "../common/ActionButton";
 
 export function StyleForm({ style, onChange, errors = {} }) {
   return (
     <s-stack gap="large">
       <s-section heading="Background">
+        <s-paragraph color="subdued">Fill behind the widget card.</s-paragraph>
         <input type="hidden" name="backgroundType" value={style.backgroundType} />
         <HostChoiceList
           label="Background type"
           name="backgroundTypeField"
+          labelAccessibilityVisibility="exclusive"
           onChange={(event) =>
             onChange({
               ...style,
@@ -78,16 +81,20 @@ export function StyleForm({ style, onChange, errors = {} }) {
       </s-section>
 
       <s-section heading="Shape">
+        <s-paragraph color="subdued">Corner rounding of the widget card.</s-paragraph>
         <s-number-field
           label="Border radius"
           name="borderRadius"
-          min={0}
-          max={32}
+          min={STYLE_NUMBER_LIMITS.borderRadius.min}
+          max={STYLE_NUMBER_LIMITS.borderRadius.max}
+          step={1}
           suffix="px"
           value={String(style.borderRadius)}
-          onInput={(event) =>
-            onChange({ ...style, borderRadius: Number(event.currentTarget.value) })
-          }
+          onInput={(event) => {
+            const borderRadius = boundedIntFromEvent(event, STYLE_NUMBER_LIMITS.borderRadius);
+            if (borderRadius == null) return;
+            onChange({ ...style, borderRadius });
+          }}
           error={errors.borderRadius}
         ></s-number-field>
       </s-section>

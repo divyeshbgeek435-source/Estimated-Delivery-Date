@@ -17,7 +17,9 @@ export function WidgetStatusPicker({ location, value, onChange, scheduleAt, onSc
           />
           <span>
             <strong>Draft</strong>
-            <em>Save the widget and keep the store block hidden on the {page}.</em>
+            <span className="edd-publish-option__help">
+              Save the widget and keep the store block hidden on the {page}.
+            </span>
           </span>
         </label>
         <label className="edd-publish-option">
@@ -30,7 +32,9 @@ export function WidgetStatusPicker({ location, value, onChange, scheduleAt, onSc
           />
           <span>
             <strong>Schedule</strong>
-            <em>Add the store block to the {page} and display it automatically at the date and time you choose.</em>
+            <span className="edd-publish-option__help">
+              Add the store block to the {page} and display it automatically at the date and time you choose.
+            </span>
           </span>
         </label>
         <label className="edd-publish-option">
@@ -43,7 +47,9 @@ export function WidgetStatusPicker({ location, value, onChange, scheduleAt, onSc
           />
           <span>
             <strong>Publish</strong>
-            <em>Add or update the store block on the {page} and display it immediately.</em>
+            <span className="edd-publish-option__help">
+              Add or update the store block on the {page} and display it immediately.
+            </span>
           </span>
         </label>
       </div>

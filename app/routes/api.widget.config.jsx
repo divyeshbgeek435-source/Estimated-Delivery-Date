@@ -108,7 +108,7 @@ async function handleConfig(request) {
     if (!displayWidget) return json({ widget: null });
 
     const productWidgets = await getActiveStorefrontWidgets(shop, WIDGET_LOCATIONS.PRODUCT);
-    // Match each cart line to a live PRODUCT widget only — never fall back to the cart
+    // Match each cart line to a live PRODUCT widget only - never fall back to the cart
     // widget, or products without their own date config inherit a fake shared date.
     const withDelivery = await deliveriesFromCartItems({
       productWidgets,

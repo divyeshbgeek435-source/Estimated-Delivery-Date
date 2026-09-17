@@ -11,6 +11,7 @@ import {
   WORKING_DAYS,
 } from "./constants";
 import { isValidTimeZone } from "./timezone";
+import { clampToBounds, SHIPPING_DAY_LIMITS } from "./number-input";
 import {
   DEFAULT_PINCODE_RULES,
   DEFAULT_WEIGHT_RULES,
@@ -84,22 +85,26 @@ export const blockedDateSchema = z.object({
   recurring: z.boolean().optional(),
 });
 
+const asDayInt = (bounds, fallback) =>
+  z.preprocess(
+    (value) => clampToBounds(value, bounds, fallback),
+    z.number().int().min(bounds.min).max(bounds.max),
+  );
+
 export const shippingSchema = z
   .object({
-    processingMinDays: z.coerce.number().int().min(0).max(30),
-    processingMaxDays: z.coerce.number().int().min(0).max(60),
+    processingMinDays: asDayInt(SHIPPING_DAY_LIMITS.processingMin, 0),
+    processingMaxDays: asDayInt(SHIPPING_DAY_LIMITS.processingMax, 1),
     cutoffTime: asString("12:00 AM").pipe(z.string().min(1).max(20)),
     workingDays: z
       .array(z.enum(WORKING_DAYS))
-      .default([...DEFAULT_WORKING_DAYS])
-      .transform((days) => (days.length ? days : [...DEFAULT_WORKING_DAYS])),
+      .default([...DEFAULT_WORKING_DAYS]),
     blockedDates: z.array(blockedDateSchema).default([]),
-    transitMinDays: z.coerce.number().int().min(0).max(30),
-    transitMaxDays: z.coerce.number().int().min(0).max(60),
+    transitMinDays: asDayInt(SHIPPING_DAY_LIMITS.transitMin, 1),
+    transitMaxDays: asDayInt(SHIPPING_DAY_LIMITS.transitMax, 2),
     transitWorkingDays: z
       .array(z.enum(WORKING_DAYS))
-      .default([...DEFAULT_WORKING_DAYS])
-      .transform((days) => (days.length ? days : [...DEFAULT_WORKING_DAYS])),
+      .default([...DEFAULT_WORKING_DAYS]),
     transitBlockedDates: z.array(blockedDateSchema).default([]),
     timezone: ianaTimezoneSchema,
     pincodeRules: z.preprocess(
@@ -203,9 +208,9 @@ export const shippingSchema = z
   })
   .transform((value) => {
     const processingMinDays = Number(value.processingMinDays) || 0;
-    const processingMaxDays = Math.max(Number(value.processingMaxDays) || 0, processingMinDays);
+    const processingMaxDays = Number(value.processingMaxDays) || 0;
     const transitMinDays = Number(value.transitMinDays) || 0;
-    const transitMaxDays = Math.max(Number(value.transitMaxDays) || 0, transitMinDays);
+    const transitMaxDays = Number(value.transitMaxDays) || 0;
     const next = {
       ...value,
       processingMinDays,

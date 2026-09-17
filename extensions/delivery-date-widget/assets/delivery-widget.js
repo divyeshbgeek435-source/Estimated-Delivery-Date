@@ -10,9 +10,9 @@
     check:
       '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="m8.5 12.2 2.4 2.4 4.6-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
     clock:
-      '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v5l3 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+      '<svg viewBox="0 0 24 24" fill="none" overflow="visible" aria-hidden="true"><circle cx="12" cy="12" r="8.25" stroke="currentColor" stroke-width="1.85"/><path d="M12 8v4.7l3.1 1.85" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     clockSolid:
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="currentColor"/><path d="M12 6.8v5.5l3.7 2.2" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      '<svg viewBox="0 0 24 24" overflow="visible" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="currentColor" stroke="currentColor" stroke-width="1.4"/><path d="M12 7.2v5.1l3.35 2" fill="none" stroke="var(--edd-card-bg, #fff)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     box:
       '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 8.5 12 4l9 4.5v9L12 22 3 17.5v-9Z" stroke="currentColor" stroke-width="1.8"/></svg>',
     calendar:
@@ -269,7 +269,7 @@
     const withQuery = `${path}${path.includes("?") ? "&" : "?"}${encoded}`;
 
     const tryPost = async (useKeepalive) => {
-      // Put params in the query too — app proxy sometimes forwards POST without the body.
+      // Put params in the query too - app proxy sometimes forwards POST without the body.
       const response = await fetch(withQuery, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
@@ -794,7 +794,7 @@
     params.set("type", body.type);
     const productId = compactResourceIds(body.productId) || String(body.productId || "").trim();
     if (productId) params.set("productId", productId.slice(0, 128));
-    // GET with query params — Shopify app proxy often drops POST bodies.
+    // GET with query params - Shopify app proxy often drops POST bodies.
     // Fall back to POST / beacon via sendProxy auto mode.
     return sendProxy(url, params).catch((error) => {
       if (window.Shopify?.designMode || /[?&]edd_debug=1(?:&|$)/.test(window.location.search)) {
@@ -987,7 +987,7 @@
 
       const encoded = configUrl.searchParams.toString();
       const requestUrl = `${configUrl.pathname}?${encoded}`;
-      // Cart payloads include cartItems JSON — prefer POST so long carts don't fail GET/proxy URL limits.
+      // Cart payloads include cartItems JSON - prefer POST so long carts don't fail GET/proxy URL limits.
       let response =
         location === "CART"
           ? null

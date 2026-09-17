@@ -1,7 +1,14 @@
-import { ANIMATED_DESIGNS, DATE_FORMATS, FONT_OPTIONS, GRADIENT_DIRECTIONS, HEADING_WEIGHT_OPTIONS, MESSAGE_TAGS, TEMPLATE_COLORS, TEMPLATE_STYLE_PRESETS, TEMPLATE_TITLE_PRESETS, TRANSLATION_LOCALES, WIDGET_DESIGNS } from "../../lib/constants";
+import { ANIMATED_DESIGNS, DATE_FORMATS, FONT_OPTIONS, GRADIENT_DIRECTIONS, HEADING_WEIGHT_OPTIONS, MESSAGE_TAGS, TEMPLATE_COLORS, TEMPLATE_STYLE_PRESETS, TEMPLATE_TITLE_PRESETS, WIDGET_DESIGNS } from "../../lib/constants";
+import { boundedIntFromEvent, STYLE_NUMBER_LIMITS } from "../../lib/number-input";
 import { widgetProfile } from "../../lib/widget-profiles";
 import { ActionButton, HostChoiceList } from "../common/ActionButton";
 import { IconMediaPicker } from "../common/IconMediaPicker";
+
+function onStyleNumber(event, key, bounds, setStyle) {
+  const next = boundedIntFromEvent(event, bounds, bounds.min);
+  if (next == null) return;
+  setStyle({ [key]: next });
+}
 
 const DATE_FORMAT_SAMPLES = {
   [DATE_FORMATS.LONG]: "Aug 21, 2026",
@@ -150,15 +157,6 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
   const descriptionEnabled = message.descriptionEnabled !== false;
   const headingEnabled = message.headingEnabled !== false;
   const headingWeight = Number(style.headingFontWeight) || 600;
-  const translations = message.translations || {};
-  const adding = Boolean(draft.addingTranslation);
-  const locale = draft.translationLocale || TRANSLATION_LOCALES[0].value;
-  const current = translations[locale] || {
-    template: message.template,
-    purchasedTitle: icons.purchasedTitle,
-    processingTitle: icons.processingTitle,
-    deliveredTitle: icons.deliveredTitle,
-  };
 
   const applyTemplate = (value) => {
     const titles = TEMPLATE_TITLE_PRESETS[value];
@@ -252,6 +250,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
             })}
           </div>
           <input type="hidden" name="designTemplate" value={design} />
+        <s-stack gap="small-200">
         <s-text type="strong">Template colors</s-text>
         <s-paragraph color="subdued">Choose a preset or pick any color. It updates icons, dates, and the progress line.</s-paragraph>
         <div className="edd-swatches">
@@ -273,6 +272,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           value={themeColor}
           onInput={(event) => applyTheme(event.currentTarget.value)}
         ></s-color-field>
+        </s-stack>
       </s-section>
       ) : (
         <>
@@ -350,6 +350,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
       )}
 
       <s-section heading="Description">
+        <s-paragraph color="subdued">Customer-facing copy under the title. Use variables for live dates and product details.</s-paragraph>
         <s-checkbox
           label="Enable description"
           name="descriptionEnabled"
@@ -368,26 +369,29 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
         ) : (
           <input type="hidden" name="template" value={message.template} />
         )}
-        <s-paragraph color="subdued">Available variables</s-paragraph>
-        <ul className="edd-var-list">
-          {MESSAGE_TAGS.map((item) => (
-            <li key={item.tag}>
-              <button
-                type="button"
-                onClick={() =>
-                  descriptionEnabled && setMessage({ template: `${message.template || ""} ${item.tag}`.trim() })
-                }
-              >
-                {item.tag}
-              </button>
-              {" — "}
-              {variableHelp(item.tag)}
-            </li>
-          ))}
-        </ul>
+        <s-stack gap="small-200">
+          <s-text type="strong">Available variables</s-text>
+          <ul className="edd-var-list">
+            {MESSAGE_TAGS.map((item) => (
+              <li key={item.tag}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    descriptionEnabled && setMessage({ template: `${message.template || ""} ${item.tag}`.trim() })
+                  }
+                >
+                  {item.tag}
+                </button>
+                {" - "}
+                {variableHelp(item.tag)}
+              </li>
+            ))}
+          </ul>
+        </s-stack>
       </s-section>
 
       <s-section heading="Date format">
+        <s-paragraph color="subdued">Choose how delivery dates appear on the widget.</s-paragraph>
         <input type="hidden" name="dateFormat" value={message.dateFormat || DATE_FORMATS.LONG} />
         <s-select
           label="Date format"
@@ -484,86 +488,13 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
         </>
       )}
 
-      <s-section heading="Translations">
-        {adding ? (
-          <>
-            <s-select
-              label="Language"
-              name="translationLocale"
-              value={locale}
-              onChange={(event) => onChange({ ...draft, translationLocale: event.currentTarget.value })}
-            >
-              {TRANSLATION_LOCALES.map((item) => (
-                <s-option key={item.value} value={item.value}>
-                  {item.label}
-                </s-option>
-              ))}
-            </s-select>
-            <s-text-area
-              label="Translated description"
-              rows={3}
-              value={current.template || ""}
-              onInput={(event) =>
-                setMessage({
-                  translations: {
-                    ...translations,
-                    [locale]: { ...current, template: event.currentTarget.value },
-                  },
-                })
-              }
-            ></s-text-area>
-            <s-grid gridTemplateColumns="1fr 1fr 1fr" gap="base">
-              <s-text-field
-                label="Purchased title"
-                value={current.purchasedTitle || ""}
-                onInput={(event) =>
-                  setMessage({
-                    translations: {
-                      ...translations,
-                      [locale]: { ...current, purchasedTitle: event.currentTarget.value },
-                    },
-                  })
-                }
-              ></s-text-field>
-              <s-text-field
-                label="Processing title"
-                value={current.processingTitle || ""}
-                onInput={(event) =>
-                  setMessage({
-                    translations: {
-                      ...translations,
-                      [locale]: { ...current, processingTitle: event.currentTarget.value },
-                    },
-                  })
-                }
-              ></s-text-field>
-              <s-text-field
-                label="Delivered title"
-                value={current.deliveredTitle || ""}
-                onInput={(event) =>
-                  setMessage({
-                    translations: {
-                      ...translations,
-                      [locale]: { ...current, deliveredTitle: event.currentTarget.value },
-                    },
-                  })
-                }
-              ></s-text-field>
-            </s-grid>
-          </>
-        ) : (
-          <ActionButton type="button" onClick={() => onChange({ ...draft, addingTranslation: true })}>
-            Add Translation
-          </ActionButton>
-        )}
-        <input type="hidden" name="translations" value={JSON.stringify(translations)} />
-      </s-section>
-
       <s-section heading="Card background">
+        <s-paragraph color="subdued">Fill behind the widget card.</s-paragraph>
         <input type="hidden" name="backgroundType" value={backgroundType} />
         <HostChoiceList
           label="Card background"
           name="backgroundTypeField"
+          labelAccessibilityVisibility="exclusive"
           onChange={(event) =>
             setStyle({ backgroundType: event.currentTarget.values?.[0] || event.currentTarget.value })
           }
@@ -632,25 +563,28 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
       </s-section>
 
       <s-section heading="Border">
+        <s-paragraph color="subdued">Corner radius, thickness, and color of the widget card.</s-paragraph>
         <s-grid gridTemplateColumns="1fr 1fr" gap="base">
           <s-number-field
             label="Radius"
             name="borderRadius"
-            min={0}
-            max={32}
+            min={STYLE_NUMBER_LIMITS.borderRadius.min}
+            max={STYLE_NUMBER_LIMITS.borderRadius.max}
+            step={1}
             suffix="px"
             value={String(style.borderRadius ?? 8)}
             error={errors.borderRadius}
-            onInput={(event) => setStyle({ borderRadius: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "borderRadius", STYLE_NUMBER_LIMITS.borderRadius, setStyle)}
           ></s-number-field>
           <s-number-field
             label="Width"
             name="borderWidth"
-            min={0}
-            max={12}
+            min={STYLE_NUMBER_LIMITS.borderWidth.min}
+            max={STYLE_NUMBER_LIMITS.borderWidth.max}
+            step={1}
             suffix="px"
             value={String(style.borderWidth ?? 0)}
-            onInput={(event) => setStyle({ borderWidth: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "borderWidth", STYLE_NUMBER_LIMITS.borderWidth, setStyle)}
           ></s-number-field>
         </s-grid>
         <s-color-field
@@ -664,89 +598,101 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
       {profile.showFullDesign ? (
         <>
       <s-section heading="Outer spacing">
+        <s-paragraph color="subdued">Space around the widget on the product page.</s-paragraph>
         <s-grid gridTemplateColumns="1fr 1fr" gap="base">
           <s-number-field
             label="Top"
             name="paddingTop"
-            min={0}
-            max={64}
+            min={STYLE_NUMBER_LIMITS.padding.min}
+            max={STYLE_NUMBER_LIMITS.padding.max}
+            step={1}
             suffix="px"
             value={String(style.paddingTop ?? 16)}
-            onInput={(event) => setStyle({ paddingTop: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "paddingTop", STYLE_NUMBER_LIMITS.padding, setStyle)}
           ></s-number-field>
           <s-number-field
             label="Bottom"
             name="paddingBottom"
-            min={0}
-            max={64}
+            min={STYLE_NUMBER_LIMITS.padding.min}
+            max={STYLE_NUMBER_LIMITS.padding.max}
+            step={1}
             suffix="px"
             value={String(style.paddingBottom ?? 12)}
-            onInput={(event) => setStyle({ paddingBottom: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "paddingBottom", STYLE_NUMBER_LIMITS.padding, setStyle)}
           ></s-number-field>
         </s-grid>
         <s-number-field
           label="Between description and widget"
           name="paddingMiddle"
-          min={0}
-          max={64}
+          min={STYLE_NUMBER_LIMITS.padding.min}
+          max={STYLE_NUMBER_LIMITS.padding.max}
+          step={1}
           suffix="px"
           value={String(style.paddingMiddle ?? 12)}
-          onInput={(event) => setStyle({ paddingMiddle: Number(event.currentTarget.value) })}
+          onInput={(event) => onStyleNumber(event, "paddingMiddle", STYLE_NUMBER_LIMITS.padding, setStyle)}
         ></s-number-field>
       </s-section>
 
       <s-section heading="Inner spacing">
+        <s-paragraph color="subdued">Padding inside the widget card.</s-paragraph>
         <s-grid gridTemplateColumns="1fr 1fr" gap="base">
           <s-number-field
             label="Top"
-            min={0}
-            max={64}
+            min={STYLE_NUMBER_LIMITS.padding.min}
+            max={STYLE_NUMBER_LIMITS.padding.max}
+            step={1}
             suffix="px"
             value={String(style.paddingTop ?? 16)}
-            onInput={(event) => setStyle({ paddingTop: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "paddingTop", STYLE_NUMBER_LIMITS.padding, setStyle)}
           ></s-number-field>
           <s-number-field
             label="Bottom"
-            min={0}
-            max={64}
+            min={STYLE_NUMBER_LIMITS.padding.min}
+            max={STYLE_NUMBER_LIMITS.padding.max}
+            step={1}
             suffix="px"
             value={String(style.paddingBottom ?? 12)}
-            onInput={(event) => setStyle({ paddingBottom: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "paddingBottom", STYLE_NUMBER_LIMITS.padding, setStyle)}
           ></s-number-field>
           <s-number-field
             label="Left"
             name="paddingLeft"
-            min={0}
-            max={64}
+            min={STYLE_NUMBER_LIMITS.padding.min}
+            max={STYLE_NUMBER_LIMITS.padding.max}
+            step={1}
             suffix="px"
             value={String(style.paddingLeft ?? 16)}
-            onInput={(event) => setStyle({ paddingLeft: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "paddingLeft", STYLE_NUMBER_LIMITS.padding, setStyle)}
           ></s-number-field>
           <s-number-field
             label="Right"
             name="paddingRight"
-            min={0}
-            max={64}
+            min={STYLE_NUMBER_LIMITS.padding.min}
+            max={STYLE_NUMBER_LIMITS.padding.max}
+            step={1}
             suffix="px"
             value={String(style.paddingRight ?? 16)}
-            onInput={(event) => setStyle({ paddingRight: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "paddingRight", STYLE_NUMBER_LIMITS.padding, setStyle)}
           ></s-number-field>
         </s-grid>
       </s-section>
 
       <s-section heading="Icon size">
+        <s-paragraph color="subdued">Size of milestone and header icons.</s-paragraph>
         <s-number-field
           label="Icon size"
           name="iconSize"
-          min={12}
-          max={72}
+          min={STYLE_NUMBER_LIMITS.iconSize.min}
+          max={STYLE_NUMBER_LIMITS.iconSize.max}
+          step={1}
           suffix="px"
           value={String(style.iconSize ?? 22)}
-          onInput={(event) => setStyle({ iconSize: Number(event.currentTarget.value) })}
+          onInput={(event) => onStyleNumber(event, "iconSize", STYLE_NUMBER_LIMITS.iconSize, setStyle)}
         ></s-number-field>
       </s-section>
 
       <s-section heading="Progress line color">
+        <s-paragraph color="subdued">Color and thickness of the timeline progress line.</s-paragraph>
         <s-color-field
           label="Progress line"
           name="progressColor"
@@ -756,17 +702,19 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
         <s-number-field
           label="Progress line size"
           name="progressWidth"
-          min={1}
-          max={8}
+          min={STYLE_NUMBER_LIMITS.progressWidth.min}
+          max={STYLE_NUMBER_LIMITS.progressWidth.max}
+          step={1}
           suffix="px"
           value={String(style.progressWidth ?? 3)}
-          onInput={(event) => setStyle({ progressWidth: Number(event.currentTarget.value) })}
+          onInput={(event) => onStyleNumber(event, "progressWidth", STYLE_NUMBER_LIMITS.progressWidth, setStyle)}
         ></s-number-field>
       </s-section>
         </>
       ) : null}
 
       <s-section heading="Typography">
+        <s-paragraph color="subdued">Font, sizes, and colors for title, description, status, and date text.</s-paragraph>
         <s-select
           label="Font"
           name="fontFamily"
@@ -784,11 +732,12 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           <s-number-field
             label="Description"
             name="fontSize"
-            min={10}
-            max={24}
+            min={STYLE_NUMBER_LIMITS.fontSize.min}
+            max={STYLE_NUMBER_LIMITS.fontSize.max}
+            step={1}
             suffix="px"
             value={String(style.fontSize ?? 14)}
-            onInput={(event) => setStyle({ fontSize: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "fontSize", STYLE_NUMBER_LIMITS.fontSize, setStyle)}
           ></s-number-field>
           <s-color-field
             label="Description color"
@@ -799,11 +748,12 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           <s-number-field
             label="Status label"
             name="statusFontSize"
-            min={8}
-            max={24}
+            min={STYLE_NUMBER_LIMITS.statusFontSize.min}
+            max={STYLE_NUMBER_LIMITS.statusFontSize.max}
+            step={1}
             suffix="px"
             value={String(style.statusFontSize ?? 12)}
-            onInput={(event) => setStyle({ statusFontSize: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "statusFontSize", STYLE_NUMBER_LIMITS.statusFontSize, setStyle)}
           ></s-number-field>
           <s-color-field
             label="Status color"
@@ -814,11 +764,12 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           <s-number-field
             label="Date label"
             name="dateFontSize"
-            min={8}
-            max={24}
+            min={STYLE_NUMBER_LIMITS.dateFontSize.min}
+            max={STYLE_NUMBER_LIMITS.dateFontSize.max}
+            step={1}
             suffix="px"
             value={String(style.dateFontSize ?? 11)}
-            onInput={(event) => setStyle({ dateFontSize: Number(event.currentTarget.value) })}
+            onInput={(event) => onStyleNumber(event, "dateFontSize", STYLE_NUMBER_LIMITS.dateFontSize, setStyle)}
           ></s-number-field>
           <s-color-field
             label="Date color"
@@ -837,6 +788,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
 
       {profile.showFullDesign ? (
       <s-section heading="Custom Css">
+        <s-paragraph color="subdued">Optional CSS for the storefront widget. Preview does not apply these rules.</s-paragraph>
         <s-text-area
           label="Custom CSS"
           name="customCss"
@@ -845,12 +797,14 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           details="/* Add your custom CSS here */"
           onInput={(event) => setStyle({ customCss: event.currentTarget.value })}
         ></s-text-area>
-        <s-paragraph color="subdued">Available classes</s-paragraph>
-        <ul className="edd-var-list">
-          <li>essential-estimated-delivery-widget — Main widget container</li>
-          <li>essential-estimated-delivery-description — Description/content text section</li>
-          <li>essential-estimated-delivery-card — Widget card</li>
-        </ul>
+        <s-stack gap="small-200">
+          <s-text type="strong">Available classes</s-text>
+          <ul className="edd-var-list">
+            <li>essential-estimated-delivery-widget - Main widget container</li>
+            <li>essential-estimated-delivery-description - Description/content text section</li>
+            <li>essential-estimated-delivery-card - Widget card</li>
+          </ul>
+        </s-stack>
       </s-section>
       ) : null}
     </s-stack>

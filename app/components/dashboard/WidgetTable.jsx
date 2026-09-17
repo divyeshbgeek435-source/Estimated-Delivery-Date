@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { locationLabel, WIDGET_STATUSES } from "../../lib/constants";
+import { HostSearchField } from "../common/ActionButton";
 import { AppLink } from "../common/AppLink";
+import { compareValues, SortableHeader, TablePagination } from "../common/TableControls";
 
 const PAGE_SIZE = 5;
 
@@ -50,92 +52,7 @@ function sortValue(row, key) {
 }
 
 function compareRows(a, b, sortKey, sortDir) {
-  const left = sortValue(a, sortKey);
-  const right = sortValue(b, sortKey);
-  let result = 0;
-  if (typeof left === "number" && typeof right === "number") {
-    result = left - right;
-  } else {
-    result = String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" });
-  }
-  return sortDir === "asc" ? result : -result;
-}
-
-function pageList(totalPages, currentPage) {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
-  }
-  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
-  return [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
-}
-
-function SortableHeader({ column, sortKey, sortDir, onSort }) {
-  const active = sortKey === column.key;
-  const ariaSort = active ? (sortDir === "asc" ? "ascending" : "descending") : "none";
-  const headerProps = {
-    listSlot: column.listSlot,
-    ...(column.format ? { format: column.format } : {}),
-    "aria-sort": ariaSort,
-  };
-  return (
-    <s-table-header {...headerProps}>
-      <button
-        type="button"
-        className={`edd-table-sort${active ? " edd-table-sort--active" : ""}`}
-        onClick={() => onSort(column.key)}
-        aria-label={`Sort by ${column.label}${active ? `, ${sortDir === "asc" ? "ascending" : "descending"}` : ""}`}
-      >
-        <span>{column.label}</span>
-        <span className="edd-table-sort__icon" aria-hidden="true">
-          {active ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-        </span>
-      </button>
-    </s-table-header>
-  );
-}
-
-function TablePagination({ page, totalPages, pages, onPageChange }) {
-  return (
-    <nav className="edd-table-pagination" aria-label="Widget table pagination">
-      <button
-        type="button"
-        className="edd-btn edd-table-pagination__nav"
-        disabled={page <= 1}
-        onClick={() => onPageChange(Math.max(1, page - 1))}
-      >
-        Previous
-      </button>
-      <div className="edd-table-pagination__pages">
-        {pages.map((pageNumber, index) => {
-          const previous = pages[index - 1];
-          const gap = previous != null && pageNumber - previous > 1;
-          return (
-            <span key={pageNumber} className="edd-table-pagination__page-wrap">
-              {gap ? <span className="edd-table-pagination__ellipsis">…</span> : null}
-              <button
-                type="button"
-                className={`edd-table-pagination__page${
-                  pageNumber === page ? " edd-table-pagination__page--active" : ""
-                }`}
-                aria-current={pageNumber === page ? "page" : undefined}
-                onClick={() => onPageChange(pageNumber)}
-              >
-                {pageNumber}
-              </button>
-            </span>
-          );
-        })}
-      </div>
-      <button
-        type="button"
-        className="edd-btn edd-table-pagination__nav"
-        disabled={page >= totalPages}
-        onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-      >
-        Next
-      </button>
-    </nav>
-  );
+  return compareValues(sortValue(a, sortKey), sortValue(b, sortKey), sortDir);
 }
 
 export function WidgetTable({ widgets = [], metrics = {} }) {
@@ -153,10 +70,17 @@ export function WidgetTable({ widgets = [], metrics = {} }) {
 
     const filtered = needle
       ? mapped.filter(({ widget, metric }) => {
+          const status = statusLabel(widget.status).toLowerCase();
+          const statusHit =
+            status === needle ||
+            status.startsWith(needle) ||
+            (widget.status === WIDGET_STATUSES.ACTIVE && ["live", "published", "active"].some((item) => item.startsWith(needle))) ||
+            (widget.status === WIDGET_STATUSES.DRAFT && ["draft", "unpublished", "not published"].some((item) => item.startsWith(needle))) ||
+            (widget.status === WIDGET_STATUSES.SCHEDULED && ["scheduled"].some((item) => item.startsWith(needle)));
+          if (statusHit) return true;
           const haystack = [
             widget.name,
             locationLabel(widget.location),
-            statusLabel(widget.status),
             metric.impressions,
             metric.clicks,
             metric.addToCart || 0,
@@ -164,7 +88,7 @@ export function WidgetTable({ widgets = [], metrics = {} }) {
           ]
             .join(" ")
             .toLowerCase();
-          return haystack.includes(needle);
+          return new RegExp(`(?:^|[^a-z0-9])${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`).test(haystack);
         })
       : mapped;
 
@@ -182,7 +106,6 @@ export function WidgetTable({ widgets = [], metrics = {} }) {
   }, [page, totalPages]);
 
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const pages = pageList(totalPages, page);
   const showPagination = rows.length > PAGE_SIZE;
 
   const toggleSort = (key) => {
@@ -197,14 +120,14 @@ export function WidgetTable({ widgets = [], metrics = {} }) {
   return (
     <div className="edd-widget-table">
       <s-table variant="auto">
-        <s-search-field
+        <HostSearchField
           slot="filters"
           label="Search widgets"
           name="widgetTableQuery"
           value={query}
           placeholder="Search by name, location, or status"
           labelAccessibilityVisibility="exclusive"
-          onInput={(event) => setQuery(event.currentTarget.value || "")}
+          onChange={setQuery}
         />
         <s-table-header-row>
           {COLUMNS.map((column) => (
@@ -252,19 +175,24 @@ export function WidgetTable({ widgets = [], metrics = {} }) {
               <s-table-cell>
                 {query.trim() ? "No widgets match your search." : "No widgets yet."}
               </s-table-cell>
-              <s-table-cell>—</s-table-cell>
-              <s-table-cell>—</s-table-cell>
-              <s-table-cell>—</s-table-cell>
-              <s-table-cell>—</s-table-cell>
-              <s-table-cell>—</s-table-cell>
-              <s-table-cell>—</s-table-cell>
+              <s-table-cell>-</s-table-cell>
+              <s-table-cell>-</s-table-cell>
+              <s-table-cell>-</s-table-cell>
+              <s-table-cell>-</s-table-cell>
+              <s-table-cell>-</s-table-cell>
+              <s-table-cell>-</s-table-cell>
             </s-table-row>
           )}
         </s-table-body>
       </s-table>
 
       {showPagination ? (
-        <TablePagination page={page} totalPages={totalPages} pages={pages} onPageChange={setPage} />
+        <TablePagination
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          label="Widget table pagination"
+        />
       ) : null}
     </div>
   );

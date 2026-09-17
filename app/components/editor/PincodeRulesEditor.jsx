@@ -253,8 +253,8 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
 
   return (
     <s-section heading="Pincode / delivery">
-      <s-paragraph>
-        Select a country, then a city — one at a time. All pincodes for that city are added automatically.
+      <s-paragraph color="subdued">
+        Select a country, then a city - one at a time. All pincodes for that city are added automatically.
       </s-paragraph>
 
       {directWeight ? (
@@ -283,21 +283,18 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
 
       {pincodeEnabled ? (
         <div className="edd-pin-editor">
-          <label className="edd-field">
-            <span>Country</span>
-            <select
-              className="edd-input"
-              value={countryPick}
-              onChange={(event) => addCountry(event.currentTarget.value)}
-            >
-              <option value="">Select country</option>
-              {PINCODE_COUNTRIES.filter((item) => !countries.includes(item.value)).map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <s-select
+            label="Country"
+            value={countryPick}
+            placeholder="Select country"
+            onChange={(event) => addCountry(event.currentTarget.value)}
+          >
+            {PINCODE_COUNTRIES.filter((item) => !countries.includes(item.value)).map((item) => (
+              <s-option key={item.value} value={item.value}>
+                {item.label}
+              </s-option>
+            ))}
+          </s-select>
 
           {groups.length ? (
             <div className="edd-geo-tree">
@@ -489,13 +486,17 @@ function CitySelect({ country, added, disabled, onAdd }) {
 
   return (
     <div className="edd-geo-city-add">
-      <input
-        className="edd-input"
+      <s-search-field
+        label="City"
         value={query}
         disabled={disabled}
         placeholder="Type a city name, then select it"
-        onChange={(event) => setQuery(event.currentTarget.value)}
-      />
+        labelAccessibilityVisibility="exclusive"
+        onInput={(event) => setQuery(event.currentTarget.value || "")}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.preventDefault();
+        }}
+      ></s-search-field>
       {query.trim().length > 0 && query.trim().length < 2 ? (
         <p className="edd-help">Keep typing to find a city.</p>
       ) : null}
@@ -510,7 +511,7 @@ function CitySelect({ country, added, disabled, onAdd }) {
           ))}
         </ul>
       ) : needle.length >= 2 && !loading ? (
-        <p className="edd-help">No matching city. Try another spelling.</p>
+        <p className="edd-help">Not Found. No city matches “{query.trim()}”.</p>
       ) : needle.length >= 2 && loading ? (
         <p className="edd-help">Searching cities…</p>
       ) : null}

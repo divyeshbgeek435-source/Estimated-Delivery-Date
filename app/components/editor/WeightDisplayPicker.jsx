@@ -92,16 +92,16 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
 
   return (
     <s-section heading="Weight display">
-      <s-paragraph>
+      <s-paragraph color="subdued">
         Choose how product weight appears on the storefront. This also controls whether customers must check a pincode first.
       </s-paragraph>
       <div className="edd-weight-choice">
-        <div>
+        <s-stack gap="small-200">
           <s-text type="strong">{selected?.title || "Not selected yet"}</s-text>
           <s-paragraph color="subdued">
             {selected?.description || "Select a weight display option to continue."}
           </s-paragraph>
-        </div>
+        </s-stack>
         <button type="button" className="edd-btn edd-btn--secondary" onClick={() => setOpen(true)}>
           {selected ? "Change" : "Select option"}
         </button>
@@ -112,8 +112,12 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
           label="Default weight"
           name="weightValue"
           value={weight.value || ""}
-          details="Used when a location has no specific weight. Ignored if the product-weight checkbox below is on."
-          onInput={(event) => setWeight({ value: event.currentTarget.value })}
+          details="Used when a location has no specific weight."
+          onInput={(event) => {
+            const raw = String(event.currentTarget.value || "").slice(0, 16);
+            const sanitized = raw.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
+            setWeight({ value: sanitized });
+          }}
         ></s-text-field>
         <s-text-field
           label="Unit"
@@ -122,7 +126,7 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
           placeholder="kg"
           list="edd-weight-units"
           details="Type any unit, such as kg, g, lb, or pcs."
-          onInput={(event) => setWeight({ unit: event.currentTarget.value })}
+          onInput={(event) => setWeight({ unit: String(event.currentTarget.value || "").slice(0, 16) })}
         ></s-text-field>
       </s-grid>
       <datalist id="edd-weight-units">
@@ -130,21 +134,6 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
           <option key={item.value} value={item.value}></option>
         ))}
       </datalist>
-      <label className="edd-switch">
-        <input
-          type="checkbox"
-          checked={Boolean(weight.useProductWeight)}
-          onChange={(event) => setWeight({ useProductWeight: event.currentTarget.checked })}
-        />
-        <span>Use the product variant weight instead of the default weight</span>
-      </label>
-      <s-paragraph color="subdued">
-        {weight.useProductWeight
-          ? "The availability line uses the Shopify product weight. Default weight is ignored."
-          : `The availability line uses Default weight and Unit${
-              weight.value ? ` (${weight.value} ${weight.unit || "kg"})` : ""
-            }. Turn this on to use each product's own weight.`}
-      </s-paragraph>
 
       {open ? (
         <div className="edd-live-overlay" role="dialog" aria-modal="true" aria-labelledby="edd-weight-title">

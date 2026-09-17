@@ -3,15 +3,14 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
 import { AppNav } from "../components/common/AppNav";
+import { RecoverableError } from "../components/common/RecoverableError";
+import { isRecoverableClientError } from "../lib/recoverable-error";
 import appStyles from "../styles/app.css?url";
 
-export const links = () => [
-  { rel: "preload", href: appStyles, as: "style" },
-  { rel: "stylesheet", href: appStyles },
-];
+export const links = () => [{ rel: "stylesheet", href: appStyles }];
 
 export const loader = async ({ request }) => {
-  // Session only — avoid merchant profile GraphQL on every nested navigation.
+  // Session only - avoid merchant profile GraphQL on every nested navigation.
   // Child routes call requireAdmin when they need merchant context.
   await authenticate.admin(request);
 
@@ -35,7 +34,11 @@ export default function App() {
 }
 
 export function ErrorBoundary() {
-  return boundary.error(useRouteError());
+  const error = useRouteError();
+  if (isRecoverableClientError(error)) {
+    return <RecoverableError />;
+  }
+  return boundary.error(error);
 }
 
 export const headers = (headersArgs) => {

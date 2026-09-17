@@ -23,15 +23,22 @@ const ICONS = {
     </svg>
   ),
   clock: (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M12 8v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" overflow="visible">
+      <circle cx="12" cy="12" r="8.25" stroke="currentColor" strokeWidth="1.85" />
+      <path d="M12 8v4.7l3.1 1.85" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
   clockSolid: (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" fill="currentColor" />
-      <path d="M12 6.8v5.5l3.7 2.2" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    <svg viewBox="0 0 24 24" aria-hidden="true" overflow="visible">
+      <circle cx="12" cy="12" r="9" fill="currentColor" stroke="currentColor" strokeWidth="1.4" />
+      <path
+        d="M12 7.2v5.1l3.35 2"
+        fill="none"
+        stroke="var(--edd-card-bg, #fff)"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   ),
   calendar: (

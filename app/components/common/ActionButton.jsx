@@ -44,7 +44,7 @@ export function HostChoiceList({ onChange, children, ...props }) {
     if (!node) return undefined;
     const handleChange = (event) => {
       const target = event?.currentTarget || event?.target || node;
-      // Snapshot values before React state updaters run — web component events can
+      // Snapshot values before React state updaters run - web component events can
       // clear currentTarget, which caused "Cannot read properties of null (reading 'values')".
       const values = target?.values ? [...target.values] : undefined;
       const value = target?.value;
@@ -63,5 +63,72 @@ export function HostChoiceList({ onChange, children, ...props }) {
       {children}
     </s-choice-list>
   );
+}
+
+function searchFieldValue(event, fallbackNode) {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  const field =
+    path.find((item) => item?.nodeName === "INPUT" || item?.tagName === "S-SEARCH-FIELD") ||
+    event.currentTarget ||
+    event.target ||
+    fallbackNode;
+  return String(field?.value ?? fallbackNode?.value ?? "");
+}
+
+/** Native input events do not reliably reach React inside Polaris section/table hosts. */
+export function HostSearchInput({ value, onChange, ...props }) {
+  const wrapRef = useRef(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const root = wrapRef.current;
+    if (!root) return undefined;
+    const handle = (event) => {
+      onChangeRef.current?.(searchFieldValue(event, root.querySelector("input")));
+    };
+    root.addEventListener("input", handle, true);
+    root.addEventListener("search", handle, true);
+    root.addEventListener("change", handle, true);
+    return () => {
+      root.removeEventListener("input", handle, true);
+      root.removeEventListener("search", handle, true);
+      root.removeEventListener("change", handle, true);
+    };
+  }, []);
+
+  return (
+    <span ref={wrapRef} className="edd-host-search">
+      <input
+        type="search"
+        {...props}
+        value={value}
+        onChange={(event) => onChangeRef.current?.(event.currentTarget.value)}
+        onInput={(event) => onChangeRef.current?.(event.currentTarget.value)}
+      />
+    </span>
+  );
+}
+
+export function HostSearchField({ value, onChange, ...props }) {
+  const ref = useRef(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return undefined;
+    const handle = (event) => {
+      onChangeRef.current?.(searchFieldValue(event, node));
+    };
+    node.addEventListener("input", handle, true);
+    node.addEventListener("change", handle, true);
+    return () => {
+      node.removeEventListener("input", handle, true);
+      node.removeEventListener("change", handle, true);
+    };
+  }, []);
+
+  return <s-search-field ref={ref} value={value} {...props}></s-search-field>;
 }
 

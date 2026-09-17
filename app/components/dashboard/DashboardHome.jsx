@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useFetcher, useNavigate, useSubmit } from "react-router";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSubmit } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { locationLabel, WIDGET_LOCATIONS, WIDGET_STATUSES } from "../../lib/constants";
+import { afterPaint } from "../../lib/after-paint";
+import { loadAdminJson } from "../../lib/admin-json";
 import {
   clearHomeReturnState,
   homeWidgetAnchorId,
@@ -11,12 +13,21 @@ import {
   restoreHomePosition,
 } from "../../lib/home-scroll";
 import { formatCountdown, mergeLiveRows, useLivePublishPoll } from "../../lib/use-live-publish";
-import { ActionButton } from "../common/ActionButton";
+import { ActionButton, HostSearchInput } from "../common/ActionButton";
 import { AppLink } from "../common/AppLink";
-import { ConfirmDialog } from "../common/ConfirmDialog";
-import { LivePublishedDialog } from "../common/LivePublishedDialog";
-import { PlacementConflictDialog } from "../common/PlacementConflictDialog";
+import { DeliveryRequestsTable } from "../common/DeliveryRequestsTable";
+import { compareValues, SortableHeader, TablePagination } from "../common/TableControls";
 import { conflictDialogCopy, widgetApplyToLabel } from "../../lib/widget-conflicts";
+
+const ConfirmDialog = lazy(() =>
+  import("../common/ConfirmDialog").then((mod) => ({ default: mod.ConfirmDialog })),
+);
+const LivePublishedDialog = lazy(() =>
+  import("../common/LivePublishedDialog").then((mod) => ({ default: mod.LivePublishedDialog })),
+);
+const PlacementConflictDialog = lazy(() =>
+  import("../common/PlacementConflictDialog").then((mod) => ({ default: mod.PlacementConflictDialog })),
+);
 
 const SECTIONS = [
   {
@@ -31,7 +42,7 @@ const SECTIONS = [
   },
 ];
 
-/** Totals refresh cadence — live enough without competing with first paint. */
+/** Totals refresh cadence - live enough without competing with first paint. */
 const HOME_DATA_POLL_MS = 15000;
 
 export function DashboardHome({
@@ -45,17 +56,15 @@ export function DashboardHome({
   error,
   actionData,
 }) {
-  const requestsFetcher = useFetcher();
-  const totalsFetcher = useFetcher();
-  const requestsRef = useRef(requestsFetcher);
-  const totalsRef = useRef(totalsFetcher);
-  requestsRef.current = requestsFetcher;
-  totalsRef.current = totalsFetcher;
+  const [deliveryPayload, setDeliveryPayload] = useState(null);
+  const [requestsRefreshing, setRequestsRefreshing] = useState(false);
+  const requestsInFlight = useRef(false);
+  const totalsInFlight = useRef(false);
   const embed = useEmbedStatus(themeEditorEmbed, initialEmbedStatus);
   const [liveTotals, setLiveTotals] = useState(() => initialTotals);
-  const deliveryRequests = requestsFetcher.data?.deliveryRequests || [];
-  const requestsReady = requestsFetcher.data != null;
-  const totalsReady = initialTotals != null || totalsFetcher.data?.totals != null;
+  const deliveryRequests = deliveryPayload?.deliveryRequests || [];
+  const requestsReady = deliveryPayload != null;
+  const totalsReady = initialTotals != null || liveTotals != null;
 
   useEffect(() => {
     if (initialTotals?.impressions != null) {
@@ -66,31 +75,45 @@ export function DashboardHome({
   }, [initialTotals?.impressions]);
 
   useEffect(() => {
-    const next = totalsFetcher.data?.totals;
-    if (!next || totalsFetcher.state !== "idle") return;
-    setLiveTotals((current) => {
-      if (!current) return next;
-      if (current.impressions === next.impressions) return current;
-      return next;
-    });
-  }, [totalsFetcher.state, totalsFetcher.data]);
-
-  useEffect(() => {
-    requestsRef.current.load(`/app/home-data?part=requests&t=${Date.now()}`);
+    const loadRequests = () => {
+      if (requestsInFlight.current) return;
+      requestsInFlight.current = true;
+      setRequestsRefreshing(true);
+      loadAdminJson(`/app/home-data?part=requests&t=${Date.now()}`)
+        .then((payload) => {
+          if (payload?.deliveryRequests) setDeliveryPayload(payload);
+        })
+        .finally(() => {
+          requestsInFlight.current = false;
+          setRequestsRefreshing(false);
+        });
+    };
+    const cancel = afterPaint(loadRequests);
+    return cancel;
   }, [actionData]);
 
   useEffect(() => {
     const refreshTotals = ({ fresh = false } = {}) => {
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      const fetcher = totalsRef.current;
-      // Allow overlap only when idle so we never stall the live counter.
-      if (fetcher.state !== "idle") return;
+      if (totalsInFlight.current) return;
+      totalsInFlight.current = true;
       const qs = fresh ? "fresh=1&" : "";
-      fetcher.load(`/app/home-data?part=totals&${qs}t=${Date.now()}`);
+      loadAdminJson(`/app/home-data?part=totals&${qs}t=${Date.now()}`)
+        .then((payload) => {
+          const next = payload?.totals;
+          if (!next) return;
+          setLiveTotals((current) => {
+            if (!current) return next;
+            if (current.impressions === next.impressions) return current;
+            return next;
+          });
+        })
+        .finally(() => {
+          totalsInFlight.current = false;
+        });
     };
 
-    // Prefer cached totals on first paint; refresh in the background without busting cache.
-    refreshTotals({ fresh: false });
+    const cancel = afterPaint(() => refreshTotals({ fresh: false }));
     const timer = window.setInterval(() => refreshTotals({ fresh: false }), HOME_DATA_POLL_MS);
     const onVisible = () => {
       if (document.visibilityState === "visible") refreshTotals({ fresh: true });
@@ -99,6 +122,7 @@ export function DashboardHome({
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
+      cancel();
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisible);
@@ -271,98 +295,116 @@ export function DashboardHome({
           pendingCount={pendingRequests.length}
           saving={saving}
           ready={requestsReady}
-          refreshing={requestsFetcher.state !== "idle"}
+          refreshing={requestsRefreshing}
           onRefresh={() => {
-            if (requestsFetcher.state === "idle") {
-              requestsFetcher.load(`/app/home-data?part=requests&t=${Date.now()}`);
-            }
+            if (requestsInFlight.current) return;
+            requestsInFlight.current = true;
+            setRequestsRefreshing(true);
+            loadAdminJson(`/app/home-data?part=requests&t=${Date.now()}`)
+              .then((payload) => {
+                if (payload?.deliveryRequests) setDeliveryPayload(payload);
+              })
+              .finally(() => {
+                requestsInFlight.current = false;
+                setRequestsRefreshing(false);
+              });
           }}
         />
       </s-stack>
       </div>
 
-      <LivePublishedDialog
-        notices={notices}
-        onDismiss={(widgetId) => {
-          const notice = notices.find((item) => item.id === widgetId);
-          setAcked((current) => new Set(current).add(`${widgetId}:${notice?.at || ""}`));
-          submit({ widgetId, intent: "ack-live" }, { method: "post" });
-        }}
-      />
-      <PlacementConflictDialog
-        open={Boolean(conflict)}
-        title={
-          conflictDialogCopy(
-            conflict?.location,
-            conflict?.mode === "activation" ? "activation" : "publish",
-          ).title
-        }
-        body={
-          conflictDialogCopy(
-            conflict?.location,
-            conflict?.mode === "activation" ? "activation" : "publish",
-          ).body
-        }
-        candidate={{
-          id: conflict?.widgetId,
-          name: conflict?.widgetName || "This widget",
-          placementLabel: conflict?.placementLabel || "This widget",
-        }}
-        conflicts={conflict?.conflicts || []}
-        confirming={saving}
-        onCancel={() => setConflict(null)}
-        onChoose={(keepWidgetId) => {
-          if (!conflict?.widgetId || saving || !keepWidgetId) return;
-          submit(
-            {
-              widgetId: conflict.widgetId,
-              intent: "resolve-conflict",
-              keepWidgetId,
-              conflictMode: conflict.mode || "publish",
-            },
-            { method: "post" },
-          );
-        }}
-      />
-      <ConfirmDialog
-        open={Boolean(pendingDelete)}
-        tone="danger"
-        title="Delete this widget?"
-        body={
-          <>
-            <strong>{pendingDelete?.name || "This widget"}</strong> will be removed from your storefront, along with its
-            settings and analytics. This cannot be undone.
-          </>
-        }
-        cancelLabel="Cancel"
-        confirmLabel="Confirm"
-        confirming={deleting}
-        onCancel={() => {
-          if (!deleting) setPendingDelete(null);
-        }}
-        onConfirm={() => {
-          if (!pendingDelete || deleting) return;
-          submit({ widgetId: pendingDelete.id, intent: "delete" }, { method: "post" });
-        }}
-      />
-      <ConfirmDialog
-        open={Boolean(deletedNotice) && !pendingDelete}
-        tone="success"
-        title="Widget deleted"
-        body={
-          deletedNotice?.count > 1
-            ? `${deletedNotice.count} widgets were deleted.`
-            : (
+      <Suspense fallback={null}>
+        {notices.length ? (
+          <LivePublishedDialog
+            notices={notices}
+            onDismiss={(widgetId) => {
+              const notice = notices.find((item) => item.id === widgetId);
+              setAcked((current) => new Set(current).add(`${widgetId}:${notice?.at || ""}`));
+              submit({ widgetId, intent: "ack-live" }, { method: "post" });
+            }}
+          />
+        ) : null}
+        {conflict ? (
+          <PlacementConflictDialog
+            open
+            title={
+              conflictDialogCopy(
+                conflict.location,
+                conflict.mode === "activation" ? "activation" : "publish",
+              ).title
+            }
+            body={
+              conflictDialogCopy(
+                conflict.location,
+                conflict.mode === "activation" ? "activation" : "publish",
+              ).body
+            }
+            candidate={{
+              id: conflict.widgetId,
+              name: conflict.widgetName || "This widget",
+              placementLabel: conflict.placementLabel || "This widget",
+            }}
+            conflicts={conflict.conflicts || []}
+            confirming={saving}
+            onCancel={() => setConflict(null)}
+            onChoose={(keepWidgetId) => {
+              if (!conflict.widgetId || saving || !keepWidgetId) return;
+              submit(
+                {
+                  widgetId: conflict.widgetId,
+                  intent: "resolve-conflict",
+                  keepWidgetId,
+                  conflictMode: conflict.mode || "publish",
+                },
+                { method: "post" },
+              );
+            }}
+          />
+        ) : null}
+        {pendingDelete ? (
+          <ConfirmDialog
+            open
+            tone="danger"
+            title="Delete this widget?"
+            body={
               <>
-                <strong>{deletedNotice?.name || "Widget"}</strong> was deleted successfully.
+                <strong>{pendingDelete.name || "This widget"}</strong> will be removed from your storefront, along with its
+                settings and analytics. This cannot be undone.
               </>
-            )
-        }
-        confirmLabel="Done"
-        hideCancel
-        onCancel={() => setDeletedNotice(null)}
-        onConfirm={() => setDeletedNotice(null)}
-      />
+            }
+            cancelLabel="Cancel"
+            confirmLabel="Confirm"
+            confirming={deleting}
+            onCancel={() => {
+              if (!deleting) setPendingDelete(null);
+            }}
+            onConfirm={() => {
+              if (!pendingDelete || deleting) return;
+              submit({ widgetId: pendingDelete.id, intent: "delete" }, { method: "post" });
+            }}
+          />
+        ) : null}
+        {deletedNotice && !pendingDelete ? (
+          <ConfirmDialog
+            open
+            tone="success"
+            title="Widget deleted"
+            body={
+              deletedNotice.count > 1
+                ? `${deletedNotice.count} widgets were deleted.`
+                : (
+                  <>
+                    <strong>{deletedNotice.name || "Widget"}</strong> was deleted successfully.
+                  </>
+                )
+            }
+            confirmLabel="Done"
+            hideCancel
+            onCancel={() => setDeletedNotice(null)}
+            onConfirm={() => setDeletedNotice(null)}
+          />
+        ) : null}
+      </Suspense>
     </s-page>
   );
 }
@@ -411,16 +453,9 @@ function OverviewMetrics({
               <s-icon type="data-presentation" />
             </span>
           </div>
-          {impressionsReady ? (
-            <p className="edd-metric-card__value" key={impressions}>
-              {impressions.toLocaleString()}
-            </p>
-          ) : (
-            <div className="edd-metric-card__loading">
-              <s-spinner size="base" accessibilityLabel="Loading impressions" />
-              <span>Loading</span>
-            </div>
-          )}
+          <p className="edd-metric-card__value">
+            {impressionsReady ? impressions.toLocaleString() : "-"}
+          </p>
           <p className="edd-metric-card__help">Last 30 days</p>
         </article>
 
@@ -516,7 +551,7 @@ function GettingStartedCard() {
         <s-ordered-list>
           <s-list-item>Create a widget for product or cart pages</s-list-item>
           <s-list-item>Set locations, shipping time, and message style</s-list-item>
-          <s-list-item>Publish — and keep the app embed on</s-list-item>
+          <s-list-item>Publish - and keep the app embed on</s-list-item>
         </s-ordered-list>
       </s-box>
     </s-section>
@@ -525,9 +560,8 @@ function GettingStartedCard() {
 
 function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
   const shopify = useAppBridge();
-  const fetcher = useFetcher();
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
+  const [statusData, setStatusData] = useState(initialStatus);
+  const inFlight = useRef(false);
   const requestedScope = useRef(false);
   const openedEditor = useRef(false);
   const [refreshing, setRefreshing] = useState(!initialStatus);
@@ -562,6 +596,21 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
     return enabled;
   };
 
+  const loadStatus = (showRefreshing, { fresh = false } = {}) => {
+    if (inFlight.current) return;
+    if (showRefreshing) setRefreshing(true);
+    inFlight.current = true;
+    loadAdminJson(fresh ? "/app/embed-status?fresh=1" : "/app/embed-status")
+      .then((payload) => {
+        if (payload) setStatusData(payload);
+      })
+      .finally(() => {
+        inFlight.current = false;
+        setRefreshing(false);
+      });
+    void refreshBridge();
+  };
+
   const requestThemeAccess = async () => {
     try {
       const current = await shopify.scopes?.query?.();
@@ -574,23 +623,13 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
       // Continue and re-check with whatever access the session has.
     }
     requestedScope.current = true;
-    if (fetcherRef.current.state === "idle") {
-      setRefreshing(true);
-      fetcherRef.current.load("/app/embed-status?fresh=1");
-    }
+    loadStatus(true, { fresh: true });
     await refreshBridge();
-  };
-
-  const loadStatus = (showRefreshing, { fresh = false } = {}) => {
-    if (fetcherRef.current.state !== "idle") return;
-    if (showRefreshing) setRefreshing(true);
-    fetcherRef.current.load(fresh ? "/app/embed-status?fresh=1" : "/app/embed-status");
-    void refreshBridge();
   };
 
   useEffect(() => {
     void refreshBridge();
-    // Initial status comes from the page loader — only refetch in the background.
+    // Initial status comes from the page loader - only refetch in the background.
     if (!initialStatus) {
       loadStatus(true, { fresh: true });
     } else if (initialStatus.missingThemeAccess && !requestedScope.current) {
@@ -618,11 +657,7 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
     };
   }, [initialStatus]);
 
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data != null) setRefreshing(false);
-  }, [fetcher.state, fetcher.data]);
-
-  const data = fetcher.data || initialStatus;
+  const data = statusData || initialStatus;
   // Prefer App Bridge (published-theme activation). Fall back to settings_data parse.
   const enabled = bridgeEnabled != null ? bridgeEnabled : data?.appEmbedEnabled;
 
@@ -640,64 +675,6 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
   };
 }
 
-function formatRequestWhen(value) {
-  const date = value instanceof Date ? value : new Date(value || "");
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
-function requestStatusLabel(status) {
-  if (status === "ACCEPTED") return "Accepted";
-  if (status === "REJECTED") return "Rejected";
-  return "Pending";
-}
-
-const REQUESTS_PAGE_SIZE = 5;
-
-const REQUEST_TABLE_COLUMNS = [
-  { key: "widget", label: "Widget", listSlot: "primary" },
-  { key: "pincode", label: "Pincode", listSlot: "labeled" },
-  { key: "requested", label: "Requested", listSlot: "labeled" },
-  { key: "status", label: "Status", listSlot: "kicker" },
-];
-
-function requestStatusRank(status) {
-  if (status === "PENDING") return 0;
-  if (status === "ACCEPTED") return 1;
-  if (status === "REJECTED") return 2;
-  return 3;
-}
-
-function requestSortValue(item, key) {
-  switch (key) {
-    case "widget":
-      return String(item.widgetName || "").trim().toLowerCase() || "untitled widget";
-    case "pincode":
-      return String(item.pincode || "");
-    case "requested":
-      return new Date(item.createdAt || 0).getTime() || 0;
-    case "status":
-      return requestStatusRank(item.status);
-    default:
-      return "";
-  }
-}
-
-function compareRequestRows(a, b, sortKey, sortDir) {
-  const left = requestSortValue(a, sortKey);
-  const right = requestSortValue(b, sortKey);
-  let result = 0;
-  if (typeof left === "number" && typeof right === "number") {
-    result = left - right;
-  } else {
-    result = String(left).localeCompare(String(right), undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
-  }
-  return sortDir === "asc" ? result : -result;
-}
-
 function DeliveryRequestsList({
   requests = [],
   pendingCount = 0,
@@ -707,45 +684,10 @@ function DeliveryRequestsList({
   onRefresh,
 }) {
   const submit = useSubmit();
-  const [page, setPage] = useState(1);
-  const [sortKey, setSortKey] = useState(null);
-  const [sortDir, setSortDir] = useState("asc");
   const act = (item, intent) => {
     submit({ intent, requestId: item.id, widgetId: item.widgetId }, { method: "post" });
   };
-  const sorted = useMemo(() => {
-    const rows = [...requests];
-    if (!sortKey) {
-      return rows.sort((a, b) => {
-        const byStatus = requestStatusRank(a.status) - requestStatusRank(b.status);
-        if (byStatus) return byStatus;
-        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      });
-    }
-    return rows.sort((a, b) => compareRequestRows(a, b, sortKey, sortDir));
-  }, [requests, sortKey, sortDir]);
-
-  const totalPages = Math.max(1, Math.ceil(sorted.length / REQUESTS_PAGE_SIZE));
-  useEffect(() => {
-    setPage(1);
-  }, [requests.length, sortKey, sortDir]);
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
-  const pageRows = sorted.slice((page - 1) * REQUESTS_PAGE_SIZE, page * REQUESTS_PAGE_SIZE);
-  const pages = homePageList(totalPages, page);
-  const showPagination = totalPages > 1;
   const showInitialLoad = !ready && refreshing;
-
-  const toggleSort = (key) => {
-    if (sortKey === key) {
-      setSortDir((current) => (current === "asc" ? "desc" : "asc"));
-      return;
-    }
-    setSortKey(key);
-    setSortDir("asc");
-  };
 
   return (
     <s-section id="delivery-requests">
@@ -770,9 +712,9 @@ function DeliveryRequestsList({
         </ActionButton>
       </div>
 
-      <p className="edd-section-help">
+      {/* <p className="edd-section-help">
         When a shopper asks for delivery to a pincode you don’t cover yet, their request shows up here.
-      </p>
+      </p> */}
 
       {showInitialLoad ? (
         <s-box padding="base" background="subdued" borderRadius="base">
@@ -781,128 +723,14 @@ function DeliveryRequestsList({
             <s-text color="subdued">Loading requests…</s-text>
           </s-stack>
         </s-box>
-      ) : sorted.length ? (
-        <div className="edd-request-panel">
-          <s-table variant="auto" className="edd-request-table">
-            <s-table-header-row>
-              {REQUEST_TABLE_COLUMNS.map((column) => (
-                <HomeSortableHeader
-                  key={column.key}
-                  column={column}
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onSort={toggleSort}
-                />
-              ))}
-            </s-table-header-row>
-            <s-table-body>
-              {pageRows.map((item) => {
-                const pending = item.status === "PENDING";
-                const status = String(item.status || "PENDING").toLowerCase();
-                const when = formatRequestWhen(item.createdAt);
-                const widgetName = String(item.widgetName || "").trim() || "Untitled widget";
-                return (
-                  <s-table-row
-                    key={item.id}
-                    className={`edd-request-row edd-request-row--${status}`}
-                  >
-                    <s-table-cell>
-                      <span className="edd-request-card__widget" title={widgetName}>
-                        {widgetName}
-                      </span>
-                    </s-table-cell>
-                    <s-table-cell>
-                      <span className="edd-request-card__pin">{item.pincode}</span>
-                    </s-table-cell>
-                    <s-table-cell>
-                      {when ? (
-                        <span className="edd-request-card__when">
-                          <s-icon type="clock" />
-                          {when}
-                        </span>
-                      ) : (
-                        <span className="edd-request-muted">—</span>
-                      )}
-                    </s-table-cell>
-                    <s-table-cell className="edd-table-actions-cell">
-                      <div className="edd-request-status-cell">
-                        {pending ? (
-                          <div className="edd-table-actions edd-request-actions">
-                            <button
-                              type="button"
-                              className="edd-btn edd-btn--primary"
-                              disabled={saving}
-                              onClick={() => act(item, "accept-delivery-request")}
-                            >
-                              Accept
-                            </button>
-                            <button
-                              type="button"
-                              className="edd-btn"
-                              disabled={saving}
-                              onClick={() => act(item, "reject-delivery-request")}
-                            >
-                              Decline
-                            </button>
-                          </div>
-                        ) : (
-                          <span className={`edd-request-status edd-request-status--${status}`}>
-                            <s-icon
-                              type={status === "accepted" ? "check-circle" : "x-circle"}
-                            />
-                            {requestStatusLabel(item.status)}
-                          </span>
-                        )}
-                      </div>
-                    </s-table-cell>
-                  </s-table-row>
-                );
-              })}
-            </s-table-body>
-          </s-table>
-
-          {showPagination ? (
-            <nav className="edd-table-pagination" aria-label="Delivery requests pagination">
-              <button
-                type="button"
-                className="edd-btn edd-table-pagination__nav"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-              >
-                Previous
-              </button>
-              <div className="edd-table-pagination__pages">
-                {pages.map((pageNumber, index) => {
-                  const previous = pages[index - 1];
-                  const gap = previous != null && pageNumber - previous > 1;
-                  return (
-                    <span key={pageNumber} className="edd-table-pagination__page-wrap">
-                      {gap ? <span className="edd-table-pagination__ellipsis">…</span> : null}
-                      <button
-                        type="button"
-                        className={`edd-table-pagination__page${
-                          pageNumber === page ? " edd-table-pagination__page--active" : ""
-                        }`}
-                        aria-current={pageNumber === page ? "page" : undefined}
-                        onClick={() => setPage(pageNumber)}
-                      >
-                        {pageNumber}
-                      </button>
-                    </span>
-                  );
-                })}
-              </div>
-              <button
-                type="button"
-                className="edd-btn edd-table-pagination__nav"
-                disabled={page >= totalPages}
-                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              >
-                Next
-              </button>
-            </nav>
-          ) : null}
-        </div>
+      ) : requests.length ? (
+        <DeliveryRequestsTable
+          items={requests}
+          nameKey="widget"
+          busy={saving}
+          onAccept={(item) => act(item, "accept-delivery-request")}
+          onDecline={(item) => act(item, "reject-delivery-request")}
+        />
       ) : (
         <div className="edd-request-empty">
           <s-empty-state heading="No delivery requests yet">
@@ -919,10 +747,28 @@ function DeliveryRequestsList({
 function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, hideCreate = false }) {
   const canCreate = !(hideCreate || location === WIDGET_LOCATIONS.CHECKOUT);
   const sectionIcon = location === WIDGET_LOCATIONS.CART ? "cart" : "product";
+  const listRef = useRef(null);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const root = listRef.current;
+    if (!root) return undefined;
+    const handle = (event) => {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+      const field = path.find((item) => item?.classList?.contains?.("edd-widget-table__search-input"));
+      if (!field) return;
+      setQuery(String(field.value ?? ""));
+    };
+    root.addEventListener("input", handle, true);
+    root.addEventListener("search", handle, true);
+    return () => {
+      root.removeEventListener("input", handle, true);
+      root.removeEventListener("search", handle, true);
+    };
+  }, []);
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -933,16 +779,13 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
     });
 
     const filtered = needle
-      ? mapped.filter(({ widget, applyTo, statusText }) => {
-          const haystack = [widget.name, locationLabel(widget.location), applyTo, statusText]
-            .join(" ")
-            .toLowerCase();
-          return haystack.includes(needle);
-        })
+      ? mapped.filter((row) => homeWidgetMatchesQuery(row, needle))
       : mapped;
 
     if (!sortKey) return filtered;
-    return [...filtered].sort((a, b) => compareHomeRows(a, b, sortKey, sortDir));
+    return [...filtered].sort((a, b) =>
+      compareValues(homeSortValue(a, sortKey), homeSortValue(b, sortKey), sortDir),
+    );
   }, [widgets, query, sortKey, sortDir, now]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / HOME_TABLE_PAGE_SIZE));
@@ -956,7 +799,6 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
   }, [page, totalPages]);
 
   const pageRows = rows.slice((page - 1) * HOME_TABLE_PAGE_SIZE, page * HOME_TABLE_PAGE_SIZE);
-  const pages = homePageList(totalPages, page);
   const showPagination = totalPages > 1;
 
   const toggleSort = (key) => {
@@ -969,6 +811,7 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
   };
 
   return (
+    <div ref={listRef}>
     <s-section>
       <div className="edd-section-toolbar">
         <s-stack direction="inline" gap="small-200" alignItems="center">
@@ -997,12 +840,11 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
           <div className="edd-widget-table__filters">
             <label className="edd-widget-table__search">
               <span className="edd-widget-table__search-label">Search</span>
-              <input
-                type="search"
+              <HostSearchInput
                 className="edd-widget-table__search-input"
                 value={query}
                 placeholder="Search by name, apply to, or status"
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={setQuery}
               />
             </label>
           </div>
@@ -1010,7 +852,7 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
           <s-table variant="auto" className="edd-home-widget-table">
             <s-table-header-row>
               {HOME_TABLE_COLUMNS.map((column) => (
-                <HomeSortableHeader
+                <SortableHeader
                   key={column.key}
                   column={column}
                   sortKey={sortKey}
@@ -1088,55 +930,22 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
                   <s-table-cell>
                     {query.trim() ? "No widgets match your search." : `No ${heading.toLowerCase()} widgets.`}
                   </s-table-cell>
-                  <s-table-cell>—</s-table-cell>
-                  <s-table-cell>—</s-table-cell>
-                  <s-table-cell>—</s-table-cell>
-                  <s-table-cell>—</s-table-cell>
+                  <s-table-cell>-</s-table-cell>
+                  <s-table-cell>-</s-table-cell>
+                  <s-table-cell>-</s-table-cell>
+                  <s-table-cell>-</s-table-cell>
                 </s-table-row>
               )}
             </s-table-body>
           </s-table>
 
           {showPagination ? (
-            <nav className="edd-table-pagination" aria-label={`${heading} pagination`}>
-              <button
-                type="button"
-                className="edd-btn edd-table-pagination__nav"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-              >
-                Previous
-              </button>
-              <div className="edd-table-pagination__pages">
-                {pages.map((pageNumber, index) => {
-                  const previous = pages[index - 1];
-                  const gap = previous != null && pageNumber - previous > 1;
-                  return (
-                    <span key={pageNumber} className="edd-table-pagination__page-wrap">
-                      {gap ? <span className="edd-table-pagination__ellipsis">…</span> : null}
-                      <button
-                        type="button"
-                        className={`edd-table-pagination__page${
-                          pageNumber === page ? " edd-table-pagination__page--active" : ""
-                        }`}
-                        aria-current={pageNumber === page ? "page" : undefined}
-                        onClick={() => setPage(pageNumber)}
-                      >
-                        {pageNumber}
-                      </button>
-                    </span>
-                  );
-                })}
-              </div>
-              <button
-                type="button"
-                className="edd-btn edd-table-pagination__nav"
-                disabled={page >= totalPages}
-                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              >
-                Next
-              </button>
-            </nav>
+            <TablePagination
+              page={page}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              label={`${heading} pagination`}
+            />
           ) : null}
         </div>
       ) : (
@@ -1159,6 +968,7 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
         </s-box>
       )}
     </s-section>
+    </div>
   );
 }
 
@@ -1171,6 +981,35 @@ const HOME_TABLE_COLUMNS = [
   { key: "status", label: "Status", listSlot: "labeled" },
   { key: "actions", label: "Actions", listSlot: "kicker", format: "numeric", sortable: false },
 ];
+
+function escapeSearch(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function startsAtWord(text, needle) {
+  const value = String(text || "").toLowerCase();
+  if (!value || !needle) return false;
+  return new RegExp(`(?:^|[^a-z0-9])${escapeSearch(needle)}`).test(value);
+}
+
+function statusSearchTerms(widget, statusText) {
+  const status = String(widget.status || "").toUpperCase();
+  const terms = [String(statusText || ""), status];
+  if (status === WIDGET_STATUSES.ACTIVE) terms.push("live", "published", "active");
+  if (status === WIDGET_STATUSES.DRAFT) terms.push("draft", "unpublished", "not published");
+  if (status === WIDGET_STATUSES.SCHEDULED) terms.push("scheduled", "going live");
+  if (status === WIDGET_STATUSES.INACTIVE) terms.push("inactive", "unpublished");
+  return terms.map((item) => String(item || "").toLowerCase()).filter(Boolean);
+}
+
+function homeWidgetMatchesQuery(row, needle) {
+  if (statusSearchTerms(row.widget, row.statusText).some((term) => term === needle || term.startsWith(needle) || startsAtWord(term, needle))) {
+    return true;
+  }
+  return [row.widget.name, locationLabel(row.widget.location), row.applyTo].some((field) =>
+    startsAtWord(field, needle),
+  );
+}
 
 function homeWidgetStatusLabel(widget, now) {
   const published = widget.status === WIDGET_STATUSES.ACTIVE;
@@ -1205,56 +1044,6 @@ function homeSortValue(row, key) {
     default:
       return "";
   }
-}
-
-function compareHomeRows(a, b, sortKey, sortDir) {
-  const left = homeSortValue(a, sortKey);
-  const right = homeSortValue(b, sortKey);
-  const result = String(left).localeCompare(String(right), undefined, {
-    numeric: true,
-    sensitivity: "base",
-  });
-  return sortDir === "asc" ? result : -result;
-}
-
-function homePageList(totalPages, currentPage) {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
-  }
-  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
-  return [...pages].filter((page) => page >= 1 && page <= totalPages).sort((a, b) => a - b);
-}
-
-function HomeSortableHeader({ column, sortKey, sortDir, onSort }) {
-  if (column.sortable === false) {
-    return (
-      <s-table-header listSlot={column.listSlot} {...(column.format ? { format: column.format } : {})}>
-        {column.label}
-      </s-table-header>
-    );
-  }
-
-  const active = sortKey === column.key;
-  const ariaSort = active ? (sortDir === "asc" ? "ascending" : "descending") : "none";
-  return (
-    <s-table-header
-      listSlot={column.listSlot}
-      {...(column.format ? { format: column.format } : {})}
-      aria-sort={ariaSort}
-    >
-      <button
-        type="button"
-        className={`edd-table-sort${active ? " edd-table-sort--active" : ""}`}
-        onClick={() => onSort(column.key)}
-        aria-label={`Sort by ${column.label}${active ? `, ${sortDir === "asc" ? "ascending" : "descending"}` : ""}`}
-      >
-        <span>{column.label}</span>
-        <span className="edd-table-sort__icon" aria-hidden="true">
-          {active ? (sortDir === "asc" ? "↑" : "↓") : "↕"}
-        </span>
-      </button>
-    </s-table-header>
-  );
 }
 
 function WidgetActions({ widget, published, scheduled, onRequestDelete }) {

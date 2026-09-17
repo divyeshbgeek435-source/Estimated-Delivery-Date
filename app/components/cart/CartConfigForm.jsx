@@ -9,7 +9,7 @@ import { HostChoiceList } from "../common/ActionButton";
 
 export function ShippingSummary({ shipping, widgetId }) {
   const holidays = (shipping.blockedDates || [])
-    .map((item) => `${formatDisplayDate(item.date, "MMMM d")} — ${item.name}`)
+    .map((item) => `${formatDisplayDate(item.date, "MMMM d")} - ${item.name}`)
     .join(", ");
 
   return (
@@ -36,6 +36,7 @@ export function ShippingSummary({ shipping, widgetId }) {
 export function CartConfigForm({ cart, onChange }) {
   return (
     <s-section heading="Cart delivery display">
+      <s-paragraph color="subdued">Choose how delivery dates appear in the cart.</s-paragraph>
       <input type="hidden" name="displayMode" value={cart.displayMode} />
         <HostChoiceList
         label="Display mode"
@@ -63,8 +64,8 @@ export function CartConfigForm({ cart, onChange }) {
       <s-box padding="base" background="subdued" borderRadius="base">
         {cart.displayMode === CART_DISPLAY_MODES.PER_PRODUCT ? (
           <s-stack gap="small-200">
-            <s-text>Product A — Delivery: Aug 25</s-text>
-            <s-text>Product B — Delivery: Aug 27</s-text>
+            <s-text>Product A - Delivery: Aug 25</s-text>
+            <s-text>Product B - Delivery: Aug 27</s-text>
           </s-stack>
         ) : (
           <s-text>Estimated delivery: Aug 27</s-text>

@@ -37,7 +37,7 @@ if (host === "localhost") {
 
 export default defineConfig({
   server: {
-    allowedHosts: [host],
+    allowedHosts: [host, ".trycloudflare.com"],
     cors: {
       preflightContinue: true,
     },
@@ -49,10 +49,23 @@ export default defineConfig({
     },
   },
   plugins: [reactRouter(), tsconfigPaths()],
+  resolve: {
+    dedupe: ["react", "react-dom"],
+  },
   build: {
     assetsInlineLimit: 0,
+    target: "es2022",
+    cssMinify: true,
+    modulePreload: { polyfill: false },
   },
   optimizeDeps: {
-    include: ["@shopify/app-bridge-react"],
+    include: [
+      "react",
+      "react-dom",
+      "react/jsx-runtime",
+      "react/jsx-dev-runtime",
+      "react-router",
+      "@shopify/app-bridge-react",
+    ],
   },
 });

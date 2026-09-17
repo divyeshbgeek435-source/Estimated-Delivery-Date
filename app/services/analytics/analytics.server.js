@@ -93,7 +93,7 @@ function emptyMetrics() {
   };
 }
 
-/** Fast path for the home metric tile — impressions only, index-friendly count. */
+/** Fast path for the home metric tile - impressions only, index-friendly count. */
 export async function getMerchantHomeTotals(merchantId, options = {}) {
   const cacheKey = `home:${merchantId}`;
   if (!options.fresh) {

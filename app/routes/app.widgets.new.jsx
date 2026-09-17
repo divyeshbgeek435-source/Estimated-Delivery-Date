@@ -1,4 +1,4 @@
-import { redirect, useActionData, useNavigate, useNavigation } from "react-router";
+import { redirect, useActionData, useNavigate } from "react-router";
 import { requireAdmin } from "../lib/auth.server";
 import { createDraftWidget } from "../services/widgets/widget.server";
 import { shopTimezoneForMerchant } from "../services/shopify/merchant.server";
@@ -52,7 +52,6 @@ export const action = async ({ request }) => {
 
 export default function NewWidget() {
   const actionData = useActionData();
-  const navigation = useNavigation();
   const navigate = useNavigate();
 
   return (
@@ -60,9 +59,6 @@ export default function NewWidget() {
       <ActionButton slot="breadcrumb-actions" variant="tertiary" onClick={() => navigate("/app")}>
         Home
       </ActionButton>
-      {navigation.state !== "idle" ? (
-        <s-banner tone="info">Creating widget…</s-banner>
-      ) : null}
       <ErrorBanner errors={actionData?.errors} />
       <p className="edd-back">
         <button type="button" className="edd-widget-name" onClick={() => navigate("/app")}>

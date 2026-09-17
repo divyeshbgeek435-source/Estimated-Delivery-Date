@@ -78,6 +78,15 @@ run("search finds IANA zones and never returns the typed query", () => {
   assert(!fromS.includes("s"), "search must not treat s as a timezone id");
 });
 
+run("unmatched search does not keep the selected timezone", () => {
+  const matches = searchTimeZones("test", { selected: "Asia/Kolkata" });
+  assert(!matches.includes("Asia/Kolkata"), "unrelated selected zone should not appear");
+  assert(
+    matches.every((zone) => zone.toLowerCase().includes("test") || zone.replace(/_/g, " ").toLowerCase().includes("test")),
+    "returned zones must match the query",
+  );
+});
+
 run("typing s does not crash date math", () => {
   const now = new Date("2026-09-02T16:30:00.000Z");
   let formatted = "";

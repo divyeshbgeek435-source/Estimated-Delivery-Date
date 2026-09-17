@@ -20,7 +20,7 @@ export default function App() {
       <div className={styles.content}>
         <h1 className={styles.heading}>Estimated Delivery Date</h1>
         <p className={styles.text}>
-          Show customers when their order will arrive — on product and cart pages.
+          Show customers when their order will arrive - on product and cart pages.
         </p>
         {showForm && (
           <Form className={styles.form} method="post" action="/auth/login">
@@ -39,7 +39,7 @@ export default function App() {
             <strong>Accurate dates.</strong> Business days, cutoffs, and holidays drive a shared delivery calculator.
           </li>
           <li>
-            <strong>Theme editor ready.</strong> Merchants add the widget with a Theme App Extension — no theme code editing.
+            <strong>Theme editor ready.</strong> Merchants add the widget with a Theme App Extension - no theme code editing.
           </li>
         </ul>
       </div>

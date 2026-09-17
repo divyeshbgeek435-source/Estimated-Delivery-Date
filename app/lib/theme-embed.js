@@ -62,7 +62,7 @@ export function isOurAppEmbedType(type, identifiers = defaultEmbedIdentifiers())
 function isEnabledBlock(block) {
   if (!block || typeof block !== "object") return false;
   // Shopify sets disabled:false when On and disabled:true when Off.
-  // Only treat an explicit false as Active — avoids stale/orphan blocks without a clear flag.
+  // Only treat an explicit false as Active - avoids stale/orphan blocks without a clear flag.
   return block.disabled === false || String(block.disabled).toLowerCase() === "false";
 }
 

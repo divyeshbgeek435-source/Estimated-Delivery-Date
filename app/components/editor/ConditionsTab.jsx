@@ -5,6 +5,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { MARKET_SCOPES, ensureScopes } from "../../lib/app-scopes";
 import { WORKING_DAYS, WIDGET_LOCATIONS } from "../../lib/constants";
 import { joinCutoff, splitCutoff } from "../../lib/delivery-calculator";
+import { boundedIntFromEvent, intFieldValue, CUTOFF_LIMITS, SHIPPING_DAY_LIMITS, SHIPPING_DAY_MAX } from "../../lib/number-input";
 import { widgetProfile } from "../../lib/widget-profiles";
 import { ActionButton, HostChoiceList } from "../common/ActionButton";
 import { PincodeRulesEditor } from "./PincodeRulesEditor";
@@ -23,26 +24,16 @@ const DAY_SHORT = {
   SUNDAY: "S",
 };
 
-function parseDayInput(raw) {
-  const text = String(raw ?? "").trim();
-  if (text === "") return null;
-  const next = Number(text);
-  if (!Number.isFinite(next)) return null;
-  return Math.max(0, Math.floor(next));
+function onDayInput(event, key, bounds, onChange) {
+  const parsed = boundedIntFromEvent(event, bounds);
+  if (parsed == null) return;
+  onChange({ [key]: parsed });
 }
 
-/** Keep shortest/longest day pairs valid while typing (empty inputs are ignored). */
-function patchDayRange(shipping, edge, raw, minKey, maxKey) {
-  const parsed = parseDayInput(raw);
-  if (parsed == null) return null;
-  if (edge === "min") {
-    const currentMax = Number(shipping?.[maxKey]);
-    const max = Number.isFinite(currentMax) ? currentMax : parsed;
-    return { [minKey]: parsed, [maxKey]: Math.max(max, parsed) };
-  }
-  const currentMin = Number(shipping?.[minKey]);
-  const min = Number.isFinite(currentMin) ? currentMin : 0;
-  return { [maxKey]: Math.max(parsed, min) };
+function DaysLimitNote() {
+  return (
+    <s-paragraph color="subdued">Maximum allowed duration is {SHIPPING_DAY_MAX} days.</s-paragraph>
+  );
 }
 
 export function ConditionsTab({ widget, draft, onChange, errors = {}, deliveryRequests = [] }) {
@@ -77,24 +68,10 @@ export function ConditionsTab({ widget, draft, onChange, errors = {}, deliveryRe
       ...patch,
     }));
 
-  useEffect(() => {
-    const transitMin = Number(shipping.transitMinDays) || 0;
-    const transitMax = Number(shipping.transitMaxDays) || 0;
-    const processingMin = Number(shipping.processingMinDays) || 0;
-    const processingMax = Number(shipping.processingMaxDays) || 0;
-    const patch = {};
-    if (transitMax < transitMin) patch.transitMaxDays = transitMin;
-    if (processingMax < processingMin) patch.processingMaxDays = processingMin;
-    if (!Object.keys(patch).length) return;
-    setShipping(patch);
-    // Only repair invalid pairs when opening this widget — not on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [widget.id]);
-
   return (
-    <s-stack gap="base">
+    <s-stack gap="large">
       <s-section heading="Widget details">
-        <s-paragraph color="subdued">Name this widget for your admin. Customers never see this title.</s-paragraph>
+        {/* <s-paragraph color="subdued">Name this widget for your admin. Customers never see this title.</s-paragraph> */}
         <s-text-field
           label="Title"
           name="name"
@@ -197,11 +174,11 @@ function HiddenShipping({ shipping, timezone }) {
   return (
     <>
       <input type="hidden" name="timezone" value={resolveTimeZone(timezone)} />
-      <input type="hidden" name="processingMinDays" value={String(shipping.processingMinDays)} />
-      <input type="hidden" name="processingMaxDays" value={String(shipping.processingMaxDays)} />
+      <input type="hidden" name="processingMinDays" value={intFieldValue(shipping.processingMinDays, SHIPPING_DAY_LIMITS.processingMin, 0)} />
+      <input type="hidden" name="processingMaxDays" value={intFieldValue(shipping.processingMaxDays, SHIPPING_DAY_LIMITS.processingMax, 1)} />
       <input type="hidden" name="cutoffTime" value={shipping.cutoffTime} />
-      <input type="hidden" name="transitMinDays" value={String(shipping.transitMinDays)} />
-      <input type="hidden" name="transitMaxDays" value={String(shipping.transitMaxDays)} />
+      <input type="hidden" name="transitMinDays" value={intFieldValue(shipping.transitMinDays, SHIPPING_DAY_LIMITS.transitMin, 1)} />
+      <input type="hidden" name="transitMaxDays" value={intFieldValue(shipping.transitMaxDays, SHIPPING_DAY_LIMITS.transitMax, 2)} />
       <input type="hidden" name="blockedDates" value={JSON.stringify(shipping.blockedDates || [])} />
       <input type="hidden" name="transitBlockedDates" value={JSON.stringify(shipping.transitBlockedDates || [])} />
       <input type="hidden" name="pincodeRules" value={JSON.stringify(shipping.pincodeRules || {})} />
@@ -219,49 +196,38 @@ function HiddenShipping({ shipping, timezone }) {
 function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone }) {
   return (
     <s-section heading="Order processing">
-      <s-paragraph color="subdued">
+      {/* <s-paragraph color="subdued">
         Set how long you need to prepare an order, when the daily cutoff is, and which days you work.
-      </s-paragraph>
+      </s-paragraph> */}
       <s-grid gridTemplateColumns="1fr 1fr" gap="base">
         <s-number-field
           label="Shortest processing"
           name="processingMinDays"
-          value={String(shipping.processingMinDays)}
-          min={0}
-          max={30}
+          value={intFieldValue(shipping.processingMinDays, SHIPPING_DAY_LIMITS.processingMin, 0)}
+          min={SHIPPING_DAY_LIMITS.processingMin.min}
+          max={SHIPPING_DAY_LIMITS.processingMin.max}
+          step={1}
           suffix="Days"
           error={errors.processingMinDays}
-          onInput={(event) => {
-            const patch = patchDayRange(
-              shipping,
-              "min",
-              event.currentTarget.value,
-              "processingMinDays",
-              "processingMaxDays",
-            );
-            if (patch) onChange(patch);
-          }}
+          onInput={(event) =>
+            onDayInput(event, "processingMinDays", SHIPPING_DAY_LIMITS.processingMin, onChange)
+          }
         ></s-number-field>
         <s-number-field
           label="Longest processing"
           name="processingMaxDays"
-          value={String(shipping.processingMaxDays)}
-          min={0}
-          max={60}
+          value={intFieldValue(shipping.processingMaxDays, SHIPPING_DAY_LIMITS.processingMax, 1)}
+          min={SHIPPING_DAY_LIMITS.processingMax.min}
+          max={SHIPPING_DAY_LIMITS.processingMax.max}
+          step={1}
           suffix="Days"
           error={errors.processingMaxDays}
-          onInput={(event) => {
-            const patch = patchDayRange(
-              shipping,
-              "max",
-              event.currentTarget.value,
-              "processingMinDays",
-              "processingMaxDays",
-            );
-            if (patch) onChange(patch);
-          }}
+          onInput={(event) =>
+            onDayInput(event, "processingMaxDays", SHIPPING_DAY_LIMITS.processingMax, onChange)
+          }
         ></s-number-field>
       </s-grid>
+      <DaysLimitNote />
       <CutoffFields
         value={shipping.cutoffTime}
         error={errors.cutoffTime}
@@ -290,49 +256,38 @@ function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone })
 function TransitSection({ shipping, errors, onChange }) {
   return (
     <s-section heading="Order transit">
-      <s-paragraph color="subdued">
+      {/* <s-paragraph color="subdued">
         Shipping time after the order leaves your facility until it reaches the customer.
-      </s-paragraph>
+      </s-paragraph> */}
       <s-grid gridTemplateColumns="1fr 1fr" gap="base">
         <s-number-field
           label="Shortest transit"
           name="transitMinDays"
-          value={String(shipping.transitMinDays ?? 1)}
-          min={0}
-          max={30}
+          value={intFieldValue(shipping.transitMinDays, SHIPPING_DAY_LIMITS.transitMin, 1)}
+          min={SHIPPING_DAY_LIMITS.transitMin.min}
+          max={SHIPPING_DAY_LIMITS.transitMin.max}
+          step={1}
           suffix="Days"
           error={errors.transitMinDays}
-          onInput={(event) => {
-            const patch = patchDayRange(
-              shipping,
-              "min",
-              event.currentTarget.value,
-              "transitMinDays",
-              "transitMaxDays",
-            );
-            if (patch) onChange(patch);
-          }}
+          onInput={(event) =>
+            onDayInput(event, "transitMinDays", SHIPPING_DAY_LIMITS.transitMin, onChange)
+          }
         ></s-number-field>
         <s-number-field
           label="Longest transit"
           name="transitMaxDays"
-          value={String(shipping.transitMaxDays ?? 2)}
-          min={0}
-          max={60}
+          value={intFieldValue(shipping.transitMaxDays, SHIPPING_DAY_LIMITS.transitMax, 2)}
+          min={SHIPPING_DAY_LIMITS.transitMax.min}
+          max={SHIPPING_DAY_LIMITS.transitMax.max}
+          step={1}
           suffix="Days"
           error={errors.transitMaxDays}
-          onInput={(event) => {
-            const patch = patchDayRange(
-              shipping,
-              "max",
-              event.currentTarget.value,
-              "transitMinDays",
-              "transitMaxDays",
-            );
-            if (patch) onChange(patch);
-          }}
+          onInput={(event) =>
+            onDayInput(event, "transitMaxDays", SHIPPING_DAY_LIMITS.transitMax, onChange)
+          }
         ></s-number-field>
       </s-grid>
+      <DaysLimitNote />
       <DayPills
         label="Transit days"
         help="Days carriers move the package"
@@ -357,23 +312,34 @@ function CutoffFields({ value, error, onChange }) {
   return (
     <s-stack gap="small-200">
       <s-text type="strong">Processing cutoff time</s-text>
+      <s-paragraph color="subdued">Orders placed after this time start processing on the next working day.</s-paragraph>
       <input type="hidden" name="cutoffTime" value={value} />
       <div className="edd-cutoff">
         <s-number-field
           label="Hour"
           labelAccessibilityVisibility="exclusive"
-          min={1}
-          max={12}
+          min={CUTOFF_LIMITS.hours.min}
+          max={CUTOFF_LIMITS.hours.max}
+          step={1}
           value={String(parts.hours)}
-          onInput={(event) => onChange(joinCutoff(event.currentTarget.value, parts.minutes, parts.meridiem))}
+          onInput={(event) => {
+            const hours = boundedIntFromEvent(event, CUTOFF_LIMITS.hours, parts.hours);
+            if (hours == null) return;
+            onChange(joinCutoff(hours, parts.minutes, parts.meridiem));
+          }}
         ></s-number-field>
         <s-number-field
           label="Minute"
           labelAccessibilityVisibility="exclusive"
-          min={0}
-          max={59}
+          min={CUTOFF_LIMITS.minutes.min}
+          max={CUTOFF_LIMITS.minutes.max}
+          step={1}
           value={String(parts.minutes)}
-          onInput={(event) => onChange(joinCutoff(parts.hours, event.currentTarget.value, parts.meridiem))}
+          onInput={(event) => {
+            const minutes = boundedIntFromEvent(event, CUTOFF_LIMITS.minutes, parts.minutes);
+            if (minutes == null) return;
+            onChange(joinCutoff(parts.hours, minutes, parts.meridiem));
+          }}
         ></s-number-field>
         <s-select
           label="AM or PM"
@@ -385,44 +351,80 @@ function CutoffFields({ value, error, onChange }) {
           <s-option value="PM">PM</s-option>
         </s-select>
       </div>
-      <s-paragraph color="subdued">Orders placed after this time start processing on the next working day.</s-paragraph>
       {error ? <s-banner tone="critical">{error}</s-banner> : null}
     </s-stack>
   );
 }
 
+function setWorkingDay(days, day, selected) {
+  const current = Array.isArray(days) ? days.filter((item) => WORKING_DAYS.includes(item)) : [];
+  const nextDays = selected ? [...current, day] : current.filter((item) => item !== day);
+  return WORKING_DAYS.filter((item) => nextDays.includes(item));
+}
+
 function DayPills({ label, help, namePrefix, days, error, onChange }) {
+  const selectedDays = Array.isArray(days) ? days.filter((item) => WORKING_DAYS.includes(item)) : [];
+  const listRef = useRef(null);
+  const daysRef = useRef(selectedDays);
+  const onChangeRef = useRef(onChange);
+  daysRef.current = selectedDays;
+  onChangeRef.current = onChange;
+
+  useEffect(() => {
+    const node = listRef.current;
+    if (!node) return undefined;
+    const handleClick = (event) => {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      const fromTarget =
+        event.target?.nodeType === Node.TEXT_NODE ? event.target.parentElement : event.target;
+      const button =
+        path.find((item) => item?.hasAttribute?.("data-day")) || fromTarget?.closest?.("[data-day]");
+      if (!button || !node.contains(button)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      const day = button.getAttribute("data-day");
+      if (!WORKING_DAYS.includes(day)) return;
+      const current = daysRef.current;
+      onChangeRef.current(setWorkingDay(current, day, !current.includes(day)));
+    };
+    node.addEventListener("click", handleClick, true);
+    return () => node.removeEventListener("click", handleClick, true);
+  }, []);
+
   return (
-    <s-stack gap="small-200">
-      <s-text type="strong">{label}</s-text>
-      {help ? <s-paragraph color="subdued">{help}</s-paragraph> : null}
-      <div className="edd-days">
-        {WORKING_DAYS.map((day) => {
-          const selected = days?.includes(day);
-          return (
-            <button
-              key={`${namePrefix}${day}`}
-              type="button"
-              className="edd-day"
-              aria-pressed={selected}
-              onClick={() => {
-                const next = selected
-                  ? (days || []).filter((item) => item !== day)
-                  : [...new Set([...(days || []), day])];
-                onChange(next);
-              }}
-            >
-              {DAY_SHORT[day]}
-            </button>
-          );
-        })}
-      </div>
-      {(days || []).map((day) => (
+    <div className="edd-subsection">
+      <s-stack gap="small-200">
+        <s-text type="strong">{label}</s-text>
+        {help ? <s-paragraph color="subdued">{help}</s-paragraph> : null}
+        <div ref={listRef} className="edd-days" role="group" aria-label={label}>
+          {WORKING_DAYS.map((day) => {
+            const selected = selectedDays.includes(day);
+            return (
+              <button
+                key={`${namePrefix}${day}`}
+                type="button"
+                data-day={day}
+                className={selected ? "edd-day is-selected" : "edd-day"}
+                aria-pressed={selected}
+                aria-label={day.charAt(0) + day.slice(1).toLowerCase()}
+              >
+                {DAY_SHORT[day]}
+              </button>
+            );
+          })}
+        </div>
+        {error ? <s-banner tone="critical">{error}</s-banner> : null}
+      </s-stack>
+      {selectedDays.map((day) => (
         <input key={`${namePrefix}${day}-hidden`} type="hidden" name={`${namePrefix}${day}`} value="on" />
       ))}
-      {error ? <s-banner tone="critical">{error}</s-banner> : null}
-    </s-stack>
+    </div>
   );
+}
+
+function localIsoDate(date = new Date()) {
+  return format(date, "yyyy-MM-dd");
 }
 
 function formatBlockedLabel(item) {
@@ -441,13 +443,28 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
   const [end, setEnd] = useState("");
   const [name, setName] = useState("");
   const [recurring, setRecurring] = useState(true);
+  const minDate = localIsoDate();
+  const endMin = start && start > minDate ? start : minDate;
+
+  const chooseStart = (value) => {
+    const next = String(value || "");
+    if (next && next < minDate) return;
+    setStart(next);
+    if (end && next && end < next) setEnd("");
+  };
+
+  const chooseEnd = (value) => {
+    const next = String(value || "");
+    if (next && next < endMin) return;
+    setEnd(next);
+  };
 
   return (
-    <s-stack gap="small-300">
-      <s-text type="strong">{label}</s-text>
-      {help ? <s-paragraph color="subdued">{help}</s-paragraph> : null}
-      <input type="hidden" name={hiddenName} value={JSON.stringify(dates)} />
-      {dates.length ? (
+    <div className="edd-subsection">
+      <s-stack gap="small-200">
+        <s-text type="strong">{label}</s-text>
+        {help ? <s-paragraph color="subdued">{help}</s-paragraph> : null}
+        {dates.length ? (
         <div className="edd-chip-row">
           {dates.map((item) => (
             <div key={`${item.date}-${item.endDate || ""}-${item.name}`} className="edd-chip">
@@ -469,17 +486,28 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
       )}
       {open ? (
         <s-box padding="base" background="subdued" borderRadius="base">
-          <s-stack gap="small-300">
+          <s-stack gap="small-200">
             <div className="edd-date-pair">
               <label className="edd-date-field">
                 <span>Start date</span>
-                <input type="date" value={start} onChange={(event) => setStart(event.currentTarget.value)} />
+                <input
+                  type="date"
+                  value={start}
+                  min={minDate}
+                  onChange={(event) => chooseStart(event.currentTarget.value)}
+                />
               </label>
               <label className="edd-date-field">
                 <span>End date</span>
-                <input type="date" value={end} onChange={(event) => setEnd(event.currentTarget.value)} />
+                <input
+                  type="date"
+                  value={end}
+                  min={endMin}
+                  onChange={(event) => chooseEnd(event.currentTarget.value)}
+                />
               </label>
             </div>
+            <s-paragraph color="subdued">Today and future dates only. End date is optional.</s-paragraph>
             <s-text-field
               label="Name"
               value={name}
@@ -495,9 +523,10 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
               <ActionButton
                 type="button"
                 variant="primary"
-                disabled={!start || !name.trim()}
+                disabled={!start || start < minDate || !name.trim()}
                 onClick={() => {
-                  if (!start || !name.trim()) return;
+                  if (!start || start < minDate || !name.trim()) return;
+                  if (end && end < start) return;
                   onChange([
                     ...dates,
                     {
@@ -530,7 +559,9 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
           Add blocked date
         </ActionButton>
       )}
-    </s-stack>
+      </s-stack>
+      <input type="hidden" name={hiddenName} value={JSON.stringify(dates)} />
+    </div>
   );
 }
 
@@ -539,37 +570,40 @@ function MarketsSection({ draft, onChange, errors }) {
     <s-section heading="Markets">
       <s-paragraph color="subdued">Choose where this widget is visible.</s-paragraph>
       <input type="hidden" name="marketMode" value={draft.marketMode || "ALL"} />
-      <HostChoiceList
-        label="Markets"
-        name="marketModeField"
-        onChange={(event) => {
-          const target = event?.currentTarget || event?.target;
-          const marketMode = target?.values?.[0] || target?.value || "ALL";
-          onChange((current) => ({
-            ...(current || {}),
-            marketMode,
-          }));
-        }}
-      >
-        <s-choice value="ALL" selected={(draft.marketMode || "ALL") === "ALL"}>
-          All markets
-        </s-choice>
-        <s-choice value="SPECIFIC" selected={draft.marketMode === "SPECIFIC"}>
-          Specific market
-        </s-choice>
-      </HostChoiceList>
-      {draft.marketMode === "SPECIFIC" ? (
-        <MarketPicker
-          selected={draft.markets || []}
-          onSelected={(markets) =>
+      <div className="edd-markets">
+        <HostChoiceList
+          label="Market visibility"
+          name="marketModeField"
+          labelAccessibilityVisibility="exclusive"
+          onChange={(event) => {
+            const target = event?.currentTarget || event?.target;
+            const marketMode = target?.values?.[0] || target?.value || "ALL";
             onChange((current) => ({
               ...(current || {}),
-              markets,
-              marketIds: markets.map((item) => item.id),
-            }))
-          }
-        />
-      ) : null}
+              marketMode,
+            }));
+          }}
+        >
+          <s-choice value="ALL" selected={(draft.marketMode || "ALL") === "ALL"}>
+            All markets
+          </s-choice>
+          <s-choice value="SPECIFIC" selected={draft.marketMode === "SPECIFIC"}>
+            Specific market
+          </s-choice>
+        </HostChoiceList>
+        {draft.marketMode === "SPECIFIC" ? (
+          <MarketPicker
+            selected={draft.markets || []}
+            onSelected={(markets) =>
+              onChange((current) => ({
+                ...(current || {}),
+                markets,
+                marketIds: markets.map((item) => item.id),
+              }))
+            }
+          />
+        ) : null}
+      </div>
       <input type="hidden" name="marketIds" value={JSON.stringify(draft.marketIds || [])} />
       <input type="hidden" name="markets" value={JSON.stringify(draft.markets || [])} />
       {errors.marketIds ? <s-banner tone="critical">{errors.marketIds}</s-banner> : null}
@@ -629,20 +663,63 @@ function MarketPicker({ selected, onSelected }) {
 
   const results = fetcher.data?.nodes || [];
   const selectedIds = useMemo(() => new Set(selected.map((item) => item.id)), [selected]);
+  const searching = query.trim().length > 0;
+  const rows = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const matches = needle
+      ? results.filter(
+          (item) =>
+            item.title.toLowerCase().includes(needle) ||
+            String(item.handle || "").toLowerCase().includes(needle),
+        )
+      : results;
+    if (needle) return matches;
+    const byId = new Map(matches.map((item) => [item.id, item]));
+    const extras = selected.filter((item) => !byId.has(item.id));
+    return [...extras, ...matches];
+  }, [results, selected, query]);
+
+  const allVisibleSelected = rows.length > 0 && rows.every((item) => selectedIds.has(item.id));
+  const someVisibleSelected = rows.some((item) => selectedIds.has(item.id));
+  const allRef = useRef(null);
+
+  useEffect(() => {
+    if (!allRef.current) return;
+    allRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
+  }, [someVisibleSelected, allVisibleSelected, rows.length]);
+
+  const toggle = (item) => {
+    if (selectedIds.has(item.id)) {
+      onSelected(selected.filter((current) => current.id !== item.id));
+      return;
+    }
+    onSelected([...selected, item]);
+  };
+
+  const toggleAll = () => {
+    if (allVisibleSelected) {
+      const visibleIds = new Set(rows.map((item) => item.id));
+      onSelected(selected.filter((item) => !visibleIds.has(item.id)));
+      return;
+    }
+    const next = new Map(selected.map((item) => [item.id, item]));
+    rows.forEach((item) => next.set(item.id, item));
+    onSelected([...next.values()]);
+  };
+
+  const loading = !rows.length && (scopeState === "checking" || fetcher.state !== "idle");
+  const refreshing = fetcher.state !== "idle" && rows.length > 0;
 
   return (
-    <s-stack gap="base">
+    <div className="edd-market-picker">
       <s-search-field
-        label="Select markets"
+        label="Search markets"
         name="marketsQuery"
         value={query}
         placeholder="Search markets"
         labelAccessibilityVisibility="exclusive"
         onInput={(event) => setQuery(event.currentTarget.value)}
       ></s-search-field>
-      {fetcher.state === "loading" || scopeState === "checking" ? (
-        <s-spinner accessibilityLabel="Loading markets"></s-spinner>
-      ) : null}
       {scopeState === "denied" ? (
         <s-stack gap="small-200">
           <s-banner tone="warning">Allow market access to choose specific markets.</s-banner>
@@ -654,32 +731,75 @@ function MarketPicker({ selected, onSelected }) {
       {fetcher.data?.error && !fetcher.data?.needsScopes ? (
         <s-banner tone="warning">{fetcher.data.error}</s-banner>
       ) : null}
-      {results.map((item) => (
-        <div key={item.id} className="edd-selected-row">
-          <s-text>{item.title}</s-text>
-          <ActionButton
-            type="button"
-            variant={selectedIds.has(item.id) ? "secondary" : "primary"}
-            onClick={() =>
-              selectedIds.has(item.id)
-                ? onSelected(selected.filter((current) => current.id !== item.id))
-                : onSelected([...selected, item])
-            }
-          >
-            {selectedIds.has(item.id) ? "Remove" : "Select"}
-          </ActionButton>
+      {scopeState !== "denied" ? (
+        <div className="edd-market-list" role="group" aria-label="Markets" aria-busy={loading || refreshing}>
+          {rows.length > 0 && !loading ? (
+            <label
+              className={`edd-market-row edd-market-row--all${allVisibleSelected ? " is-selected" : ""}`}
+            >
+              <input
+                ref={allRef}
+                type="checkbox"
+                checked={allVisibleSelected}
+                aria-label={searching ? "Select all matching markets" : "Select all markets"}
+                onChange={toggleAll}
+              />
+              <span className="edd-market-row__name">All</span>
+              <span className="edd-market-row__meta">
+                {refreshing ? "Updating…" : selected.length ? `${selected.length} selected` : "None selected"}
+              </span>
+            </label>
+          ) : (
+            <div className="edd-market-list__toolbar">
+              <span>{searching ? "Search results" : "Available markets"}</span>
+              <span>{refreshing ? "Updating…" : "None selected"}</span>
+            </div>
+          )}
+          {loading ? (
+            <div className="edd-market-empty">
+              <s-spinner accessibilityLabel="Loading markets"></s-spinner>
+            </div>
+          ) : rows.length ? (
+            rows.map((item) => {
+              const checked = selectedIds.has(item.id);
+              return (
+                <label key={item.id} className={`edd-market-row${checked ? " is-selected" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(item)}
+                  />
+                  <span className="edd-market-row__name">{item.title}</span>
+                </label>
+              );
+            })
+          ) : (
+            <div className="edd-market-empty">
+              {searching ? `No markets match “${query.trim()}”.` : "No markets available."}
+            </div>
+          )}
         </div>
-      ))}
+      ) : null}
       {selected.length ? (
-        <s-stack gap="small-200">
-          <s-text type="strong">Selected markets</s-text>
-          {selected.map((item) => (
-            <s-text key={item.id}>{item.title}</s-text>
-          ))}
-        </s-stack>
-      ) : (
+        <div className="edd-market-selected">
+          <div className="edd-market-selected__head">
+            <s-text type="strong">Selected markets</s-text>
+            <s-text color="subdued">{selected.length}</s-text>
+          </div>
+          <div className="edd-chip-row">
+            {selected.map((item) => (
+              <div key={item.id} className="edd-chip">
+                <span>{item.title}</span>
+                <button type="button" aria-label={`Remove ${item.title}`} onClick={() => toggle(item)}>
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : scopeState !== "denied" ? (
         <s-text color="subdued">Select at least one market for this widget.</s-text>
-      )}
-    </s-stack>
+      ) : null}
+    </div>
   );
 }

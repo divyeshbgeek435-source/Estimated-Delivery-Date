@@ -12,5 +12,7 @@ export const loader = async ({ request }) => {
   if (fresh) clearAppEmbedStatusCache(shop);
 
   const result = await loadLiveAppEmbedStatus(admin, shop, session, { fresh });
-  return buildEmbedStatusPayload(shop, result);
+  return Response.json(buildEmbedStatusPayload(shop, result), {
+    headers: { "Cache-Control": "no-store" },
+  });
 };

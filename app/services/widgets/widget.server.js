@@ -14,6 +14,7 @@ import {
   WIDGET_LOCATIONS,
   WIDGET_STATUSES,
 } from "../../lib/constants";
+import { clampToBounds, SHIPPING_DAY_LIMITS } from "../../lib/number-input";
 import { normalizePincodeRules, normalizeWeightRules, toCountryRules } from "../../lib/pincode";
 import { expandPincodeRulesForCheck } from "../../lib/pincode.server";
 import { syncedPlacementIds } from "../../lib/form.server";
@@ -34,6 +35,31 @@ import { syncWidgetStorefrontByShop } from "../shopify/store-block.server";
 function compact(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item != null));
+}
+
+function clampShippingDayFields(shipping = {}) {
+  return {
+    processingMinDays: clampToBounds(
+      shipping.processingMinDays,
+      SHIPPING_DAY_LIMITS.processingMin,
+      DEFAULT_SHIPPING.processingMinDays,
+    ),
+    processingMaxDays: clampToBounds(
+      shipping.processingMaxDays,
+      SHIPPING_DAY_LIMITS.processingMax,
+      DEFAULT_SHIPPING.processingMaxDays,
+    ),
+    transitMinDays: clampToBounds(
+      shipping.transitMinDays,
+      SHIPPING_DAY_LIMITS.transitMin,
+      DEFAULT_SHIPPING.transitMinDays,
+    ),
+    transitMaxDays: clampToBounds(
+      shipping.transitMaxDays,
+      SHIPPING_DAY_LIMITS.transitMax,
+      DEFAULT_SHIPPING.transitMaxDays,
+    ),
+  };
 }
 
 function embedSet(value) {
@@ -96,7 +122,7 @@ function prismaMessageData(message) {
     dateSeparator: merged.dateSeparator,
     includeYear: merged.includeYear,
     widgetLayout: merged.widgetLayout || "FULL",
-    // Do not write designTemplate here — Prisma MessageConfig has no such field
+    // Do not write designTemplate here - Prisma MessageConfig has no such field
     // (and older clients reject it). Canonical store is translations.__design.
     descriptionEnabled: merged.descriptionEnabled !== false,
     headingEnabled: merged.headingEnabled !== false,
@@ -159,6 +185,7 @@ function withDefaults(widget) {
     shippingRules: {
       ...DEFAULT_SHIPPING,
       ...compact(shipping),
+      ...clampShippingDayFields(shipping),
       blockedDates: shipping.blockedDates || [],
       transitBlockedDates: shipping.transitBlockedDates || [],
       transitWorkingDays: shipping.transitWorkingDays?.length
@@ -306,7 +333,7 @@ export async function resolvePlacementConflict({
 
   const keepId = keepWidgetId || widgetId;
   const conflictIds = conflicts.map((item) => item.id).filter(Boolean);
-  // Only the chosen widget stays live — demote this candidate and every other overlap.
+  // Only the chosen widget stays live - demote this candidate and every other overlap.
   const demoteIds =
     keepId === widgetId
       ? conflictIds
@@ -548,6 +575,11 @@ function mapWidgetSummary(widget) {
     collections: placement.collections || [],
   };
   const cartConfig = { ...DEFAULT_CART, ...(widget.cartConfig || {}) };
+  const applyToLabel = widgetApplyToLabel({
+    location: widget.location,
+    placementConfig,
+    cartConfig,
+  });
   return {
     id: widget.id,
     name: widget.name,
@@ -557,13 +589,10 @@ function mapWidgetSummary(widget) {
     scheduledPublishAt: translations[PUBLISH_AT_KEY] || null,
     liveNotice: translations[LIVE_NOTICE_KEY] || null,
     activationConflict: parseActivationConflict(translations[ACTIVATION_CONFLICT_KEY]),
-    placementConfig,
-    cartConfig,
-    applyToLabel: widgetApplyToLabel({
-      location: widget.location,
-      placementConfig,
-      cartConfig,
-    }),
+    applyToLabel,
+    // Home/analytics lists only need labels - omit product/collection arrays from the document.
+    placementConfig: { mode: placementConfig.mode },
+    cartConfig: { displayMode: cartConfig.displayMode },
   };
 }
 
@@ -667,13 +696,10 @@ function shippingCreateData(rules) {
     };
   }
   return {
-    processingMinDays: rules.processingMinDays,
-    processingMaxDays: rules.processingMaxDays,
+    ...clampShippingDayFields(rules),
     cutoffTime: rules.cutoffTime,
     workingDays: rules.workingDays || DEFAULT_SHIPPING.workingDays,
     blockedDates: rules.blockedDates || [],
-    transitMinDays: rules.transitMinDays,
-    transitMaxDays: rules.transitMaxDays,
     transitWorkingDays: rules.transitWorkingDays || rules.workingDays || DEFAULT_SHIPPING.transitWorkingDays,
     transitBlockedDates: rules.transitBlockedDates || [],
     pincodeRules: rules.pincodeRules || DEFAULT_PINCODE_RULES,
@@ -794,13 +820,10 @@ export async function saveShippingRules(merchantId, widgetId, shipping) {
   if (!widget) return null;
 
   const shippingBase = {
-    processingMinDays: shipping.processingMinDays,
-    processingMaxDays: shipping.processingMaxDays,
+    ...clampShippingDayFields(shipping),
     cutoffTime: shipping.cutoffTime,
     workingDays: shipping.workingDays,
     blockedDates: shipping.blockedDates,
-    transitMinDays: shipping.transitMinDays,
-    transitMaxDays: shipping.transitMaxDays,
     transitWorkingDays: shipping.transitWorkingDays,
     transitBlockedDates: shipping.transitBlockedDates,
   };
@@ -1075,13 +1098,10 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
   if (!location) return null;
 
   const shippingBase = {
-    processingMinDays: values.processingMinDays,
-    processingMaxDays: values.processingMaxDays,
+    ...clampShippingDayFields(values),
     cutoffTime: values.cutoffTime,
     workingDays: values.workingDays,
     blockedDates: values.blockedDates,
-    transitMinDays: values.transitMinDays,
-    transitMaxDays: values.transitMaxDays,
     transitWorkingDays: values.transitWorkingDays,
     transitBlockedDates: values.transitBlockedDates,
   };

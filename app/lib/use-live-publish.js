@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useFetcher } from "react-router";
+import { afterPaint } from "./after-paint";
+import { loadAdminJson } from "./admin-json";
 import { WIDGET_STATUSES } from "./constants";
 
 const BACKUP_POLL_MS = 15000;
@@ -60,9 +61,10 @@ export function applyLiveStatus(widget, polled) {
  * Live / Scheduled status without a full page refresh.
  */
 export function useLivePublishPoll({ widgetId = null, items = [] }) {
-  const fetcher = useFetcher();
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
+  const [data, setData] = useState(null);
+  const inFlight = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const [now, setNow] = useState(() => Date.now());
   const itemKey = items
     .map((item) => `${item.id}:${item.status}:${item.scheduledPublishAt || ""}`)
@@ -80,16 +82,16 @@ export function useLivePublishPoll({ widgetId = null, items = [] }) {
       : "/app/live-status";
 
     const isCaughtUp = () => {
-      const data = fetcherRef.current.data;
+      const current = dataRef.current;
       if (widgetId) {
-        const row = data?.widget;
+        const row = current?.widget;
         if (!row || row.id !== widgetId) return false;
         if (row.activationConflict?.conflicts?.length) return true;
         return row.status !== WIDGET_STATUSES.SCHEDULED;
       }
-      if (!data?.widgets) return false;
+      if (!current?.widgets) return false;
       return scheduled.every((item) => {
-        const next = data.widgets.find((row) => row.id === item.id);
+        const next = current.widgets.find((row) => row.id === item.id);
         if (!next) return false;
         if (next.activationConflict?.conflicts?.length) return true;
         return next.status !== WIDGET_STATUSES.SCHEDULED;
@@ -98,10 +100,17 @@ export function useLivePublishPoll({ widgetId = null, items = [] }) {
 
     const load = () => {
       if (document.visibilityState === "hidden") return;
-      if (fetcherRef.current.state !== "idle") return;
+      if (inFlight.current) return;
       if (isCaughtUp()) return;
       const separator = url.includes("?") ? "&" : "?";
-      fetcherRef.current.load(`${url}${separator}t=${Date.now()}`);
+      inFlight.current = true;
+      loadAdminJson(`${url}${separator}t=${Date.now()}`)
+        .then((payload) => {
+          if (payload) setData(payload);
+        })
+        .finally(() => {
+          inFlight.current = false;
+        });
     };
 
     const tick = () => {
@@ -115,7 +124,7 @@ export function useLivePublishPoll({ widgetId = null, items = [] }) {
     };
 
     tick();
-    load();
+    const cancelPaint = afterPaint(() => load());
     const clock = window.setInterval(tick, 1000);
     const backup = window.setInterval(() => {
       const nextDue = Math.min(
@@ -126,11 +135,12 @@ export function useLivePublishPoll({ widgetId = null, items = [] }) {
     document.addEventListener("visibilitychange", tick);
 
     return () => {
+      cancelPaint();
       window.clearInterval(clock);
       window.clearInterval(backup);
       document.removeEventListener("visibilitychange", tick);
     };
   }, [widgetId, itemKey]);
 
-  return { data: fetcher.data, now };
+  return { data, now };
 }

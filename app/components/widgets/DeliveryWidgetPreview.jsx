@@ -22,6 +22,7 @@ import {
   shippingWithPincodeRule,
 } from "../../lib/pincode";
 import { CART_DISPLAY_MODES, ANIMATED_DESIGNS, WIDGET_LOCATIONS } from "../../lib/constants";
+import { clampToBounds, STYLE_NUMBER_LIMITS } from "../../lib/number-input";
 import { AnimatedEtaTemplate, JourneyRange, MessageParts } from "./AnimatedEtaTemplates";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
 
@@ -129,7 +130,7 @@ export function DeliveryWidgetPreview({
 
   const pincode = shipping.pincodeRules || {};
   const displayMode = resolveWeightDisplayMode(shipping.weightRules, pincode);
-  // Live cart/checkout never shows the pincode/weight checker — keep preview identical.
+  // Live cart/checkout never shows the pincode/weight checker - keep preview identical.
   const askPincode = !isCart && asksForPincode(shipping.weightRules, pincode);
   const showWeight = !isCart && displayMode === WEIGHT_DISPLAY_MODES.DIRECT;
   const directWeight = formatWeightDisplay(shipping.weightRules, previewProductWeight);
@@ -176,10 +177,22 @@ export function DeliveryWidgetPreview({
   const theme = style.themeColor || "#202223";
   const progress = style.progressColor || "#202223";
   const textColor = style.textColor || "#202223";
-  const iconSize = Math.max(22, Number(style.iconSize) || 24);
-  const fontSize = Math.max(14, Number(style.fontSize) || 15);
-  const dateSize = Math.max(12, Number(style.dateFontSize) || 13);
-  const statusSize = Math.max(12, Number(style.statusFontSize) || 13);
+  const iconSize = Math.min(
+    STYLE_NUMBER_LIMITS.iconSize.max,
+    Math.max(22, clampToBounds(style.iconSize, STYLE_NUMBER_LIMITS.iconSize, 24)),
+  );
+  const fontSize = Math.min(
+    STYLE_NUMBER_LIMITS.fontSize.max,
+    Math.max(14, clampToBounds(style.fontSize, STYLE_NUMBER_LIMITS.fontSize, 15)),
+  );
+  const dateSize = Math.min(
+    STYLE_NUMBER_LIMITS.dateFontSize.max,
+    Math.max(12, clampToBounds(style.dateFontSize, STYLE_NUMBER_LIMITS.dateFontSize, 13)),
+  );
+  const statusSize = Math.min(
+    STYLE_NUMBER_LIMITS.statusFontSize.max,
+    Math.max(12, clampToBounds(style.statusFontSize, STYLE_NUMBER_LIMITS.statusFontSize, 13)),
+  );
   const cardBackground =
     style.backgroundType === "TRANSPARENT" ? "#ffffff" : style.backgroundColor || "#E8E8E8";
   const purchasedDate = formatTimelineLabel(getZonedParts(now, zone).dateStr);
@@ -211,11 +224,11 @@ export function DeliveryWidgetPreview({
       date: deliveredDate,
     },
   ];
-  const paddingTop = style.paddingTop ?? 16;
-  const paddingRight = style.paddingRight ?? 16;
-  const paddingBottom = style.paddingBottom ?? 12;
-  const paddingLeft = style.paddingLeft ?? 16;
-  const gap = style.paddingMiddle ?? 12;
+  const paddingTop = clampToBounds(style.paddingTop, STYLE_NUMBER_LIMITS.padding, 16);
+  const paddingRight = clampToBounds(style.paddingRight, STYLE_NUMBER_LIMITS.padding, 16);
+  const paddingBottom = clampToBounds(style.paddingBottom, STYLE_NUMBER_LIMITS.padding, 12);
+  const paddingLeft = clampToBounds(style.paddingLeft, STYLE_NUMBER_LIMITS.padding, 16);
+  const gap = clampToBounds(style.paddingMiddle, STYLE_NUMBER_LIMITS.padding, 12);
   let designName = design || (layout === "MINIMAL" ? "COMPACT" : "TIMELINE");
   if (isCart && (designName === "COMPACT" || designName === "MINIMAL")) designName = "TIMELINE";
   const shownWeight = check?.available ? check.weight : showWeight ? directWeight : "";
@@ -250,7 +263,7 @@ export function DeliveryWidgetPreview({
   const headerEnabled = isIconEnabled(icons, "headerIcon");
   const titleEnabled = showHeading !== false;
   const headingText = heading || "Estimated Delivery Date";
-  const headingWeight = Number(style.headingFontWeight) || 600;
+  const headingWeight = clampToBounds(style.headingFontWeight, STYLE_NUMBER_LIMITS.headingFontWeight, 600);
   const titleStyle = { fontWeight: headingWeight };
 
   const onCheck = async (event) => {
@@ -278,8 +291,8 @@ export function DeliveryWidgetPreview({
       className={`edd-preview essential-estimated-delivery-widget essential-estimated-delivery-card edd-preview--${designName.toLowerCase()}`}
       style={{
         background: widgetBackground(style),
-        borderRadius: `${style.borderRadius ?? 8}px`,
-        border: `${style.borderWidth ?? 0}px solid ${style.borderColor || "#E1E3E5"}`,
+        borderRadius: `${clampToBounds(style.borderRadius, STYLE_NUMBER_LIMITS.borderRadius, 8)}px`,
+        border: `${clampToBounds(style.borderWidth, STYLE_NUMBER_LIMITS.borderWidth, 0)}px solid ${style.borderColor || "#E1E3E5"}`,
         padding: `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`,
         color: textColor,
         fontFamily: style.fontFamily || "inherit",
@@ -292,7 +305,7 @@ export function DeliveryWidgetPreview({
         ["--edd-font"]: `${fontSize}px`,
         ["--edd-date-size"]: `${dateSize}px`,
         ["--edd-status-size"]: `${statusSize}px`,
-        ["--edd-journey-rail"]: `${Math.max(2, Number(style.progressWidth) || 5)}px`,
+        ["--edd-journey-rail"]: `${clampToBounds(style.progressWidth, STYLE_NUMBER_LIMITS.progressWidth, 5)}px`,
         ["--edd-heading-weight"]: headingWeight,
       }}
     >
@@ -317,7 +330,7 @@ export function DeliveryWidgetPreview({
       ) : null}
       {showWeight ? (
         <p className="edd-preview__weight">
-          Weight: {shownWeight || (shipping.weightRules?.useProductWeight ? "product weight" : "—")}
+          Weight: {shownWeight || (shipping.weightRules?.useProductWeight ? "product weight" : "-")}
         </p>
       ) : null}
       {showDates &&

@@ -112,15 +112,15 @@ function flattenDraft(widget, draft = {}) {
       processingMaxDays: shipping.processingMaxDays,
       cutoffTime: shipping.cutoffTime,
       workingDays: (() => {
-        const days = (shipping.workingDays || []).filter((day) => WORKING_DAYS.includes(day));
-        return days.length ? days : DEFAULT_WORKING_DAYS;
+        if (shipping.workingDays == null) return [...DEFAULT_WORKING_DAYS];
+        return (shipping.workingDays || []).filter((day) => WORKING_DAYS.includes(day));
       })(),
       blockedDates: shipping.blockedDates || [],
       transitMinDays: shipping.transitMinDays,
       transitMaxDays: shipping.transitMaxDays,
       transitWorkingDays: (() => {
-        const days = (shipping.transitWorkingDays || []).filter((day) => WORKING_DAYS.includes(day));
-        return days.length ? days : DEFAULT_WORKING_DAYS;
+        if (shipping.transitWorkingDays == null) return [...DEFAULT_WORKING_DAYS];
+        return (shipping.transitWorkingDays || []).filter((day) => WORKING_DAYS.includes(day));
       })(),
       transitBlockedDates: shipping.transitBlockedDates || [],
       timezone: resolveTimeZone(draft.timezone || widget.timezone),

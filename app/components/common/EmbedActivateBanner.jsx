@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from "react";
-import { useFetcher } from "react-router";
+import { loadAdminJson } from "../../lib/admin-json";
 
 export function EmbedActivateBanner() {
-  const fetcher = useFetcher();
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
+  const [data, setData] = useState(null);
+  const inFlight = useRef(false);
   const openedEditor = useRef(false);
   const [dismissed, setDismissed] = useState(false);
-  const enabled = fetcher.data?.appEmbedEnabled;
-  const activateUrl = fetcher.data?.themeEditorEmbed;
+  const enabled = data?.appEmbedEnabled;
+  const activateUrl = data?.themeEditorEmbed;
 
   const refresh = (fresh = false) => {
-    if (fetcherRef.current.state !== "idle") return;
-    fetcherRef.current.load(fresh ? "/app/embed-status?fresh=1" : "/app/embed-status");
+    if (inFlight.current) return;
+    inFlight.current = true;
+    loadAdminJson(fresh ? "/app/embed-status?fresh=1" : "/app/embed-status")
+      .then((payload) => {
+        if (payload) setData(payload);
+      })
+      .finally(() => {
+        inFlight.current = false;
+      });
   };
 
   useEffect(() => {
@@ -31,7 +37,7 @@ export function EmbedActivateBanner() {
     };
   }, []);
 
-  if (dismissed || enabled !== false || fetcher.data?.missingThemeAccess) return null;
+  if (dismissed || enabled !== false || data?.missingThemeAccess) return null;
 
   return (
     <div className="edd-embed-banner" role="status">

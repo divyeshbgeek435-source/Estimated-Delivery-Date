@@ -11,7 +11,6 @@ const OPTIONS = [
   {
     value: WIDGET_LOCATIONS.CART,
     title: "Cart page",
-    // badge: "Beta",
     description: "Add an app block to cart page or cart drawer.",
     sketch: "cart",
   },
@@ -28,10 +27,7 @@ export function LocationPicker() {
           <input type="hidden" name="location" value={option.value} />
           <PlacementSketch type={option.sketch} />
           <div className="edd-placement-card__body">
-            <h3>
-              {option.title}
-              {option.badge ? <span className="edd-beta">{option.badge}</span> : null}
-            </h3>
+            <h3>{option.title}</h3>
             <p>{option.description}</p>
             <button type="submit" className="edd-btn edd-btn--secondary" disabled={busy}>
               {busy ? "Creating…" : "Select this placement type"}

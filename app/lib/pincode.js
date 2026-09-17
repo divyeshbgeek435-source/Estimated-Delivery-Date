@@ -560,7 +560,7 @@ export function formatPincodeStatusLine(pincode = {}) {
   if (!pincode.available) return "";
   return [pincode.message || PINCODE_AVAILABLE_MESSAGE, pincode.label, pincode.weight]
     .filter(Boolean)
-    .join(" — ");
+    .join(" - ");
 }
 
 export function publicPincodeState(rules, options = {}) {

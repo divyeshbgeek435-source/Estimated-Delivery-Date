@@ -1,5 +1,13 @@
 import { WORKING_DAYS } from "../../lib/constants";
 import { TimezonePicker } from "../editor/TimezonePicker";
+import { boundedIntFromEvent, intFieldValue, SHIPPING_DAY_LIMITS, SHIPPING_DAY_MAX } from "../../lib/number-input";
+
+function localIsoDate(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 const DAY_LABELS = {
   MONDAY: "Monday",
@@ -26,22 +34,27 @@ export function ShippingRulesForm({ shipping, timezone, errors = {} }) {
           <s-number-field
             label="Shortest processing time"
             name="processingMinDays"
-            value={String(shipping.processingMinDays)}
-            min={0}
-            max={30}
+            value={intFieldValue(shipping.processingMinDays, SHIPPING_DAY_LIMITS.processingMin, 0)}
+            min={SHIPPING_DAY_LIMITS.processingMin.min}
+            max={SHIPPING_DAY_LIMITS.processingMin.max}
+            step={1}
             suffix="days"
             error={errors.processingMinDays}
+            onInput={(event) => boundedIntFromEvent(event, SHIPPING_DAY_LIMITS.processingMin, 0)}
           ></s-number-field>
           <s-number-field
             label="Longest processing time"
             name="processingMaxDays"
-            value={String(shipping.processingMaxDays)}
-            min={0}
-            max={60}
+            value={intFieldValue(shipping.processingMaxDays, SHIPPING_DAY_LIMITS.processingMax, 1)}
+            min={SHIPPING_DAY_LIMITS.processingMax.min}
+            max={SHIPPING_DAY_LIMITS.processingMax.max}
+            step={1}
             suffix="days"
             error={errors.processingMaxDays}
+            onInput={(event) => boundedIntFromEvent(event, SHIPPING_DAY_LIMITS.processingMax, 1)}
           ></s-number-field>
         </s-grid>
+        <s-paragraph color="subdued">Maximum allowed duration is {SHIPPING_DAY_MAX} days.</s-paragraph>
         <s-text-field
           label="Cutoff time"
           name="cutoffTime"
@@ -75,22 +88,27 @@ export function ShippingRulesForm({ shipping, timezone, errors = {} }) {
           <s-number-field
             label="Shortest transit time"
             name="transitMinDays"
-            value={String(shipping.transitMinDays ?? 2)}
-            min={0}
-            max={30}
+            value={intFieldValue(shipping.transitMinDays, SHIPPING_DAY_LIMITS.transitMin, 1)}
+            min={SHIPPING_DAY_LIMITS.transitMin.min}
+            max={SHIPPING_DAY_LIMITS.transitMin.max}
+            step={1}
             suffix="days"
             error={errors.transitMinDays}
+            onInput={(event) => boundedIntFromEvent(event, SHIPPING_DAY_LIMITS.transitMin, 1)}
           ></s-number-field>
           <s-number-field
             label="Longest transit time"
             name="transitMaxDays"
-            value={String(shipping.transitMaxDays ?? 5)}
-            min={0}
-            max={60}
+            value={intFieldValue(shipping.transitMaxDays, SHIPPING_DAY_LIMITS.transitMax, 2)}
+            min={SHIPPING_DAY_LIMITS.transitMax.min}
+            max={SHIPPING_DAY_LIMITS.transitMax.max}
+            step={1}
             suffix="days"
             error={errors.transitMaxDays}
+            onInput={(event) => boundedIntFromEvent(event, SHIPPING_DAY_LIMITS.transitMax, 2)}
           ></s-number-field>
         </s-grid>
+        <s-paragraph color="subdued">Maximum allowed duration is {SHIPPING_DAY_MAX} days.</s-paragraph>
         <WorkingDaySwitches
           days={shipping.transitWorkingDays}
           namePrefix="transitDay_"
@@ -118,6 +136,7 @@ function WorkingDaySwitches({ days, namePrefix, error }) {
   return (
     <s-stack gap="small-200">
       <s-text type="strong">Working days</s-text>
+      <s-paragraph color="subdued">Days counted when calculating this time.</s-paragraph>
       {WORKING_DAYS.map((day) => (
         <s-switch
           key={`${namePrefix}${day}`}
@@ -140,13 +159,14 @@ function BlockedDatesEditor({
   emptyLabel,
 }) {
   return (
-    <s-stack gap="base">
+    <s-stack gap="small-200">
       <s-text type="strong">Holidays / blocked dates</s-text>
+      <s-paragraph color="subdued">Dates that are skipped when counting this time.</s-paragraph>
       {dates.length ? (
         dates.map((item) => (
           <s-stack key={`${item.date}-${item.name}`} direction="inline" gap="base" alignItems="center">
             <s-text>
-              {item.date} — {item.name}
+              {item.date} - {item.name}
             </s-text>
             <s-button name={removeName} value={item.date} type="submit" variant="tertiary" tone="critical">
               Remove
@@ -157,7 +177,13 @@ function BlockedDatesEditor({
         <s-text color="subdued">{emptyLabel}</s-text>
       )}
       <s-grid gridTemplateColumns="1fr 1fr auto" gap="base" alignItems="end">
-        <s-date-field label="Date" name={dateName}></s-date-field>
+        <s-date-field
+          label="Date"
+          name={dateName}
+          allow={`${localIsoDate()}--`}
+          placeholder="Select date"
+          details="Today and future dates only."
+        ></s-date-field>
         <s-text-field label="Name" name={nameField} placeholder="Christmas Day"></s-text-field>
         <s-button name="intent" value={addIntent} type="submit">
           Add blocked date

@@ -96,7 +96,7 @@ export async function estimateFromProductWidget(widget, extras = {}) {
     if (payload?.delivery) return payload.delivery;
     // A provided pincode that produced no delivery means unavailable / failed check.
     if (extras.pincode) return null;
-    // Cart/checkout never collect a pincode — still estimate from base shipping when
+    // Cart/checkout never collect a pincode - still estimate from base shipping when
     // the product widget would otherwise wait for a pincode check on the PDP.
     return safeEstimate(widget, extras);
   } catch (error) {

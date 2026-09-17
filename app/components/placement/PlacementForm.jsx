@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { PLACEMENT_MODES } from "../../lib/constants";
 import { describePlacement, findLivePlacementConflicts } from "../../lib/widget-conflicts";
-import { ActionButton, HostChoiceList } from "../common/ActionButton";
+import { HostChoiceList } from "../common/ActionButton";
 
 function selectedChoice(event) {
   const values = event.currentTarget.values;
@@ -27,10 +27,12 @@ export function PlacementForm({ placement, onChange, errors = {}, liveProductWid
   return (
     <s-stack gap="large">
       <s-section heading="Apply to">
+        <s-paragraph color="subdued">Choose which products this widget is shown on.</s-paragraph>
         <input type="hidden" name="mode" value={placement.mode} />
         <HostChoiceList
           label="Apply to"
           name="modeField"
+          labelAccessibilityVisibility="exclusive"
           values={[placement.mode || PLACEMENT_MODES.ALL_PRODUCTS]}
           onChange={(event) =>
             onChange({
@@ -60,12 +62,12 @@ export function PlacementForm({ placement, onChange, errors = {}, liveProductWid
         ) : null}
         {placement.mode === PLACEMENT_MODES.COLLECTIONS && !(placement.collections || []).length ? (
           <s-banner tone="warning">
-            Select at least one collection. Until then, this widget stays hidden on the storefront — it will not fall back to all products.
+            Select at least one collection. Until then, this widget stays hidden on the storefront - it will not fall back to all products.
           </s-banner>
         ) : null}
         {placement.mode === PLACEMENT_MODES.PRODUCTS && !(placement.products || []).length ? (
           <s-banner tone="warning">
-            Select at least one product. Until then, this widget stays hidden on the storefront — it will not fall back to all products.
+            Select at least one product. Until then, this widget stays hidden on the storefront - it will not fall back to all products.
           </s-banner>
         ) : null}
       </s-section>
@@ -90,16 +92,16 @@ export function PlacementForm({ placement, onChange, errors = {}, liveProductWid
             The widget appears on products in the collections you select, and on those collection pages.
           </s-paragraph>
           <ResourceSearch
-          kind="collections"
-          selected={placement.collections || []}
-          onSelected={(collections) =>
-            onChange({
-              ...placement,
-              collections,
-              collectionIds: collections.map((item) => item.id).filter(Boolean),
-            })
-          }
-        />
+            kind="collections"
+            selected={placement.collections || []}
+            onSelected={(collections) =>
+              onChange({
+                ...placement,
+                collections,
+                collectionIds: collections.map((item) => item.id).filter(Boolean),
+              })
+            }
+          />
         </s-stack>
       ) : null}
 
@@ -115,7 +117,10 @@ export function PlacementForm({ placement, onChange, errors = {}, liveProductWid
 function ResourceSearch({ kind, selected, onSelected }) {
   const fetcher = useFetcher();
   const [query, setQuery] = useState("");
-  const endpoint = kind === "products" ? "/api/products/search" : "/api/collections/search";
+  const isProducts = kind === "products";
+  const endpoint = isProducts ? "/api/products/search" : "/api/collections/search";
+  const heading = isProducts ? "Search products" : "Search collections";
+  const noun = isProducts ? "products" : "collections";
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -127,6 +132,13 @@ function ResourceSearch({ kind, selected, onSelected }) {
 
   const results = fetcher.data?.nodes || [];
   const selectedIds = useMemo(() => new Set(selected.map((item) => item.id)), [selected]);
+  const searching = query.trim().length > 0;
+  const rows = useMemo(() => {
+    if (searching) return results;
+    const byId = new Map(results.map((item) => [item.id, item]));
+    const extras = selected.filter((item) => !byId.has(item.id));
+    return [...extras, ...results];
+  }, [results, selected, searching]);
 
   const toggle = (item) => {
     if (selectedIds.has(item.id)) {
@@ -136,65 +148,129 @@ function ResourceSearch({ kind, selected, onSelected }) {
     onSelected([...selected, item]);
   };
 
+  const allVisibleSelected = rows.length > 0 && rows.every((item) => selectedIds.has(item.id));
+  const someVisibleSelected = rows.some((item) => selectedIds.has(item.id));
+  const allRef = useRef(null);
+
+  useEffect(() => {
+    if (!allRef.current) return;
+    allRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
+  }, [someVisibleSelected, allVisibleSelected, rows.length]);
+
+  const toggleAll = () => {
+    if (allVisibleSelected) {
+      const visibleIds = new Set(rows.map((item) => item.id));
+      onSelected(selected.filter((item) => !visibleIds.has(item.id)));
+      return;
+    }
+    const next = new Map(selected.map((item) => [item.id, item]));
+    rows.forEach((item) => next.set(item.id, item));
+    onSelected([...next.values()]);
+  };
+
+  const loading = fetcher.state !== "idle" && !rows.length;
+  const refreshing = fetcher.state !== "idle" && rows.length > 0;
+
   return (
-    <s-section heading={kind === "products" ? "Search products" : "Search collections"}>
-      <s-search-field
-        label={kind === "products" ? "Search products" : "Search collections"}
-        name={`${kind}Query`}
-        value={query}
-        placeholder="Search by name"
-        labelAccessibilityVisibility="exclusive"
-        onInput={(event) => setQuery(event.currentTarget.value)}
-      ></s-search-field>
-      {fetcher.state === "loading" ? (
-        <s-spinner accessibilityLabel="Searching"></s-spinner>
-      ) : null}
-      {fetcher.data?.error ? (
-        <s-banner tone="critical">{fetcher.data.error}</s-banner>
-      ) : null}
-      <s-stack gap="small-200">
-        {results.map((item) => (
-          <div key={item.id} className="edd-selected-row">
-            <s-stack direction="inline" gap="small" alignItems="center">
-              {item.image ? (
-                <s-thumbnail src={item.image} alt={item.title} size="small"></s-thumbnail>
-              ) : (
-              <s-icon type={kind === "products" ? "product" : "catalog"}></s-icon>
-              )}
-              <s-stack gap="none">
-                <s-text>{item.title}</s-text>
-                {item.status ? (
-                  <s-badge tone={item.status === "ACTIVE" ? "success" : "neutral"}>
-                    {item.status}
-                  </s-badge>
-                ) : null}
-                {typeof item.productsCount === "number" ? (
-                  <s-text color="subdued">{item.productsCount} products</s-text>
-                ) : null}
-              </s-stack>
-            </s-stack>
-            <ActionButton
-              type="button"
-              variant={selectedIds.has(item.id) ? "secondary" : "primary"}
-              onClick={() => toggle(item)}
+    <s-section heading={heading}>
+      <div className="edd-resource-picker">
+        <s-search-field
+          label={heading}
+          name={`${kind}Query`}
+          value={query}
+          placeholder="Search by name"
+          labelAccessibilityVisibility="exclusive"
+          onInput={(event) => setQuery(event.currentTarget.value)}
+        ></s-search-field>
+        {fetcher.data?.error ? <s-banner tone="critical">{fetcher.data.error}</s-banner> : null}
+        <div className="edd-resource-list" role="group" aria-label={heading} aria-busy={loading || refreshing}>
+          {rows.length > 0 && !loading ? (
+            <label
+              className={`edd-resource-row edd-resource-row--all${allVisibleSelected ? " is-selected" : ""}`}
             >
-              {selectedIds.has(item.id) ? "Remove" : "Select"}
-            </ActionButton>
-          </div>
-        ))}
-      </s-stack>
-      {selected.length ? (
-        <s-section heading="Selected">
-          {selected.map((item) => (
-            <div key={item.id} className="edd-selected-row">
-              <s-text>{item.title}</s-text>
-              <ActionButton type="button" tone="critical" variant="tertiary" onClick={() => toggle(item)}>
-                Remove
-              </ActionButton>
+              <input
+                ref={allRef}
+                type="checkbox"
+                checked={allVisibleSelected}
+                aria-label={searching ? `Select all matching ${noun}` : `Select all ${noun}`}
+                onChange={toggleAll}
+              />
+              <span className="edd-resource-row__name">All selected</span>
+              <span className="edd-resource-row__count">
+                {refreshing ? "Updating…" : selected.length ? `${selected.length} selected` : "None selected"}
+              </span>
+            </label>
+          ) : (
+            <div className="edd-resource-list__toolbar">
+              <span>{searching ? "Search results" : `Available ${noun}`}</span>
+              <span>{refreshing ? "Updating…" : "None selected"}</span>
             </div>
-          ))}
-        </s-section>
-      ) : null}
+          )}
+          {loading ? (
+            <div className="edd-resource-empty">
+              <s-spinner accessibilityLabel={`Searching ${noun}`}></s-spinner>
+            </div>
+          ) : rows.length ? (
+            rows.map((item) => {
+              const checked = selectedIds.has(item.id);
+              const meta =
+                typeof item.productsCount === "number"
+                  ? `${item.productsCount} product${item.productsCount === 1 ? "" : "s"}`
+                  : item.status
+                    ? item.status === "ACTIVE"
+                      ? "Active"
+                      : item.status
+                    : "";
+              return (
+                <label
+                  key={item.id}
+                  className={`edd-resource-row${checked ? " is-selected" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    aria-label={`Select ${item.title}`}
+                    onChange={() => toggle(item)}
+                  />
+                  {item.image ? (
+                    <img className="edd-resource-row__thumb" src={item.image} alt="" />
+                  ) : (
+                    <span className="edd-resource-row__icon" aria-hidden="true">
+                      <s-icon type={isProducts ? "product" : "catalog"}></s-icon>
+                    </span>
+                  )}
+                  <span className="edd-resource-row__copy">
+                    <span className="edd-resource-row__name">{item.title}</span>
+                    {meta ? <span className="edd-resource-row__meta">{meta}</span> : null}
+                  </span>
+                </label>
+              );
+            })
+          ) : (
+            <div className="edd-resource-empty">
+              {searching ? `No ${noun} match “${query.trim()}”.` : `No ${noun} available.`}
+            </div>
+          )}
+        </div>
+        {selected.length ? (
+          <div className="edd-resource-selected">
+            <div className="edd-resource-selected__head">
+              <s-text type="strong">Selected {noun}</s-text>
+              <s-text color="subdued">{selected.length}</s-text>
+            </div>
+            <div className="edd-chip-row">
+              {selected.map((item) => (
+                <div key={item.id} className="edd-chip">
+                  <span>{item.title}</span>
+                  <button type="button" aria-label={`Remove ${item.title}`} onClick={() => toggle(item)}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </s-section>
   );
 }

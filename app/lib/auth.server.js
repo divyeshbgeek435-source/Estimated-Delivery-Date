@@ -2,9 +2,17 @@ import { authenticate } from "../shopify.server";
 import { getMerchantByShop, syncMerchantProfile } from "../services/shopify/merchant.server";
 import { getWidgetForMerchant, getWidgetForSave } from "../services/widgets/widget.server";
 
-export async function requireAdmin(request) {
+export async function requireAdmin(request, { syncProfile = true } = {}) {
   const { admin, session, redirect, sessionToken } = await authenticate.admin(request);
   const existing = await getMerchantByShop(session.shop);
+  if (!syncProfile) {
+    if (existing) {
+      void syncMerchantProfile({ admin, session, sessionToken, merchant: existing }).catch((error) => {
+        console.warn("[edd] background profile sync", error?.message || error);
+      });
+    }
+    return { admin, session, merchant: existing, shop: session.shop, redirect };
+  }
   const merchant =
     (await syncMerchantProfile({ admin, session, sessionToken, merchant: existing })) || existing;
   return { admin, session, merchant, shop: session.shop, redirect };

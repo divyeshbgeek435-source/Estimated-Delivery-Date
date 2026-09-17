@@ -77,11 +77,17 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
 
   useEffect(() => {
     if (status !== SAVE_STATUS.UNSAVED && status !== SAVE_STATUS.ERROR) return undefined;
+    let ignore = false;
     const onLeave = (event) => {
+      if (ignore) return;
       event.preventDefault();
       event.returnValue = "";
     };
+    const onFullReload = () => {
+      ignore = true;
+    };
     window.addEventListener("beforeunload", onLeave);
+    import.meta.hot?.on("vite:beforeFullReload", onFullReload);
     return () => window.removeEventListener("beforeunload", onLeave);
   }, [status]);
 
@@ -123,7 +129,7 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
           setStatus(snapshotOf() === lastSavedRef.current ? SAVE_STATUS.SAVED : SAVE_STATUS.UNSAVED);
         }
       } else if (!pendingRef.current) {
-        // Stale response after a newer edit — don't leave the UI stuck on "Saving".
+        // Stale response after a newer edit - don't leave the UI stuck on "Saving".
         setStatus(snapshotOf() === lastSavedRef.current ? SAVE_STATUS.SAVED : SAVE_STATUS.UNSAVED);
       }
     } else if (!pendingRef.current) {

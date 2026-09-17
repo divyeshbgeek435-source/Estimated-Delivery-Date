@@ -77,7 +77,7 @@ export function timezoneLabel(zone) {
 }
 
 function searchableText(zone) {
-  return `${zone} ${zone.replace(/_/g, " ")} ${zone.split("/").pop()}`.toLowerCase();
+  return `${zone} ${zone.replace(/_/g, " ")} ${zone.split("/").pop()} ${timezoneLabel(zone)}`.toLowerCase();
 }
 
 export function searchTimeZones(query = "", { limit = 40, selected } = {}) {
@@ -85,21 +85,25 @@ export function searchTimeZones(query = "", { limit = 40, selected } = {}) {
   const raw = String(query || "").trim();
   const needle = raw.toLowerCase();
   const selectedZone = selected && isValidTimeZone(selected) ? selected : "";
-  const exact = isValidTimeZone(raw) ? raw : "";
-  const ranked = (needle
-    ? all.filter((zone) => searchableText(zone).includes(needle) || zone === exact)
-    : [...new Set([selectedZone, ...POPULAR_TIMEZONES, ...all].filter(Boolean))]
-  ).filter(isValidTimeZone);
 
+  if (!needle) {
+    const unique = [];
+    const seen = new Set();
+    for (const zone of [selectedZone, ...POPULAR_TIMEZONES, ...all].filter(Boolean)) {
+      if (!isValidTimeZone(zone) || seen.has(zone)) continue;
+      seen.add(zone);
+      unique.push(zone);
+      if (unique.length >= limit) break;
+    }
+    return unique;
+  }
+
+  const ranked = all.filter((zone) => searchableText(zone).includes(needle));
   const unique = [];
   const seen = new Set();
-  if (selectedZone) {
+  if (selectedZone && searchableText(selectedZone).includes(needle)) {
     unique.push(selectedZone);
     seen.add(selectedZone);
-  }
-  if (exact && !seen.has(exact)) {
-    unique.push(exact);
-    seen.add(exact);
   }
   for (const zone of ranked) {
     if (seen.has(zone)) continue;

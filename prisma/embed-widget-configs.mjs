@@ -1,5 +1,5 @@
 /**
- * Legacy helper — prefer `npm run db:consolidate`.
+ * Legacy helper - prefer `npm run db:consolidate`.
  * Copies 1:1 widget config collections onto Widget documents.
  * Does not delete any collections.
  *

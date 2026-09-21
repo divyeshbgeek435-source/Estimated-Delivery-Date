@@ -70,7 +70,8 @@ export function ConditionsTab({ widget, draft, onChange, errors = {}, deliveryRe
 
   return (
     <s-stack gap="large">
-      <s-section heading="Widget details">
+      <s-section aria-label="Widget details">
+      <p className="edd-section-heading">Widget details</p>
         {/* <s-paragraph color="subdued">Name this widget for your admin. Customers never see this title.</s-paragraph> */}
         <s-text-field
           label="Title"
@@ -195,7 +196,8 @@ function HiddenShipping({ shipping, timezone }) {
 
 function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone }) {
   return (
-    <s-section heading="Order processing">
+    <s-section aria-label="Order processing">
+      <p className="edd-section-heading">Order processing</p>
       {/* <s-paragraph color="subdued">
         Set how long you need to prepare an order, when the daily cutoff is, and which days you work.
       </s-paragraph> */}
@@ -255,7 +257,8 @@ function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone })
 
 function TransitSection({ shipping, errors, onChange }) {
   return (
-    <s-section heading="Order transit">
+    <s-section aria-label="Order transit">
+      <p className="edd-section-heading">Order transit</p>
       {/* <s-paragraph color="subdued">
         Shipping time after the order leaves your facility until it reaches the customer.
       </s-paragraph> */}
@@ -310,8 +313,9 @@ function TransitSection({ shipping, errors, onChange }) {
 function CutoffFields({ value, error, onChange }) {
   const parts = splitCutoff(value);
   return (
+    <div className="edd-subsection">
     <s-stack gap="small-200">
-      <s-text type="strong">Processing cutoff time</s-text>
+      <p className="edd-field-heading">Processing cutoff time</p>
       <s-paragraph color="subdued">Orders placed after this time start processing on the next working day.</s-paragraph>
       <input type="hidden" name="cutoffTime" value={value} />
       <div className="edd-cutoff">
@@ -353,6 +357,7 @@ function CutoffFields({ value, error, onChange }) {
       </div>
       {error ? <s-banner tone="critical">{error}</s-banner> : null}
     </s-stack>
+    </div>
   );
 }
 
@@ -395,7 +400,7 @@ function DayPills({ label, help, namePrefix, days, error, onChange }) {
   return (
     <div className="edd-subsection">
       <s-stack gap="small-200">
-        <s-text type="strong">{label}</s-text>
+        <p className="edd-field-heading">{label}</p>
         {help ? <s-paragraph color="subdued">{help}</s-paragraph> : null}
         <div ref={listRef} className="edd-days" role="group" aria-label={label}>
           {WORKING_DAYS.map((day) => {
@@ -462,7 +467,7 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
   return (
     <div className="edd-subsection">
       <s-stack gap="small-200">
-        <s-text type="strong">{label}</s-text>
+        <p className="edd-field-heading">{label}</p>
         {help ? <s-paragraph color="subdued">{help}</s-paragraph> : null}
         {dates.length ? (
         <div className="edd-chip-row">
@@ -567,7 +572,8 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
 
 function MarketsSection({ draft, onChange, errors }) {
   return (
-    <s-section heading="Markets">
+    <s-section aria-label="Markets">
+      <p className="edd-section-heading">Markets</p>
       <s-paragraph color="subdued">Choose where this widget is visible.</s-paragraph>
       <input type="hidden" name="marketMode" value={draft.marketMode || "ALL"} />
       <div className="edd-markets">

@@ -220,6 +220,18 @@ export function DashboardHome({
   return (
     <s-page heading="Estimated delivery">
       <ActionButton
+        slot="secondary-actions"
+        disabled={!embed.manageUrl && !themeEditorEmbed}
+        onClick={() => {
+          const url = embed.manageUrl || themeEditorEmbed;
+          if (!url) return;
+          embed.markEditorOpened?.();
+          window.open(url, "_blank", "noopener,noreferrer");
+        }}
+      >
+        Manage in Theme Editor
+      </ActionButton>
+      <ActionButton
         slot="primary-action"
         variant="primary"
         icon="plus"
@@ -481,20 +493,7 @@ function OverviewMetrics({
           </div>
           <p className="edd-metric-card__value edd-metric-card__value--status">{embedLabel}</p>
           {embed.enabled ? (
-            <p className="edd-metric-card__help edd-metric-card__help--action">
-              <button
-                type="button"
-                className="edd-metric-card__text-link"
-                onClick={() => {
-                  const url = embed.manageUrl || fallbackEmbedUrl;
-                  if (!url) return;
-                  embed.markEditorOpened?.();
-                  window.open(url, "_blank", "noopener,noreferrer");
-                }}
-              >
-                Manage in Theme Editor
-              </button>
-            </p>
+            <p className="edd-metric-card__help">On in the theme editor</p>
           ) : embed.missingThemeAccess ? (
             !embedRefreshing ? (
               <div className="edd-metric-card__actions">

@@ -30,7 +30,15 @@ export function AppLink({ to, children, nav = false, onClick, ...props }) {
       if (!chain.includes(node) && event.target !== node && !node.contains(event.target)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      onClickRef.current?.(event);
+      const result = onClickRef.current?.(event);
+      if (result && typeof result.then === "function") {
+        result.then((allowed) => {
+          if (allowed === false) return;
+          navigate(to);
+        });
+        return;
+      }
+      if (result === false) return;
       navigate(to);
     };
     window.addEventListener("click", handleClick, true);

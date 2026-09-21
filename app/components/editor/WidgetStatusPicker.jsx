@@ -5,7 +5,7 @@ export function WidgetStatusPicker({ location, value, onChange, scheduleAt, onSc
 
   return (
     <div className="edd-status-picker">
-      <p className="edd-status-picker__title">Widget status</p>
+      <p className="edd-field-heading edd-status-picker__title">Widget status</p>
       <div className="edd-publish-when">
         <label className="edd-publish-option">
           <input

@@ -252,7 +252,8 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
   };
 
   return (
-    <s-section heading="Pincode / delivery">
+    <s-section aria-label="Pincode / delivery">
+      <p className="edd-section-heading">Pincode / delivery</p>
       <s-paragraph color="subdued">
         Select a country, then a city - one at a time. All pincodes for that city are added automatically.
       </s-paragraph>

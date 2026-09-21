@@ -91,7 +91,8 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
   }, []);
 
   return (
-    <s-section heading="Weight display">
+    <s-section aria-label="Weight display">
+      <p className="edd-section-heading">Weight display</p>
       <s-paragraph color="subdued">
         Choose how product weight appears on the storefront. This also controls whether customers must check a pincode first.
       </s-paragraph>
@@ -107,6 +108,7 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
         </button>
       </div>
 
+      <div className="edd-subsection">
       <s-grid gridTemplateColumns="1fr 8rem" gap="base">
         <s-text-field
           label="Default weight"
@@ -129,6 +131,7 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
           onInput={(event) => setWeight({ unit: String(event.currentTarget.value || "").slice(0, 16) })}
         ></s-text-field>
       </s-grid>
+      </div>
       <datalist id="edd-weight-units">
         {WEIGHT_UNITS.map((item) => (
           <option key={item.value} value={item.value}></option>

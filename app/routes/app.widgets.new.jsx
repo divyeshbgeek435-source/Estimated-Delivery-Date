@@ -5,6 +5,7 @@ import { shopTimezoneForMerchant } from "../services/shopify/merchant.server";
 import { formErrors, locationSchema } from "../lib/validation";
 import { LocationPicker } from "../components/widgets/LocationPicker";
 import { ActionButton } from "../components/common/ActionButton";
+import { BackButton } from "../components/common/BackButton";
 import { ErrorBanner } from "../components/common/Feedback";
 import { defaultWidgetName } from "../lib/constants";
 
@@ -60,11 +61,21 @@ export default function NewWidget() {
         Home
       </ActionButton>
       <ErrorBanner errors={actionData?.errors} />
-      <p className="edd-back">
-        <button type="button" className="edd-widget-name" onClick={() => navigate("/app")}>
-          ← Home
-        </button>
-      </p>
+      <div className="edd-editor__toolbar">
+        <BackButton
+          onClick={() => {
+            const historyIndex = window.history.state?.idx;
+            if (typeof historyIndex === "number" && historyIndex > 0) {
+              navigate(-1);
+              return;
+            }
+            navigate("/app");
+          }}
+        />
+        <div className="edd-editor__kicker">
+          <span className="edd-editor__kicker-meta">New widget · Choose placement type</span>
+        </div>
+      </div>
       <LocationPicker />
     </s-page>
   );

@@ -16,6 +16,7 @@ import {
   toDatetimeLocal,
 } from "../../lib/widget-status";
 import { ActionButton } from "../common/ActionButton";
+import { BackButton } from "../common/BackButton";
 import { AppLink } from "../common/AppLink";
 import { LiveWidgetPreview } from "../widgets/PlacementPreview";
 import { EmbedActivateBanner } from "../common/EmbedActivateBanner";
@@ -27,6 +28,14 @@ import { ConditionsTab } from "./ConditionsTab";
 import { DesignTab } from "./DesignTab";
 import { PlacementTab } from "./PlacementTab";
 import { WidgetStatusPicker } from "./WidgetStatusPicker";
+
+const SAVE_BAR_ID = "edd-widget-save-bar";
+
+function markerParts(marker = "") {
+  const sep = String(marker).indexOf(":");
+  if (sep < 0) return { saveAction: marker, scheduleAt: "" };
+  return { saveAction: marker.slice(0, sep), scheduleAt: marker.slice(sep + 1) };
+}
 
 const NEXT_TAB = {
   conditions: { id: "design", label: "Continue to Design" },
@@ -83,6 +92,7 @@ export function WidgetWorkspace({
   const [scheduleAt, setScheduleAt] = useState(() =>
     toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
   );
+  const [editorEpoch, setEditorEpoch] = useState(0);
   const seenConfirm = useRef("");
   const [confirm, setConfirm] = useState(null);
   const [conflict, setConflict] = useState(conflictProp);
@@ -95,6 +105,7 @@ export function WidgetWorkspace({
     saving,
     submitSave: queueSave,
     retry,
+    restoreSaved,
   } = useEditorSave({
     draft,
     tab,
@@ -133,6 +144,7 @@ export function WidgetWorkspace({
     setScheduleAt(
       toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
     );
+    setEditorEpoch(0);
   }, [widget.id]);
 
   useEffect(() => {
@@ -144,6 +156,17 @@ export function WidgetWorkspace({
       setSaveAction(SAVE_ACTIONS.PUBLISH);
     }
   }, [liveWidget.status, saveAction]);
+
+  useEffect(() => {
+    const bar = shopify?.saveBar;
+    if (!bar?.show || !bar?.hide) return undefined;
+    const dirty = saveStatus === SAVE_STATUS.UNSAVED || saveStatus === SAVE_STATUS.ERROR;
+    const op = dirty ? bar.show(SAVE_BAR_ID) : bar.hide(SAVE_BAR_ID);
+    Promise.resolve(op).catch(() => {});
+    return () => {
+      Promise.resolve(bar.hide(SAVE_BAR_ID)).catch(() => {});
+    };
+  }, [saveStatus, shopify]);
 
   useEffect(() => {
     if (saveFetcher.data?.toast) shopify.toast.show(saveFetcher.data.toast);
@@ -239,6 +262,53 @@ export function WidgetWorkspace({
     submitIntent("save", { saveAction });
   };
 
+  const discardChanges = () => {
+    const saved = restoreSaved();
+    setDraft(structuredClone(saved.draft));
+    const parts = markerParts(saved.marker);
+    if (parts.saveAction) setSaveAction(parts.saveAction);
+    setScheduleAt(parts.scheduleAt || defaultScheduleValue());
+    setEditorEpoch((current) => current + 1);
+    Promise.resolve(shopify?.saveBar?.hide?.(SAVE_BAR_ID)).catch(() => {});
+  };
+
+  const goHome = async () => {
+    rememberHomeFocusWidget(widget.id);
+    if (
+      (saveStatus === SAVE_STATUS.UNSAVED || saveStatus === SAVE_STATUS.ERROR) &&
+      shopify?.saveBar?.leaveConfirmation
+    ) {
+      try {
+        await shopify.saveBar.leaveConfirmation();
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const goBack = () => {
+    void (async () => {
+      if (
+        (saveStatus === SAVE_STATUS.UNSAVED || saveStatus === SAVE_STATUS.ERROR) &&
+        shopify?.saveBar?.leaveConfirmation
+      ) {
+        try {
+          await shopify.saveBar.leaveConfirmation();
+        } catch {
+          return;
+        }
+      }
+      const historyIndex = window.history.state?.idx;
+      if (typeof historyIndex === "number" && historyIndex > 0) {
+        navigate(-1);
+        return;
+      }
+      rememberHomeFocusWidget(widget.id);
+      navigate("/app");
+    })();
+  };
+
   const resolveConflict = (keepWidgetId) => {
     if (!conflict || saving) return;
     resolvingConflict.current = true;
@@ -268,10 +338,18 @@ export function WidgetWorkspace({
 
   return (
     <s-page heading={draft.name || widget.name} inlineSize="large">
+      <ui-save-bar id={SAVE_BAR_ID}>
+        <button type="button" variant="primary" onClick={submitSave}>
+          Save
+        </button>
+        <button type="button" onClick={discardChanges}>
+          Discard
+        </button>
+      </ui-save-bar>
       <AppLink
         slot="breadcrumb-actions"
         to="/app"
-        onClick={() => rememberHomeFocusWidget(widget.id)}
+        onClick={goHome}
       >
         Home
       </AppLink>
@@ -286,23 +364,26 @@ export function WidgetWorkspace({
 
       <div className="edd-page edd-page--wide">
       <s-stack gap="base">
-        <s-stack direction="inline" gap="small-200" alignItems="center">
-          <s-text color="subdued">
-            {profile.editorHeading} · {locationLabel(widget.location)}
-          </s-text>
-          {published ? (
-            <s-badge tone="success">Live</s-badge>
-          ) : scheduled ? (
-            <s-badge tone="info">
-              {remainingMs != null && remainingMs <= 0
-                ? "Going live"
-                : `Scheduled${countdown && countdown !== "now" ? ` · ${countdown}` : ""}`}
-            </s-badge>
-          ) : (
-            <s-badge>Draft</s-badge>
-          )}
-          <SaveStatus status={saveStatus} onRetry={retry} />
-        </s-stack>
+        <div className="edd-editor__toolbar">
+          <BackButton onClick={goBack} />
+          <div className="edd-editor__kicker">
+            <span className="edd-editor__kicker-meta">
+              {profile.editorHeading} · {locationLabel(widget.location)}
+            </span>
+            {published ? (
+              <s-badge tone="success">Live</s-badge>
+            ) : scheduled ? (
+              <s-badge tone="info">
+                {remainingMs != null && remainingMs <= 0
+                  ? "Going live"
+                  : `Scheduled${countdown && countdown !== "now" ? ` · ${countdown}` : ""}`}
+              </s-badge>
+            ) : (
+              <s-badge>Draft</s-badge>
+            )}
+            <SaveStatus status={saveStatus} onRetry={retry} />
+          </div>
+        </div>
       {widget.location === "CHECKOUT" ? (
         <s-banner tone="warning" heading="Checkout placement is no longer available">
           Shopify only supports checkout UI extensions on Plus. Product and cart widgets still work on all plans. Unpublish or delete this widget.
@@ -366,7 +447,7 @@ export function WidgetWorkspace({
       </div>
 
       <div className="edd-editor">
-        <div className="edd-editor__form">
+        <div className="edd-editor__form" key={editorEpoch}>
           {visitedTabs.has("conditions") ? (
             <div className="edd-editor__panel" hidden={tab !== "conditions"}>
               <ConditionsTab

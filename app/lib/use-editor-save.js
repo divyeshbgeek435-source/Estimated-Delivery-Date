@@ -155,5 +155,18 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
     saving: status === SAVE_STATUS.SAVING || fetcher.state !== "idle",
     submitSave: (intent, extras = {}) => enqueue(intent, extras),
     retry,
+    restoreSaved: () => {
+      pendingRef.current = null;
+      setErrors(null);
+      setStatus(SAVE_STATUS.SAVED);
+      if (!lastSavedRef.current) {
+        return { draft: structuredClone(draftRef.current), marker: markerRef.current };
+      }
+      try {
+        return JSON.parse(lastSavedRef.current);
+      } catch {
+        return { draft: structuredClone(draftRef.current), marker: markerRef.current };
+      }
+    },
   };
 }

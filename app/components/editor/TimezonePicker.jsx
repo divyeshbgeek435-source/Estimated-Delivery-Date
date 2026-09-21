@@ -28,7 +28,7 @@ export function TimezonePicker({ value, onChange, error, name = "timezone" }) {
     <div className="edd-timezone edd-subsection">
       <input type="hidden" name={name} value={selected} />
       <s-stack gap="small-200">
-        <s-text type="strong">Timezone</s-text>
+        <p className="edd-field-heading">Timezone</p>
         <s-paragraph color="subdued">Cutoff time and delivery dates use this timezone.</s-paragraph>
       <div className="edd-timezone-current">
         <s-icon type="globe" color="subdued" />

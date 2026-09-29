@@ -53,10 +53,25 @@
     return `<span class="edd-icon">${svg}</span>`;
   }
 
+  function cssGradientDirection(direction) {
+    switch (direction) {
+      case "TO_RIGHT":
+        return "to right";
+      case "TO_LEFT":
+        return "to left";
+      case "TO_TOP":
+        return "to top";
+      case "TO_BOTTOM_RIGHT":
+        return "to bottom right";
+      default:
+        return "to bottom";
+    }
+  }
+
   function background(style) {
     if (style.backgroundType === "TRANSPARENT") return "transparent";
     if (style.backgroundType === "GRADIENT") {
-      return `linear-gradient(to bottom, ${style.gradientStart}, ${style.gradientEnd})`;
+      return `linear-gradient(${cssGradientDirection(style.gradientDirection)}, ${style.gradientStart || "#FFFFFF"}, ${style.gradientEnd || "#F1F1F1"})`;
     }
     return style.backgroundColor || "#e8e8e8";
   }
@@ -78,18 +93,84 @@
     return src;
   }
 
-  function applyTags(template, delivery, highlight) {
-    return String(template || "").replace(/\{([a-z_]+)\}/gi, (match, key) => {
-      if (key === "image") {
-        const src = customImageSrc(delivery?.image);
-        if (!src) return "";
-        const safe = src.startsWith("data:image/") ? src.replace(/"/g, "") : escapeHtml(src);
-        return `<img class="edd-inline-image" src="${safe}" alt="" />`;
+  function separateMessageTokens(template) {
+    return String(template || "")
+      .replace(/\}\s*\{/g, "} {")
+      .replace(/([^\s*_])\{/g, "$1 {")
+      .replace(/\}([A-Za-z])/g, "} $1");
+  }
+
+  function wrapInline(html, run, highlight) {
+    if (!html) return "";
+    if (run.underline) html = `<u>${html}</u>`;
+    if (run.italic) html = `<em>${html}</em>`;
+    if (highlight || run.bold) html = `<strong>${html}</strong>`;
+    return html;
+  }
+
+  function formatRuns(source) {
+    const text = String(source || "");
+    const style = { bold: false, italic: false, underline: false };
+    const runs = [];
+    let buffer = "";
+    const flush = () => {
+      if (!buffer) return;
+      runs.push({ type: "text", text: buffer, bold: style.bold, italic: style.italic, underline: style.underline });
+      buffer = "";
+    };
+    let index = 0;
+    while (index < text.length) {
+      if (text[index] === "{") {
+        const close = text.indexOf("}", index);
+        const key = close > index ? text.slice(index + 1, close) : "";
+        if (/^[a-z_]+$/i.test(key)) {
+          flush();
+          runs.push({ type: "token", key, bold: style.bold, italic: style.italic, underline: style.underline });
+          index = close + 1;
+          continue;
+        }
       }
-      if (!Object.prototype.hasOwnProperty.call(delivery || {}, key)) return match;
-      const value = escapeHtml(delivery[key] ?? "");
-      return highlight && HIGHLIGHT_KEYS.test(key) ? `<strong>${value}</strong>` : value;
-    });
+      const marker = [
+        { token: "**", key: "bold" },
+        { token: "__", key: "underline" },
+        { token: "*", key: "italic" },
+      ].find((item) => text.startsWith(item.token, index));
+      if (marker) {
+        flush();
+        style[marker.key] = !style[marker.key];
+        index += marker.token.length;
+        continue;
+      }
+      buffer += text[index];
+      index += 1;
+    }
+    flush();
+    return runs;
+  }
+
+  function applyTags(template, delivery, highlight) {
+    return formatRuns(separateMessageTokens(template))
+      .map((run) => {
+        if (run.type === "token") {
+          if (run.key === "image") {
+            const src = customImageSrc(delivery?.image);
+            if (!src) return "";
+            const safe = src.startsWith("data:image/") ? src.replace(/"/g, "") : escapeHtml(src);
+            return `<img class="edd-inline-image" src="${safe}" alt="" />`;
+          }
+          if (!Object.prototype.hasOwnProperty.call(delivery || {}, run.key)) {
+            return wrapInline(escapeHtml(`{${run.key}}`), run, false);
+          }
+          const value = escapeHtml(delivery[run.key] ?? "");
+          return wrapInline(value, run, Boolean(highlight && HIGHLIGHT_KEYS.test(run.key)));
+        }
+        return wrapInline(escapeHtml(run.text), run, false);
+      })
+      .join("");
+  }
+
+  function formatInline(value) {
+    return applyTags(value, {}, false);
   }
 
   function formatSeconds(total) {
@@ -408,7 +489,7 @@
     const titleRow = (className = "edd-anim__title-row") =>
       titleOn || headerEnabled
         ? `<div class="${className}">${headerIconHtml}${
-            titleOn ? `<p class="edd-anim__title" style="${titleStyle}">${escapeHtml(headingText || "Estimated Delivery Date")}</p>` : ""
+            titleOn ? `<p class="edd-anim__title" style="${titleStyle}">${formatInline(headingText || "Estimated Delivery Date")}</p>` : ""
           }</div>`
         : "";
     const lead =
@@ -428,7 +509,7 @@
       const eyebrow =
         titleOn || headerEnabled
           ? `<p class="edd-anim__eyebrow" style="${titleOn ? titleStyle : ""}">${headerIconHtml}${
-              titleOn ? escapeHtml(headingText || "") : ""
+              titleOn ? formatInline(headingText || "") : ""
             }</p>`
           : "";
       return `<div class="edd-anim edd-anim--moment"><div class="edd-anim__copy">${eyebrow}${lead}</div><div class="edd-anim__rail-wrap"><span class="edd-anim__rail edd-anim__rail--dashed" style="color:${progress}" aria-hidden="true"></span><span class="edd-anim__rail-fill" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__nodes">${steps
@@ -448,7 +529,7 @@
       const bannerIcon = headerEnabled
         ? `<span class="edd-anim__banner-icon" style="color:${theme}">${icon(headerIcon || "bag")}</span>`
         : "";
-      const titleBit = titleOn ? `<span style="${titleStyle}">${escapeHtml(headingText || "Delivery Date")} </span>` : "";
+      const titleBit = titleOn ? `<span style="${titleStyle}">${formatInline(headingText || "Delivery Date")} </span>` : "";
       return `<div class="edd-anim edd-anim--bubble">${leadAbove}<div class="edd-anim__banner"><span>${titleBit}${range}</span>${bannerIcon}</div><div class="edd-anim__bubble-shell"><span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
         .map(
           (step, index) =>
@@ -466,7 +547,7 @@
           ? `<p class="edd-anim__express-sub" style="color:${accent}" data-edd-message>${descriptionHtml}</p>`
           : `<p class="edd-anim__express-sub">Estimated Delivery Date ${range}</p>`;
       const titleBit =
-        titleOn && headingText ? `<p class="edd-anim__express-title" style="${titleStyle}">${escapeHtml(headingText)}</p>` : "";
+        titleOn && headingText ? `<p class="edd-anim__express-title" style="${titleStyle}">${formatInline(headingText)}</p>` : "";
       return `<div class="edd-anim edd-anim--express"><div class="edd-anim__express-head">${clock}<div>${titleBit}${sub}</div></div><div class="edd-anim__express-shell"><span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
         .map(
           (step, index) =>
@@ -506,7 +587,12 @@
   }
 
   function applyCardStyle(card, style) {
-    const cardBackground = style.backgroundType === "TRANSPARENT" ? "#ffffff" : style.backgroundColor || "#e8e8e8";
+    const cardBackground =
+      style.backgroundType === "TRANSPARENT"
+        ? "#ffffff"
+        : style.backgroundType === "GRADIENT"
+          ? style.gradientStart || "#ffffff"
+          : style.backgroundColor || "#e8e8e8";
     const fontSize = readablePx(style.fontSize, 15, 14);
     const dateSize = readablePx(style.dateFontSize, 13, 12);
     const statusSize = readablePx(style.statusFontSize, 13, 12);
@@ -540,12 +626,8 @@
     applyCardStyle(card, style);
     const isCart = widget.location === "CART";
     const css = String(style.customCss || "").replace(/<\/style/gi, "");
-    const directWeight =
-      !isCart && widget.weight?.displayMode === "DIRECT" && widget.weight?.value
-        ? `<p class="edd-widget__weight">Weight: ${escapeHtml(widget.weight.value)}</p>`
-        : "";
     if (!shouldShowDates(widget)) {
-      body.innerHTML = `${css ? `<style>${css}</style>` : ""}${directWeight}`;
+      body.innerHTML = `${css ? `<style>${css}</style>` : ""}`;
       return;
     }
     const theme = style.themeColor || "#202223";
@@ -575,12 +657,12 @@
       !["BANNER", "CARD", "TRACKER", "JOURNEY"].includes(design);
     const showDescriptionAbove =
       descriptionEnabled && ["BANNER", "CARD", "TRACKER", "JOURNEY"].includes(design);
-    const titleBit = titleEnabled ? `<span style="${titleStyle}">${escapeHtml(headingText)} </span>` : "";
+    const titleBit = titleEnabled ? `<span style="${titleStyle}">${formatInline(headingText)} </span>` : "";
     const classicTitle =
       titleEnabled || headerEnabled
         ? `<div class="edd-widget__title-row">${
             headerEnabled ? `<span class="edd-widget__title-icon">${icon(headerIcon)}</span>` : ""
-          }${titleEnabled ? `<p class="edd-widget__heading" style="${titleStyle}">${escapeHtml(headingText)}</p>` : ""}</div>`
+          }${titleEnabled ? `<p class="edd-widget__heading" style="${titleStyle}">${formatInline(headingText)}</p>` : ""}</div>`
         : "";
     const items = widget.items || [];
     const perProduct = isCart && widget.cart?.displayMode === "PER_PRODUCT" && items.length > 0;
@@ -710,7 +792,6 @@
     body.innerHTML = `
       ${css ? `<style>${css}</style>` : ""}
       ${!["BANNER", "CARD", "TRACKER", "JOURNEY", "MOMENT", "BUBBLE", "EXPRESS", "SEGMENTS", "METER", "BAND"].includes(design) ? classicTitle : ""}
-      ${directWeight}
       ${showDescriptionRow ? descriptionRow(true) : ""}
       ${timeline}
       ${

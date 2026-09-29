@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { locationKey, namesMatch } from "../../lib/geo";
-import { PINCODE_COUNTRIES, WEIGHT_DISPLAY_MODES, groupDeliveryLocations, hasLocation } from "../../lib/pincode";
+import {
+  LOCATION_SELECTION,
+  PINCODE_COUNTRIES,
+  WEIGHT_DISPLAY_MODES,
+  groupDeliveryLocations,
+  hasLocation,
+} from "../../lib/pincode";
 
 function normalizePinEntries(entries = [], city = "") {
   return (entries || [])
@@ -179,9 +185,24 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
     setPincode({
       enabled: nextLocations.length > 0 ? current.enabled : current.enabled,
       countries: nextCountries,
+      countryModes: nextCountries.reduce((modes, item) => {
+        modes[item] = current.countryModes?.[item] || LOCATION_SELECTION.SPECIFIC;
+        return modes;
+      }, {}),
       locations: nextLocations,
       country: nextCountries[0] || "IN",
       pincodes: [],
+    });
+  };
+
+  const setCountryMode = (iso, mode) => {
+    const country = String(iso || "").toUpperCase();
+    const nextMode = mode === LOCATION_SELECTION.ALL ? LOCATION_SELECTION.ALL : LOCATION_SELECTION.SPECIFIC;
+    setPincode({
+      countryModes: {
+        ...(latest.current.countryModes || {}),
+        [country]: nextMode,
+      },
     });
   };
 
@@ -202,8 +223,8 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
         country,
         city,
         state: resolvedState,
-        weight: weight.value || "",
-        unit: weight.unit || "kg",
+        weight: "",
+        unit: "",
         pincodes: pins,
       };
       setPincode({
@@ -255,7 +276,8 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
     <s-section aria-label="Pincode / delivery">
       <p className="edd-section-heading">Pincode / delivery</p>
       <s-paragraph color="subdued">
-        Select a country, then a city - one at a time. All pincodes for that city are added automatically.
+        Select a country, then choose specific cities or the entire country. A city includes every PIN code in that
+        city. An entire country includes every city and every PIN code in that country.
       </s-paragraph>
 
       {directWeight ? (
@@ -307,6 +329,7 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
                   loadingKeys={loadingKeys}
                   failedKeys={failedKeys}
                   onAddCity={addCity}
+                  onMode={setCountryMode}
                   onRemoveLocation={removeLocation}
                   onRemoveCountry={removeCountry}
                   onRetry={(city) => fillLocationPincodes(city, { force: true })}
@@ -314,7 +337,7 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
               ))}
             </div>
           ) : (
-            <p className="edd-help">Select a country to start. Then select a city under that country.</p>
+            <p className="edd-help">Select a country to start. Then choose specific cities or the entire country.</p>
           )}
 
           {lookupError || errors.pincodeRules ? (
@@ -332,11 +355,13 @@ function CountryBlock({
   loadingKeys,
   failedKeys,
   onAddCity,
+  onMode,
   onRemoveLocation,
   onRemoveCountry,
   onRetry,
 }) {
   const busy = addingKey.startsWith(`${group.country}|`);
+  const entireCountry = group.mode === LOCATION_SELECTION.ALL;
   return (
     <div className="edd-geo-country">
       <div className="edd-geo-country__head">
@@ -358,14 +383,40 @@ function CountryBlock({
           Remove
         </button>
       </div>
-      <CitySelect
-        country={group.country}
-        added={group.cities}
-        disabled={Boolean(addingKey)}
-        onAdd={(city, state) => onAddCity(group.country, city, state)}
-      />
-      {busy ? <p className="edd-help">Fetching all pincodes for this city…</p> : null}
-      {group.cities.length ? (
+      <div className="edd-geo-mode" role="radiogroup" aria-label={`${group.label} coverage`}>
+        <label>
+          <input
+            type="radio"
+            name={`coverage-${group.country}`}
+            checked={!entireCountry}
+            onChange={() => onMode(group.country, LOCATION_SELECTION.SPECIFIC)}
+          />
+          Specific cities
+        </label>
+        <label>
+          <input
+            type="radio"
+            name={`coverage-${group.country}`}
+            checked={entireCountry}
+            onChange={() => onMode(group.country, LOCATION_SELECTION.ALL)}
+          />
+          Entire country
+        </label>
+      </div>
+      {entireCountry ? (
+        <p className="edd-help">
+          Every city in {group.label} is included. Every PIN code in those cities is included automatically.
+        </p>
+      ) : (
+        <CitySelect
+          country={group.country}
+          added={group.cities}
+          disabled={Boolean(addingKey)}
+          onAdd={(city, state) => onAddCity(group.country, city, state)}
+        />
+      )}
+      {busy && !entireCountry ? <p className="edd-help">Fetching all pincodes for this city…</p> : null}
+      {!entireCountry && group.cities.length ? (
         <ul className="edd-geo-cities">
           {group.cities.map((city) => {
             const key = locationIdentity(city);
@@ -436,7 +487,7 @@ function CountryBlock({
             );
           })}
         </ul>
-      ) : (
+      ) : entireCountry ? null : (
         <p className="edd-help">Select a city to add it. Every pincode for that city is added automatically.</p>
       )}
     </div>

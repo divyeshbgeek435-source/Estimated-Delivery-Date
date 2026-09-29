@@ -4,6 +4,7 @@ import {
   isValidTimeZone,
   resolveTimeZone,
   searchTimeZones,
+  timezoneForStore,
 } from "./timezone.js";
 
 function assert(condition, message) {
@@ -58,6 +59,26 @@ run("invalid values are rejected", () => {
   assert(!isValidTimeZone("s"), `"s" should be invalid`);
   assert(!isValidTimeZone("Asia"), "incomplete zone should be invalid");
   assert(!isValidTimeZone("Not/A_Zone"), "unknown zone should be invalid");
+});
+
+run("store timezone is resolved for the current store", () => {
+  assert(
+    timezoneForStore("UTC", "America/New_York") === "America/New_York",
+    "UTC should use the store timezone",
+  );
+  assert(
+    timezoneForStore("", "Europe/London") === "Europe/London",
+    "empty timezone should use that store timezone",
+  );
+  assert(
+    timezoneForStore("Asia/Kolkata", "America/New_York") === "America/New_York",
+    "a stored timezone should not override the current store",
+  );
+  assert(
+    timezoneForStore("Europe/Paris", "Asia/Tokyo") === "Asia/Tokyo",
+    "each store keeps its own timezone",
+  );
+  assert(timezoneForStore("Europe/Paris", "") === "Europe/Paris", "missing store timezone keeps the saved zone");
 });
 
 run("resolveTimeZone falls back safely", () => {

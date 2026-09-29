@@ -57,15 +57,37 @@ export function widgetAppliesToProduct(widget, productId, collectionIds = []) {
   return true;
 }
 
+function marketToken(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function addMarketToken(tokens, value) {
+  const token = marketToken(value);
+  if (token) tokens.add(token);
+}
+
 export function widgetAppliesToMarket(widget, marketHandle, country) {
-  if (!widget.marketMode || widget.marketMode === "ALL") return true;
+  if (!widget?.marketMode || widget.marketMode === "ALL") return true;
   const ids = widget.marketIds || [];
   const markets = widget.markets || [];
-  if (!ids.length && !markets.length) return true;
-  const handles = markets.map((item) => item.handle || item.id);
-  const titles = markets.map((item) => item.title);
-  if (marketHandle && (ids.includes(marketHandle) || handles.includes(marketHandle))) return true;
-  if (country && (ids.includes(country) || titles.includes(country) || handles.includes(country))) return true;
+  if (!ids.length && !markets.length) return false;
+
+  const tokens = new Set();
+  for (const id of ids) addMarketToken(tokens, id);
+  for (const market of markets) {
+    addMarketToken(tokens, market?.id);
+    addMarketToken(tokens, market?.handle);
+    addMarketToken(tokens, market?.title);
+    for (const code of market?.countries || []) addMarketToken(tokens, code);
+  }
+
+  const iso = String(country || "").trim().toUpperCase();
+  if (marketToken(marketHandle) && tokens.has(marketToken(marketHandle))) return true;
+  if (iso && tokens.has(marketToken(iso))) return true;
   return false;
 }
 
@@ -94,5 +116,5 @@ export function pickStorefrontWidget(widgets, { productId, collectionIds = [], m
     (widget) => widget.marketMode === "SPECIFIC" && widgetAppliesToMarket(widget, marketHandle, country),
   );
   if (specific.length) return specific[0];
-  return matching.find((widget) => widget.marketMode !== "SPECIFIC") || matching[0] || null;
+  return matching.find((widget) => widget.marketMode !== "SPECIFIC") || null;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { WEIGHT_DISPLAY_MODES, WEIGHT_UNITS } from "../../lib/pincode";
+import { WEIGHT_DISPLAY_MODES } from "../../lib/pincode";
 
 const OPTIONS = [
   {
@@ -65,7 +65,6 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
     return true;
   });
 
-  const setWeight = (patch) => onChange({ weightRules: { ...weight, ...patch } });
   const selected = OPTIONS.find((item) => item.value === (weight.displayMode || effectiveMode));
 
   const choose = (displayMode) => {
@@ -107,36 +106,6 @@ export function WeightDisplayPicker({ shipping, onChange, autoOpen = false, widg
           {selected ? "Change" : "Select option"}
         </button>
       </div>
-
-      <div className="edd-subsection">
-      <s-grid gridTemplateColumns="1fr 8rem" gap="base">
-        <s-text-field
-          label="Default weight"
-          name="weightValue"
-          value={weight.value || ""}
-          details="Used when a location has no specific weight."
-          onInput={(event) => {
-            const raw = String(event.currentTarget.value || "").slice(0, 16);
-            const sanitized = raw.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
-            setWeight({ value: sanitized });
-          }}
-        ></s-text-field>
-        <s-text-field
-          label="Unit"
-          name="weightUnit"
-          value={weight.unit || ""}
-          placeholder="kg"
-          list="edd-weight-units"
-          details="Type any unit, such as kg, g, lb, or pcs."
-          onInput={(event) => setWeight({ unit: String(event.currentTarget.value || "").slice(0, 16) })}
-        ></s-text-field>
-      </s-grid>
-      </div>
-      <datalist id="edd-weight-units">
-        {WEIGHT_UNITS.map((item) => (
-          <option key={item.value} value={item.value}></option>
-        ))}
-      </datalist>
 
       {open ? (
         <div className="edd-live-overlay" role="dialog" aria-modal="true" aria-labelledby="edd-weight-title">

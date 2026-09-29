@@ -1,4 +1,13 @@
 import { DeliveryIcon } from "../icons/DeliveryIcon";
+import { FormattedText } from "./FormattedText";
+
+function decoratePart(part, node) {
+  let next = node;
+  if (part.underline) next = <u>{next}</u>;
+  if (part.italic) next = <em>{next}</em>;
+  if (part.bold && !part.highlight) next = <strong>{next}</strong>;
+  return next;
+}
 
 function JourneyRange({ label, color }) {
   const text = String(label || "").trim();
@@ -20,9 +29,18 @@ function JourneyRange({ label, color }) {
   return <strong style={{ color }}>{text}</strong>;
 }
 
+function needsSpace(previous, next) {
+  if (!previous || !next || previous.type === "image" || next.type === "image") return false;
+  const left = String(previous.text || "");
+  const right = String(next.text || "");
+  if (!left || !right) return false;
+  return !/\s$/.test(left) && !/^[\s,.;:!?)]/.test(right);
+}
+
 function MessageParts({ segments, accentColor }) {
   if (!segments?.length) return null;
   return segments.map((part, index) => {
+    const space = needsSpace(segments[index - 1], part) ? " " : "";
     if (part.type === "image") {
       if (!part.src) return null;
       return <img key={index} className="edd-inline-image" src={part.src} alt="" />;
@@ -30,11 +48,17 @@ function MessageParts({ segments, accentColor }) {
     if (part.highlight) {
       return (
         <strong key={index} style={accentColor ? { color: accentColor } : undefined}>
-          {part.text}
+          {space}
+          {decoratePart(part, part.text)}
         </strong>
       );
     }
-    return <span key={index}>{part.text}</span>;
+    return (
+      <span key={index}>
+        {space}
+        {decoratePart(part, part.text)}
+      </span>
+    );
   });
 }
 
@@ -91,7 +115,7 @@ export function AnimatedEtaTemplate({
                   <DeliveryIcon name={headerIcon || "flag"} color={theme} />
                 </span>
               ) : null}
-              {titleOn ? headingText : null}
+              {titleOn ? <FormattedText value={headingText} /> : null}
             </p>
           ) : null}
           <DescriptionBlock show={showDescription} segments={descriptionSegments} accentColor={accent} />
@@ -132,7 +156,7 @@ export function AnimatedEtaTemplate({
         <DescriptionBlock show={showDescription} segments={descriptionSegments} accentColor={accent} className="edd-anim__lead edd-anim__lead--above" />
         <div className="edd-anim__banner">
           <span>
-            {titleOn ? <span style={titleStyle}>{headingText || "Delivery Date"} </span> : null}
+            {titleOn ? <span style={titleStyle}><FormattedText value={headingText || "Delivery Date"} /> </span> : null}
             <JourneyRange label={deliveredRange} color={textColor} />
           </span>
           {headerEnabled ? (
@@ -175,7 +199,7 @@ export function AnimatedEtaTemplate({
           <div>
             {titleOn && headingText ? (
               <p className="edd-anim__express-title" style={titleStyle}>
-                {headingText}
+                <FormattedText value={headingText} />
               </p>
             ) : null}
             {showDescription && descriptionSegments?.length ? (
@@ -221,7 +245,7 @@ export function AnimatedEtaTemplate({
             ) : null}
             {titleOn ? (
               <p className="edd-anim__title" style={titleStyle}>
-                {headingText}
+                <FormattedText value={headingText} />
               </p>
             ) : null}
           </div>
@@ -256,7 +280,7 @@ export function AnimatedEtaTemplate({
             ) : null}
             {titleOn ? (
               <p className="edd-anim__title" style={titleStyle}>
-                {headingText}
+                <FormattedText value={headingText} />
               </p>
             ) : null}
           </div>
@@ -299,7 +323,7 @@ export function AnimatedEtaTemplate({
             ) : null}
             {titleOn ? (
               <p className="edd-anim__title" style={titleStyle}>
-                {headingText}
+                <FormattedText value={headingText} />
               </p>
             ) : null}
           </div>

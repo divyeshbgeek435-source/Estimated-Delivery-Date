@@ -1,7 +1,7 @@
 import { INDIA_STATES, namesMatch, normalizePlaceName, stateAbbreviation, uniqueNames } from "./geo";
 import {
   PINCODE_AVAILABLE_MESSAGE,
-  formatWeightDisplay,
+  countryCoverageMode,
   matchPincodeRule,
   normalizeCountry,
   normalizePincode,
@@ -461,8 +461,8 @@ function availableFromEntry(entry, rules, weightRules, productWeight, shipping) 
   const weights = normalizeWeightRules(weightRules);
   const displayMode = resolveWeightDisplayMode(weights, normalized);
   const weightValue = entry.weight
-    ? `${String(entry.weight).trim()} ${String(entry.unit || weights.unit || "").trim()}`.trim()
-    : formatWeightDisplay(weights, productWeight);
+    ? `${String(entry.weight).trim()} ${String(entry.unit || "").trim()}`.trim()
+    : String(productWeight || "").trim();
   return {
     enabled: true,
     available: true,
@@ -522,7 +522,10 @@ export async function resolveStorefrontPincodeState({
 
   // Always try postal lookup for selected cities - even when the first pass already
   // marked unavailable (e.g. empty saved pin lists / country-only coverage).
-  if ((expanded.locations || []).length || state.needsLookup) {
+  const coversWholeCountry = (expanded.countries || []).some(
+    (country) => countryCoverageMode(expanded, country) === "ALL",
+  );
+  if ((expanded.locations || []).length || coversWholeCountry || state.needsLookup) {
     const place = await lookupPlaceForRules(expanded, code);
     state = publicPincodeState(expanded, { ...options, place });
     return { state, rules: expanded, place };

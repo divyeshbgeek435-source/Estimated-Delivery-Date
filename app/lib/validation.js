@@ -117,6 +117,16 @@ export const shippingSchema = z
           ),
           country: asString("IN").pipe(z.string().trim().toUpperCase().min(2).max(2)),
           countries: z.array(asString("").pipe(z.string().trim().toUpperCase().min(2).max(2))).max(40).default([]),
+          countryModes: z.preprocess((value) => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+            const next = {};
+            for (const [key, mode] of Object.entries(value)) {
+              const country = String(key || "").trim().toUpperCase().slice(0, 2);
+              if (country.length !== 2) continue;
+              next[country] = mode === LOCATION_SELECTION.ALL ? LOCATION_SELECTION.ALL : LOCATION_SELECTION.SPECIFIC;
+            }
+            return next;
+          }, z.record(z.string(), z.enum([LOCATION_SELECTION.ALL, LOCATION_SELECTION.SPECIFIC])).default({})),
           locations: z
             .array(
               z.object({
@@ -234,7 +244,7 @@ export const shippingSchema = z
   });
 
 export const messageSchema = z.object({
-  heading: asString("").pipe(z.string().trim().max(80)),
+  heading: asString("").pipe(z.string().trim().max(120)),
   template: asString(
     "Order today within {counter}, you'll receive your package between {delivery_from} to {delivery_to}",
   ).pipe(z.string().trim().min(1).max(500)),
@@ -424,6 +434,7 @@ export const editorSchema = z.object({
         id: asString(),
         title: asString("Market"),
         handle: asOptionalString,
+        countries: z.array(z.string()).optional().default([]),
       }),
     )
     .nullish()

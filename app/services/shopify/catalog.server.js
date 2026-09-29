@@ -131,6 +131,17 @@ const MARKETS_QUERY = `#graphql
         name
         handle
         status
+        conditions {
+          regionsCondition {
+            regions(first: 250) {
+              nodes {
+                ... on MarketRegionCountry {
+                  code
+                }
+              }
+            }
+          }
+        }
       }
     }
   }
@@ -172,6 +183,13 @@ export async function searchMarkets(admin, { q = "", first = 50 } = {}) {
         id: market.id,
         title: market.name,
         handle: market.handle,
+        countries: [
+          ...new Set(
+            (market.conditions?.regionsCondition?.regions?.nodes || [])
+              .map((region) => String(region?.code || "").trim().toUpperCase())
+              .filter(Boolean),
+          ),
+        ],
       }));
     const query = q.trim().toLowerCase();
     return {

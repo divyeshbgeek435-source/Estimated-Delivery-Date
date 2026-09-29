@@ -1,4 +1,5 @@
 import { addDays, format, parseISO } from "date-fns";
+import { formatRuns } from "./rich-text";
 import { FALLBACK_TIMEZONE, resolveTimeZone } from "./timezone";
 
 export { FALLBACK_TIMEZONE, resolveTimeZone } from "./timezone";
@@ -357,34 +358,40 @@ const HIGHLIGHT_MESSAGE_KEYS = new Set([
   "order_date",
 ]);
 
+function separateMessageTokens(template) {
+  return String(template || "")
+    .replace(/\}\s*\{/g, "} {")
+    .replace(/([^\s*_])\{/g, "$1 {")
+    .replace(/\}([A-Za-z])/g, "} $1");
+}
+
 export function messageSegments(template, values = {}) {
-  const parts = [];
-  const source = String(template || "");
-  const token = /\{([a-z_]+)\}/gi;
-  let lastIndex = 0;
-  let match = token.exec(source);
-  while (match) {
-    if (match.index > lastIndex) {
-      parts.push({ type: "text", text: source.slice(lastIndex, match.index), highlight: false });
-    }
-    const key = match[1];
-    if (key === "image") {
-      parts.push({ type: "image", src: String(values.image || "") });
-    } else {
-      const known = Object.prototype.hasOwnProperty.call(values, key);
-      parts.push({
+  return formatRuns(separateMessageTokens(template))
+    .map((run) => {
+      if (run.type === "token" && run.key === "image") {
+        return { type: "image", src: String(values.image || "") };
+      }
+      if (run.type === "token") {
+        const known = Object.prototype.hasOwnProperty.call(values, run.key);
+        return {
+          type: "text",
+          text: known ? String(values[run.key] ?? "") : `{${run.key}}`,
+          highlight: known && HIGHLIGHT_MESSAGE_KEYS.has(run.key),
+          bold: run.bold,
+          italic: run.italic,
+          underline: run.underline,
+        };
+      }
+      return {
         type: "text",
-        text: known ? String(values[key] ?? "") : match[0],
-        highlight: known && HIGHLIGHT_MESSAGE_KEYS.has(key),
-      });
-    }
-    lastIndex = token.lastIndex;
-    match = token.exec(source);
-  }
-  if (lastIndex < source.length) {
-    parts.push({ type: "text", text: source.slice(lastIndex), highlight: false });
-  }
-  return parts;
+        text: run.text,
+        highlight: false,
+        bold: run.bold,
+        italic: run.italic,
+        underline: run.underline,
+      };
+    })
+    .filter((part) => part.type === "image" || part.text);
 }
 
 export function escapeHtml(value) {
@@ -403,8 +410,11 @@ export function resolveMessageHtml(template, values = {}) {
         if (!src) return "";
         return `<img class="edd-inline-image" src="${escapeHtml(src)}" alt="" />`;
       }
-      const text = escapeHtml(part.text);
-      return part.highlight ? `<strong>${text}</strong>` : text;
+      let text = escapeHtml(part.text);
+      if (part.underline) text = `<u>${text}</u>`;
+      if (part.italic) text = `<em>${text}</em>`;
+      if (part.highlight || part.bold) text = `<strong>${text}</strong>`;
+      return text;
     })
     .join("");
 }

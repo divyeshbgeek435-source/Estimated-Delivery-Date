@@ -48,11 +48,11 @@ export function StyleForm({ style, onChange, errors = {} }) {
             ></s-color-field>
             <s-select
               label="Direction"
-              name="gradientDirection"
-              value={style.gradientDirection}
-              onChange={(event) =>
-                onChange({ ...style, gradientDirection: event.currentTarget.value })
-              }
+              value={style.gradientDirection || "TO_BOTTOM"}
+              onChange={(event) => {
+                const next = event.currentTarget.values?.[0] || event.currentTarget.value;
+                if (next) onChange({ ...style, gradientDirection: next });
+              }}
             >
               {GRADIENT_DIRECTIONS.map((item) => (
                 <s-option key={item.value} value={item.value}>
@@ -60,6 +60,7 @@ export function StyleForm({ style, onChange, errors = {} }) {
                 </s-option>
               ))}
             </s-select>
+            <input type="hidden" name="gradientDirection" value={style.gradientDirection || "TO_BOTTOM"} />
             <input type="hidden" name="backgroundColor" value={style.backgroundColor} />
           </s-stack>
         ) : (

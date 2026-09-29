@@ -2,6 +2,7 @@ import { publicStorefrontConfig } from "../analytics/analytics.server";
 import { buildStorefrontDelivery } from "../delivery/delivery-calculator.server";
 import prisma from "../../lib/prisma.server";
 import { WIDGET_STATUSES } from "../../lib/constants";
+import { timezoneForStore } from "../../lib/timezone";
 
 export async function syncCheckoutMetafield(admin, widget) {
   if (!admin || !widget || widget.location !== "CHECKOUT") return;
@@ -28,7 +29,13 @@ export async function syncCheckoutMetafield(admin, widget) {
           })
         : null;
       const shipping = product?.shippingRules || widget.shippingRules;
-      const timezone = product?.timezone || widget.timezone;
+      const merchant = widget.merchantId
+        ? await prisma.merchant.findUnique({
+            where: { id: widget.merchantId },
+            select: { timezone: true },
+          })
+        : null;
+      const timezone = timezoneForStore(product?.timezone || widget.timezone, merchant?.timezone);
       const delivery = buildStorefrontDelivery(shipping, timezone, new Date(), {
         dateSettings: {
           dateFormat: widget.messageConfig?.dateFormat,

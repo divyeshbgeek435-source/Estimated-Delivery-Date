@@ -44,6 +44,13 @@ export function resolveTimeZone(value, fallback = FALLBACK_TIMEZONE) {
   return FALLBACK_TIMEZONE;
 }
 
+/** Live store timezone. A saved widget timezone is used only when the store has none. */
+export function timezoneForStore(savedTimezone, shopTimezone) {
+  const shop = String(shopTimezone || "").trim();
+  if (isValidTimeZone(shop)) return shop;
+  return resolveTimeZone(savedTimezone);
+}
+
 export function listIanaTimeZones() {
   let fromIntl = [];
   try {

@@ -230,12 +230,12 @@ function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone })
         ></s-number-field>
       </s-grid>
       <DaysLimitNote />
+      <TimezonePicker value={timezone} error={errors.timezone} onChange={onTimezone} />
       <CutoffFields
         value={shipping.cutoffTime}
         error={errors.cutoffTime}
         onChange={(cutoffTime) => onChange({ cutoffTime })}
       />
-      <TimezonePicker value={timezone} error={errors.timezone} onChange={onTimezone} />
       <DayPills
         label="Processing days"
         help="Days you prepare and ship orders"
@@ -290,7 +290,7 @@ function TransitSection({ shipping, errors, onChange }) {
           }
         ></s-number-field>
       </s-grid>
-      <DaysLimitNote />
+      <s-paragraph color="subdued">The date range will start only from the last processing date.</s-paragraph>
       <DayPills
         label="Transit days"
         help="Days carriers move the package"
@@ -355,6 +355,9 @@ function CutoffFields({ value, error, onChange }) {
           <s-option value="PM">PM</s-option>
         </s-select>
       </div>
+      <s-paragraph color="subdued">
+        {"{counter}"} is the time left until this cutoff. It counts down in the widget description.
+      </s-paragraph>
       {error ? <s-banner tone="critical">{error}</s-banner> : null}
     </s-stack>
     </div>

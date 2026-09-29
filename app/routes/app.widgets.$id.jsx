@@ -16,6 +16,7 @@ import {
   findLiveConflicts,
   listLiveProductWidgets,
   resolvePlacementConflict,
+  alignWidgetToStoreTimezone,
   saveWidgetEditor,
   serializeWidget,
 } from "../services/widgets/widget.server";
@@ -34,7 +35,7 @@ import { getCollectionProductHandle } from "../services/shopify/catalog.server";
 import { storefrontPageUrl, widgetThemeEditorUrl } from "../lib/theme-editor";
 import { queueWidgetStorefrontSync, needsThemeSync } from "../services/shopify/store-block.server";
 import { mergeIconLibraries } from "../lib/icon-media";
-import { saveMerchantIconLibrary } from "../services/shopify/merchant.server";
+import { saveMerchantIconLibrary, shopTimezoneForMerchant } from "../services/shopify/merchant.server";
 
 async function firstProductHandle(admin, widget) {
   const fromPlacement = widget.placementConfig?.products?.[0]?.handle;
@@ -64,7 +65,9 @@ async function firstProductHandle(admin, widget) {
 }
 
 export const loader = async ({ request, params }) => {
-  const { admin, widget, shop, merchant } = await requireWidget(request, params.id);
+  const { admin, widget: loadedWidget, shop, merchant } = await requireWidget(request, params.id);
+  const shopTimezone = await shopTimezoneForMerchant(admin, merchant);
+  const widget = alignWidgetToStoreTimezone(loadedWidget, shopTimezone);
   const [productHandle, deliveryRequests, liveProductWidgets] = await Promise.all([
     firstProductHandle(admin, widget),
     listDeliveryRequests(widget.merchantId, widget.id),
@@ -94,6 +97,7 @@ export const loader = async ({ request, params }) => {
       position: widget.placementConfig?.position,
     }),
     shop,
+    shopTimezone,
     storefrontUrl: storefrontPageUrl(shop, widget.location, productHandle),
   };
 };
@@ -460,6 +464,7 @@ export default function WidgetEditorRoute() {
       conflict={actionData?.conflict || null}
       themeEditorUrl={loaderData.themeEditorUrl}
       shop={loaderData.shop}
+      shopTimezone={loaderData.shopTimezone}
       storefrontUrl={loaderData.storefrontUrl}
     />
   );

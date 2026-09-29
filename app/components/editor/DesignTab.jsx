@@ -3,6 +3,7 @@ import { boundedIntFromEvent, STYLE_NUMBER_LIMITS } from "../../lib/number-input
 import { widgetProfile } from "../../lib/widget-profiles";
 import { ActionButton, HostChoiceList } from "../common/ActionButton";
 import { IconMediaPicker } from "../common/IconMediaPicker";
+import { TextEditorField } from "./TextEditorField";
 
 function onStyleNumber(event, key, bounds, setStyle) {
   const next = boundedIntFromEvent(event, bounds, bounds.min);
@@ -296,13 +297,14 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           ></s-checkbox>
           {headingEnabled ? (
             <>
-              <s-text-field
+              <TextEditorField
                 label="Template title"
                 name="heading"
                 value={draft.messageConfig?.heading || ""}
                 placeholder="Estimated Delivery Date"
-                onInput={(event) => setMessage({ heading: event.currentTarget.value })}
-              ></s-text-field>
+                maxLength={120}
+                onChange={(heading) => setMessage({ heading })}
+              />
               <s-select
                 label="Title weight"
                 name="headingFontWeight"
@@ -358,14 +360,16 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
           onChange={(event) => setMessage({ descriptionEnabled: Boolean(event.currentTarget.checked) })}
         ></s-checkbox>
         {descriptionEnabled ? (
-          <s-text-area
+          <TextEditorField
             label="Description"
             name="template"
+            multiline
             rows={3}
             value={message.template}
             error={errors.template}
-            onInput={(event) => setMessage({ template: event.currentTarget.value })}
-          ></s-text-area>
+            maxLength={500}
+            onChange={(template) => setMessage({ template })}
+          />
         ) : (
           <input type="hidden" name="template" value={message.template} />
         )}
@@ -527,9 +531,11 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
             ></s-color-field>
             <s-select
               label="Direction"
-              name="gradientDirection"
-              value={style.gradientDirection}
-              onChange={(event) => setStyle({ gradientDirection: event.currentTarget.value })}
+              value={style.gradientDirection || "TO_BOTTOM"}
+              onChange={(event) => {
+                const next = event.currentTarget.values?.[0] || event.currentTarget.value;
+                if (next) setStyle({ gradientDirection: next });
+              }}
             >
               {GRADIENT_DIRECTIONS.map((item) => (
                 <s-option key={item.value} value={item.value}>
@@ -537,6 +543,7 @@ export function DesignTab({ widget, draft, onChange, errors = {} }) {
                 </s-option>
               ))}
             </s-select>
+            <input type="hidden" name="gradientDirection" value={style.gradientDirection || "TO_BOTTOM"} />
             <input type="hidden" name="backgroundColor" value={style.backgroundColor} />
           </s-stack>
         ) : backgroundType === "SOLID" ? (
@@ -820,9 +827,8 @@ function variableHelp(tag) {
     "{delivery_from}": "Estimated delivery from date",
     "{delivery_to}": "Estimated delivery to date",
     "{delivery_date}": "Full delivery date range (from–to)",
-    "{stock_left}": "Number of items left in stock",
-    "{product_name}": "Name of the product",
-    "{image}": "Inserts the header image inline in the description",
+    // "{stock_left}": "Number of items left in stock",
+    "{product_name}": "Name of the product", 
   };
   return help[tag] || "";
 }

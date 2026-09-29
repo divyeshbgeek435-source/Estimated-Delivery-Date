@@ -19,7 +19,7 @@ import { normalizePincodeRules, normalizeWeightRules, toCountryRules } from "../
 import { expandPincodeRulesForCheck } from "../../lib/pincode.server";
 import { syncedPlacementIds } from "../../lib/form.server";
 import { normalizePosition } from "../../lib/widget-profiles";
-import { resolveTimeZone } from "../../lib/timezone";
+import { resolveTimeZone, timezoneForStore } from "../../lib/timezone";
 import { normalizeIconLibrary } from "../../lib/icon-media";
 import {
   ACTIVATION_CONFLICT_KEY,
@@ -753,6 +753,14 @@ function checkoutCreateData(checkout = {}) {
   return { ...DEFAULT_CHECKOUT, ...compact(checkout) };
 }
 
+export function alignWidgetToStoreTimezone(widget, shopTimezone) {
+  if (!widget) return widget;
+  return {
+    ...widget,
+    timezone: timezoneForStore(widget.timezone, shopTimezone),
+  };
+}
+
 export async function createDraftWidget(merchantId, options = {}) {
   const location = options.location || "PRODUCT";
   const displayMode = options.displayMode || "GENERAL";
@@ -1072,9 +1080,10 @@ export async function getActiveStorefrontWidgets(shopDomain, location) {
     orderBy: { updatedAt: "desc" },
   });
 
-  const mapped = widgets.map(withDefaults);
+  const mapped = widgets.map((widget) => alignWidgetToStoreTimezone(withDefaults(widget), merchant.timezone));
   if (location !== "CART") return mapped;
-  return Promise.all(mapped.map((widget) => inheritCartShipping(widget, merchant.id)));
+  const inherited = await Promise.all(mapped.map((widget) => inheritCartShipping(widget, merchant.id)));
+  return inherited.map((widget) => alignWidgetToStoreTimezone(widget, merchant.timezone));
 }
 
 export async function getWidgetByShop(shopDomain, widgetId) {

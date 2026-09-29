@@ -24,6 +24,7 @@ import { ErrorBanner } from "../common/Feedback";
 import { WidgetConfirmDialog } from "../common/LivePublishedDialog";
 import { PlacementConflictDialog } from "../common/PlacementConflictDialog";
 import { conflictDialogCopy } from "../../lib/widget-conflicts";
+import { timezoneForStore } from "../../lib/timezone";
 import { ConditionsTab } from "./ConditionsTab";
 import { DesignTab } from "./DesignTab";
 import { PlacementTab } from "./PlacementTab";
@@ -51,6 +52,12 @@ function tabFromUrl() {
   if (typeof window === "undefined") return "conditions";
   const value = new URLSearchParams(window.location.search).get("tab");
   return normalizeTab(value);
+}
+
+function withStoreTimezone(widget, shopTimezone) {
+  const next = structuredClone(widget);
+  next.timezone = timezoneForStore(widget?.timezone, shopTimezone);
+  return next;
 }
 
 function SaveStatus({ status, onRetry }) {
@@ -81,12 +88,13 @@ export function WidgetWorkspace({
   conflict: conflictProp = null,
   themeEditorUrl = "",
   storefrontUrl = "",
+  shopTimezone = "",
 }) {
   const shopify = useAppBridge();
   const navigate = useNavigate();
   const [tab, setTab] = useState(tabFromUrl);
   const [visitedTabs, setVisitedTabs] = useState(() => new Set([tabFromUrl()]));
-  const [draft, setDraft] = useState(() => structuredClone(widget));
+  const [draft, setDraft] = useState(() => withStoreTimezone(widget, shopTimezone));
   const [previewDevice, setPreviewDevice] = useState("desktop");
   const [saveAction, setSaveAction] = useState(() => saveActionFromStatus(widget.status));
   const [scheduleAt, setScheduleAt] = useState(() =>
@@ -139,13 +147,13 @@ export function WidgetWorkspace({
     null;
 
   useEffect(() => {
-    setDraft(structuredClone(widget));
+    setDraft(withStoreTimezone(widget, shopTimezone));
     setSaveAction(saveActionFromStatus(widget.status));
     setScheduleAt(
       toDatetimeLocal(widget.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt) || defaultScheduleValue(),
     );
     setEditorEpoch(0);
-  }, [widget.id]);
+  }, [widget.id, shopTimezone]);
 
   useEffect(() => {
     if (conflictProp) setConflict(conflictProp);

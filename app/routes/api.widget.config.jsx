@@ -104,7 +104,7 @@ async function handleConfig(request) {
       return json({ widget: await widgetPayload(widget, options) });
     }
 
-    const displayWidget = pickStorefrontWidget(widgets, { marketHandle, country }) || widgets[0];
+    const displayWidget = pickStorefrontWidget(widgets, { marketHandle, country });
     if (!displayWidget) return json({ widget: null });
 
     const productWidgets = await getActiveStorefrontWidgets(shop, WIDGET_LOCATIONS.PRODUCT);

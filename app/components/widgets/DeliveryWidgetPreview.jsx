@@ -16,7 +16,6 @@ import {
   asksForPincode,
   digitsOnly,
   formatPincodeStatusLine,
-  formatWeightDisplay,
   resolveDeliveryAvailability,
   resolveWeightDisplayMode,
   shippingWithPincodeRule,
@@ -24,6 +23,7 @@ import {
 import { CART_DISPLAY_MODES, ANIMATED_DESIGNS, WIDGET_LOCATIONS } from "../../lib/constants";
 import { clampToBounds, STYLE_NUMBER_LIMITS } from "../../lib/number-input";
 import { AnimatedEtaTemplate, JourneyRange, MessageParts } from "./AnimatedEtaTemplates";
+import { FormattedText } from "./FormattedText";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
 
 async function checkDelivery(code, shipping, productWeight = "") {
@@ -132,8 +132,6 @@ export function DeliveryWidgetPreview({
   const displayMode = resolveWeightDisplayMode(shipping.weightRules, pincode);
   // Live cart/checkout never shows the pincode/weight checker - keep preview identical.
   const askPincode = !isCart && asksForPincode(shipping.weightRules, pincode);
-  const showWeight = !isCart && displayMode === WEIGHT_DISPLAY_MODES.DIRECT;
-  const directWeight = formatWeightDisplay(shipping.weightRules, previewProductWeight);
   const matchedShipping = check?.available ? shippingWithPincodeRule(shipping, check) : shipping;
   const showDates =
     isCart ||
@@ -194,7 +192,11 @@ export function DeliveryWidgetPreview({
     Math.max(12, clampToBounds(style.statusFontSize, STYLE_NUMBER_LIMITS.statusFontSize, 13)),
   );
   const cardBackground =
-    style.backgroundType === "TRANSPARENT" ? "#ffffff" : style.backgroundColor || "#E8E8E8";
+    style.backgroundType === "TRANSPARENT"
+      ? "#ffffff"
+      : style.backgroundType === "GRADIENT"
+        ? style.gradientStart || "#FFFFFF"
+        : style.backgroundColor || "#E8E8E8";
   const purchasedDate = formatTimelineLabel(getZonedParts(now, zone).dateStr);
   const processingDate = formatTimelineLabel(delivery.processingDateMin, delivery.processingDateMax);
   const deliveredDate = formatTimelineLabel(delivery.deliveryDateMin, delivery.deliveryDateMax);
@@ -231,7 +233,6 @@ export function DeliveryWidgetPreview({
   const gap = clampToBounds(style.paddingMiddle, STYLE_NUMBER_LIMITS.padding, 12);
   let designName = design || (layout === "MINIMAL" ? "COMPACT" : "TIMELINE");
   if (isCart && (designName === "COMPACT" || designName === "MINIMAL")) designName = "TIMELINE";
-  const shownWeight = check?.available ? check.weight : showWeight ? directWeight : "";
   const showPerProduct =
     location === WIDGET_LOCATIONS.CART && cartDisplayMode === CART_DISPLAY_MODES.PER_PRODUCT;
   const deliveryFrom = values.delivery_from || formatWidgetDate(delivery.deliveryDateMin, dateSettings);
@@ -323,15 +324,10 @@ export function DeliveryWidgetPreview({
           ) : null}
           {titleEnabled ? (
             <p className="edd-preview__heading" style={titleStyle}>
-              {headingText}
+              <FormattedText value={headingText} />
             </p>
           ) : null}
         </div>
-      ) : null}
-      {showWeight ? (
-        <p className="edd-preview__weight">
-          Weight: {shownWeight || (shipping.weightRules?.useProductWeight ? "product weight" : "-")}
-        </p>
       ) : null}
       {showDates &&
       showDescription &&
@@ -356,7 +352,7 @@ export function DeliveryWidgetPreview({
             </span>
           ) : null}
           <p className="edd-preview__banner-text">
-            {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
+            {titleEnabled ? <span style={titleStyle}><FormattedText value={headingText} /> </span> : null}
             <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
           </p>
         </div>
@@ -368,7 +364,7 @@ export function DeliveryWidgetPreview({
             </span>
           ) : null}
           <p>
-            {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
+            {titleEnabled ? <span style={titleStyle}><FormattedText value={headingText} /> </span> : null}
             <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
           </p>
         </div>
@@ -381,7 +377,7 @@ export function DeliveryWidgetPreview({
               </span>
             ) : null}
             <p>
-              {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
+              {titleEnabled ? <span style={titleStyle}><FormattedText value={headingText} /> </span> : null}
               <strong style={{ color: style.dynamicColor || textColor }}>{deliveredRange}</strong>
             </p>
           </div>
@@ -444,7 +440,7 @@ export function DeliveryWidgetPreview({
                 </span>
               ) : null}
               <p>
-                {titleEnabled ? <span style={titleStyle}>{headingText} </span> : null}
+                {titleEnabled ? <span style={titleStyle}><FormattedText value={headingText} /> </span> : null}
                 <JourneyRange label={deliveredRange} color={style.dynamicColor || textColor} />
               </p>
             </div>

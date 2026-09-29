@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSubmit } from "react-router";
+import { useNavigate, useNavigation, useSubmit } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { locationLabel, WIDGET_LOCATIONS, WIDGET_STATUSES } from "../../lib/constants";
 import { afterPaint } from "../../lib/after-paint";
@@ -244,17 +244,10 @@ export function DashboardHome({
 
       {error ? <s-banner tone="critical">{error}</s-banner> : null}
 
-      {!error && embed.enabled === false && !embed.missingThemeAccess ? (
+      {!error && embed.enabled === false ? (
         <s-banner tone="warning" heading="App embed is off">
           Widgets won’t show on your storefront until you turn on Estimated delivery embed in the theme editor, then
           click Save.
-        </s-banner>
-      ) : null}
-
-      {!error && embed.missingThemeAccess ? (
-        <s-banner tone="warning" heading="Theme access needed">
-          Allow theme access so the app can detect whether the embed is on. Then turn on Estimated delivery embed and
-          Save in the theme editor.
         </s-banner>
       ) : null}
 
@@ -431,14 +424,8 @@ function OverviewMetrics({
   embed,
   fallbackEmbedUrl,
 }) {
-  const embedRefreshing = embed.refreshing || (embed.enabled == null && !embed.missingThemeAccess);
-  const embedLabel = embedRefreshing
-    ? "Checking…"
-    : embed.missingThemeAccess
-      ? "Needs access"
-      : embed.enabled
-        ? "Active"
-        : "Off";
+  const embedRefreshing = embed.refreshing || embed.enabled == null;
+  const embedLabel = embedRefreshing ? "Checking…" : embed.enabled ? "Active" : "Off";
   const widgetsHelp =
     scheduledCount > 0
       ? `${liveCount} live · ${scheduledCount} scheduled · ${widgetCount} total`
@@ -494,19 +481,6 @@ function OverviewMetrics({
           <p className="edd-metric-card__value edd-metric-card__value--status">{embedLabel}</p>
           {embed.enabled ? (
             <p className="edd-metric-card__help">On in the theme editor</p>
-          ) : embed.missingThemeAccess ? (
-            !embedRefreshing ? (
-              <div className="edd-metric-card__actions">
-                <span
-                  className="edd-tooltip edd-tooltip--above"
-                  data-tooltip="Allow theme access so the app can check whether the embed is on."
-                >
-                  <ActionButton variant="primary" onClick={() => embed.requestAccess?.()}>
-                    Allow theme access
-                  </ActionButton>
-                </span>
-              </div>
-            ) : null
           ) : !embedRefreshing ? (
             <div className="edd-metric-card__actions">
               <span
@@ -561,7 +535,6 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
   const shopify = useAppBridge();
   const [statusData, setStatusData] = useState(initialStatus);
   const inFlight = useRef(false);
-  const requestedScope = useRef(false);
   const openedEditor = useRef(false);
   const [refreshing, setRefreshing] = useState(!initialStatus);
   const [bridgeEnabled, setBridgeEnabled] = useState(null);
@@ -610,32 +583,11 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
     void refreshBridge();
   };
 
-  const requestThemeAccess = async () => {
-    try {
-      const current = await shopify.scopes?.query?.();
-      const granted = current?.granted || [];
-      const needed = ["read_themes", "write_themes"].filter((scope) => !granted.includes(scope));
-      if (needed.length) {
-        await shopify.scopes.request(needed);
-      }
-    } catch {
-      // Continue and re-check with whatever access the session has.
-    }
-    requestedScope.current = true;
-    loadStatus(true, { fresh: true });
-    await refreshBridge();
-  };
-
   useEffect(() => {
     void refreshBridge();
     // Initial status comes from the page loader - only refetch in the background.
     if (!initialStatus) {
       loadStatus(true, { fresh: true });
-    } else if (initialStatus.missingThemeAccess && !requestedScope.current) {
-      // Ask for theme scopes without blocking the first paint.
-      window.setTimeout(() => {
-        requestThemeAccess();
-      }, 0);
     }
 
     const onVisible = () => {
@@ -663,11 +615,9 @@ function useEmbedStatus(fallbackEmbedUrl, initialStatus = null) {
   return {
     refreshing: refreshing && enabled == null && data == null,
     enabled,
-    missingThemeAccess: Boolean(data?.missingThemeAccess),
     activateUrl: data?.themeEditorEmbed || fallbackEmbedUrl,
     manageUrl: data?.themeEditorEmbedManage || fallbackEmbedUrl,
     reload: (fresh = false) => loadStatus(true, { fresh }),
-    requestAccess: requestThemeAccess,
     markEditorOpened: () => {
       openedEditor.current = true;
     },
@@ -740,6 +690,31 @@ function DeliveryRequestsList({
         </div>
       )}
     </s-section>
+  );
+}
+
+function SectionCreateButton({ location, variant = "secondary", slot }) {
+  const submit = useSubmit();
+  const navigation = useNavigation();
+  const creatingHere =
+    navigation.state !== "idle" &&
+    String(navigation.formAction || "").includes("/app/widgets/new") &&
+    String(navigation.formData?.get("location") || "") === location;
+
+  return (
+    <ActionButton
+      variant={variant}
+      icon="plus"
+      {...(slot ? { slot } : {})}
+      disabled={navigation.state !== "idle" || undefined}
+      {...(creatingHere ? { loading: true } : {})}
+      onClick={() => {
+        rememberHomeScroll();
+        submit({ location }, { method: "post", action: "/app/widgets/new" });
+      }}
+    >
+      Create
+    </ActionButton>
   );
 }
 
@@ -822,16 +797,7 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
             </s-badge>
           ) : null}
         </s-stack>
-        {canCreate ? (
-          <ActionButton
-            variant="secondary"
-            icon="plus"
-            to="/app/widgets/new"
-            onClick={() => rememberHomeScroll()}
-          >
-            Create
-          </ActionButton>
-        ) : null}
+        {canCreate ? <SectionCreateButton location={location} /> : null}
       </div>
 
       {widgets.length ? (
@@ -953,15 +919,7 @@ function WidgetList({ heading, empty, location, widgets, now, onRequestDelete, h
             <s-icon slot="graphic" type={sectionIcon} />
             <s-text slot="subheading">{empty}</s-text>
             {canCreate ? (
-              <ActionButton
-                slot="primary-action"
-                variant="primary"
-                icon="plus"
-                to="/app/widgets/new"
-                onClick={() => rememberHomeScroll()}
-              >
-                Create
-              </ActionButton>
+              <SectionCreateButton location={location} variant="primary" slot="primary-action" />
             ) : null}
           </s-empty-state>
         </s-box>

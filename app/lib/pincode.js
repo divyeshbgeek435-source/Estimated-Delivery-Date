@@ -39,13 +39,6 @@ export const PINCODE_COUNTRIES = [
   { value: "FI", label: "Finland" },
 ];
 
-export const WEIGHT_UNITS = [
-  { value: "kg", label: "kg" },
-  { value: "g", label: "g" },
-  { value: "lb", label: "lb" },
-  { value: "oz", label: "oz" },
-];
-
 export function normalizeWeightUnit(value, fallback = "kg") {
   const unit = String(value || "").trim().slice(0, 16);
   return unit || fallback;
@@ -65,6 +58,7 @@ export const DEFAULT_PINCODE_RULES = {
   enabled: false,
   country: "IN",
   countries: [],
+  countryModes: {},
   locations: [],
   stateMode: LOCATION_SELECTION.SPECIFIC,
   states: [],
@@ -237,11 +231,13 @@ export function normalizePincodeRules(rules, shipping) {
     ...(Array.isArray(source.countries) ? source.countries.map(normalizeCountry) : []),
     ...locations.map((location) => location.country),
   ]).slice(0, 40);
+  const countryModes = normalizeCountryModes(source.countryModes, countries);
 
   return {
     enabled: Boolean(source.enabled),
     country: normalizeCountry(source.country || countries[0]),
     countries,
+    countryModes,
     locations,
     stateMode: normalizeSelection(source.stateMode),
     states: uniqueNames([
@@ -254,11 +250,28 @@ export function normalizePincodeRules(rules, shipping) {
   };
 }
 
+function normalizeCountryModes(source, countries) {
+  const raw = source && typeof source === "object" && !Array.isArray(source) ? source : {};
+  const modes = {};
+  for (const country of countries) {
+    modes[country] = raw[country] === LOCATION_SELECTION.ALL ? LOCATION_SELECTION.ALL : LOCATION_SELECTION.SPECIFIC;
+  }
+  return modes;
+}
+
+export function countryCoverageMode(rules = {}, country) {
+  const key = String(country || "").trim().toUpperCase();
+  return rules?.countryModes?.[key] === LOCATION_SELECTION.ALL
+    ? LOCATION_SELECTION.ALL
+    : LOCATION_SELECTION.SPECIFIC;
+}
+
 export function groupDeliveryLocations(rules = {}) {
   const normalized = normalizePincodeRules(rules);
   return normalized.countries.map((country) => ({
     country,
     label: countryLabel(country),
+    mode: countryCoverageMode(normalized, country),
     cities: normalized.locations.filter((location) => location.country === country),
   }));
 }
@@ -334,6 +347,9 @@ export function matchPincodeRule(code, rules = {}) {
 
 export function hasAreaCoverage(rules = {}) {
   const normalized = normalizePincodeRules(rules);
+  if (normalized.countries.some((country) => countryCoverageMode(normalized, country) === LOCATION_SELECTION.ALL)) {
+    return true;
+  }
   if (normalized.locations.length > 0) return true;
   if (normalized.countries.length > 0) return false;
   return (
@@ -372,9 +388,12 @@ export function selectionAllowsPlace(rules = {}, place = {}) {
   const resolved = placeFromLookup(place);
   if (!resolved.ok) return false;
 
+  if (countryCoverageMode(normalized, resolved.country) === LOCATION_SELECTION.ALL) return true;
+
   if (normalized.locations.length) {
     return normalized.locations.some((location) => {
       if (location.country !== resolved.country) return false;
+      if (countryCoverageMode(normalized, location.country) === LOCATION_SELECTION.ALL) return false;
       if (location.state && resolved.state && !namesMatch(location.state, resolved.state)) return false;
       return placeMatchesCity(resolved, location.city);
     });
@@ -395,11 +414,12 @@ export function selectionAllowsPlace(rules = {}, place = {}) {
   return true;
 }
 
-function weightFromParts(value, unit, weightRules, productWeight) {
+function weightFromParts(value, unit, _weightRules, productWeight) {
   if (value) {
-    return `${String(value).trim()} ${String(unit || weightRules.unit || "").trim()}`.trim();
+    const unitLabel = String(unit || "").trim();
+    return unitLabel ? `${String(value).trim()} ${unitLabel}` : String(value).trim();
   }
-  return formatWeightDisplay(weightRules, productWeight);
+  return String(productWeight || "").trim();
 }
 
 function cityWeight(rules, cityName) {
@@ -543,16 +563,8 @@ export function shippingWithPincodeRule(shipping, rule) {
   };
 }
 
-export function formatWeightDisplay(rules = {}, productWeight = "") {
-  const normalized = normalizeWeightRules(rules);
-  const variant = String(productWeight || "").trim();
-  if (normalized.useProductWeight) {
-    return variant;
-  }
-  if (normalized.value) {
-    return `${normalized.value} ${normalized.unit}`.trim();
-  }
-  return "";
+export function formatWeightDisplay(_rules = {}, productWeight = "") {
+  return String(productWeight || "").trim();
 }
 
 export function formatPincodeStatusLine(pincode = {}) {

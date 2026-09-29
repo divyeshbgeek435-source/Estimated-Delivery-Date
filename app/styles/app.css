@@ -1586,6 +1586,7 @@ s-table-cell.edd-table-actions-cell {
 .edd-preview__heading {
   font-size: 0.82rem;
   font-weight: var(--edd-heading-weight, 650);
+  font-style: normal;
   margin: 0 0 0.55rem;
 }
 
@@ -2038,6 +2039,8 @@ s-table-cell.edd-table-actions-cell {
   margin: 0 0 0.2rem;
   font-size: 0.92em;
   font-weight: 600;
+  font-style: normal;
+  line-height: 1.15;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2055,13 +2058,20 @@ s-table-cell.edd-table-actions-cell {
 .edd-anim__title {
   margin: 0;
   font-size: 0.95em;
+  font-style: normal;
 }
 
 .edd-anim__header-icon {
   display: inline-flex;
-  width: 1.15em;
-  height: 1.15em;
+  align-items: center;
+  justify-content: center;
+  width: 1.05em;
+  height: 1.05em;
   flex: 0 0 auto;
+  line-height: 0;
+  align-self: center;
+  position: relative;
+  top: 0.06em;
 }
 
 .edd-anim__header-icon .edd-icon,
@@ -2074,6 +2084,9 @@ s-table-cell.edd-table-actions-cell {
 .edd-anim__lead {
   margin: 0;
   font-size: 0.9em;
+  line-height: 1.55;
+  white-space: normal;
+  word-spacing: normal;
 }
 
 .edd-anim__lead--above {
@@ -2217,19 +2230,19 @@ s-table-cell.edd-table-actions-cell {
 .edd-anim__label {
   font-size: var(--edd-status-size, 0.85rem);
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.3;
   max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .edd-anim__date {
   font-size: var(--edd-date-size, 0.82rem);
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.3;
   max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .edd-anim--moment .edd-anim__icon {
@@ -2286,7 +2299,8 @@ s-table-cell.edd-table-actions-cell {
 
 .edd-preview-frame .edd-anim--moment .edd-anim__lead {
   font-size: 0.88rem;
-  line-height: 1.45;
+  line-height: 1.5;
+  margin: 0.35rem 0 0;
 }
 
 .edd-preview-frame .edd-anim--moment .edd-anim__rail-wrap {
@@ -2430,7 +2444,7 @@ s-table-cell.edd-table-actions-cell {
 
 .edd-anim__express-title {
   margin: 0;
-  font-style: italic;
+  font-style: normal;
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -2566,10 +2580,11 @@ s-table-cell.edd-table-actions-cell {
 .edd-design-thumb--express,
 .edd-design-thumb--meter {
   display: grid;
-  gap: 0.3rem;
+  align-content: center;
+  gap: 0.35rem;
   height: auto;
-  min-height: 3.6rem;
-  padding: 0.4rem;
+  min-height: 4.75rem;
+  padding: 0.45rem;
   box-sizing: border-box;
 }
 
@@ -2617,7 +2632,8 @@ s-table-cell.edd-table-actions-cell {
 .edd-design-thumb--segments {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  height: 2.4rem;
+  height: auto;
+  min-height: 4.75rem;
   background: #e3f2fd;
   overflow: hidden;
 }
@@ -2645,7 +2661,9 @@ s-table-cell.edd-table-actions-cell {
 .edd-design-thumb--band {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  height: 2.4rem;
+  align-items: center;
+  height: auto;
+  min-height: 4.75rem;
   background: #f3e8ff;
   border-top: 3px solid #7e57c2;
   border-bottom: 3px solid #7e57c2;
@@ -2663,7 +2681,8 @@ s-table-cell.edd-table-actions-cell {
 .edd-design-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.75rem;
+  align-items: stretch;
+  gap: 0.85rem;
   margin-bottom: 1rem;
 }
 
@@ -2676,9 +2695,11 @@ s-table-cell.edd-table-actions-cell {
 .edd-design-card {
   appearance: none;
   display: grid;
-  gap: 0.35rem;
+  align-content: start;
+  gap: 0.45rem;
+  height: 100%;
   text-align: left;
-  padding: 0.7rem;
+  padding: 0.75rem;
   border: 1px solid #e3e3e3;
   border-radius: 10px;
   background: #fff;
@@ -2706,20 +2727,24 @@ s-table-cell.edd-table-actions-cell {
 .edd-design-card strong {
   font-size: 0.88rem;
   font-weight: 650;
+  line-height: 1.3;
 }
 
 .edd-design-card span:last-child {
   color: #6d7175;
   font-size: 0.75rem;
   font-weight: 400;
+  line-height: 1.4;
 }
 
 .edd-design-thumb {
   display: block;
-  height: 2.2rem;
+  height: auto;
+  min-height: 4.75rem;
   border-radius: 6px;
   background: linear-gradient(90deg, #ececec 20%, #d8d8d8 40%, #ececec 80%);
   overflow: hidden;
+  box-sizing: border-box;
 }
 
 .edd-design-thumb--compact {
@@ -2749,10 +2774,11 @@ s-table-cell.edd-table-actions-cell {
 
 .edd-design-thumb--tracker {
   display: grid;
+  align-content: center;
   gap: 0.35rem;
   height: auto;
-  min-height: 4.4rem;
-  padding: 0.45rem 0.4rem 0.4rem;
+  min-height: 4.75rem;
+  padding: 0.45rem 0.4rem;
   background: #fff;
   border: 1px solid #e6e6e6;
   box-sizing: border-box;
@@ -2760,10 +2786,11 @@ s-table-cell.edd-table-actions-cell {
 
 .edd-design-thumb--journey {
   display: grid;
-  gap: 0.4rem;
+  align-content: center;
+  gap: 0.35rem;
   height: auto;
-  min-height: 5.4rem;
-  padding: 0.45rem 0.4rem 0.45rem;
+  min-height: 4.75rem;
+  padding: 0.4rem;
   background: #f3f3f3;
   border: 0;
   box-sizing: border-box;
@@ -2807,14 +2834,15 @@ s-table-cell.edd-table-actions-cell {
 }
 
 .edd-design-thumb__head {
-  display: block;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   text-align: center;
   font-size: 0.58rem;
   line-height: 1.25;
   color: #111;
-  white-space: nowrap;
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .edd-design-thumb__head b {
@@ -3873,6 +3901,133 @@ s-table-cell.edd-table-actions-cell {
   background: linear-gradient(#111, #111) 18% 62%/42% 8px no-repeat;
 }
 
+.edd-text-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.15rem 0;
+}
+
+.edd-text-editor__label {
+  font-size: 0.82rem;
+  font-weight: 550;
+  line-height: 1.3;
+  color: #303030;
+}
+
+.edd-text-editor__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border: 1px solid #c9cccf;
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: #f6f6f7;
+}
+
+.edd-text-editor__btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 1.85rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #202223;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.edd-text-editor__btn:hover {
+  background: #fff;
+}
+
+.edd-text-editor__btn--bold {
+  font-weight: 700;
+}
+
+.edd-text-editor__btn--italic {
+  font-style: italic;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.edd-text-editor__btn--underline {
+  text-decoration: underline;
+}
+
+.edd-text-editor__input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  border: 1px solid #8c9196;
+  border-radius: 0 0 8px 8px;
+  padding: 0.6rem 0.75rem;
+  background: #fff;
+  color: #202223;
+  font: inherit;
+  font-size: 0.9rem;
+  font-style: normal;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.edd-text-editor__input:empty:before {
+  content: attr(data-placeholder);
+  color: #8c9196;
+}
+
+.edd-text-editor__input strong {
+  font-weight: 700;
+}
+
+.edd-text-editor__input em {
+  font-style: italic;
+}
+
+.edd-text-editor__input u {
+  text-decoration: underline;
+}
+
+.edd-text-editor__input:focus {
+  outline: 2px solid #005bd3;
+  outline-offset: 1px;
+  border-color: #005bd3;
+}
+
+.edd-text-editor.has-error .edd-text-editor__input {
+  border-color: #8e1f0b;
+}
+
+.edd-text-editor__error {
+  color: #8e1f0b;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.edd-preview em,
+.edd-anim em,
+.edd-preview u,
+.edd-anim u {
+  color: inherit;
+}
+
+.edd-preview em,
+.edd-anim em {
+  font-style: italic;
+}
+
+.edd-preview u,
+.edd-anim u {
+  text-decoration: underline;
+}
+
 .edd-var-list {
   margin: 0;
   padding-left: 1.1rem;
@@ -4571,9 +4726,10 @@ s-table-cell.edd-table-actions-cell {
 .edd-chrome__widget-slot .edd-preview__message,
 .edd-chrome__widget-slot .edd-anim__lead,
 .edd-chrome__widget-slot .edd-anim__eyebrow {
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
   white-space: normal;
+  line-height: 1.5;
 }
 
 .edd-chrome__widget-slot .edd-anim__steps {
@@ -4587,8 +4743,9 @@ s-table-cell.edd-table-actions-cell {
 .edd-chrome__widget-slot .edd-anim__label,
 .edd-chrome__widget-slot .edd-anim__date {
   max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-height: 1.3;
 }
 
 @container edd-preview-slot (max-width: 22rem) {
@@ -5345,17 +5502,46 @@ s-table-cell.edd-table-actions-cell {
 
 .edd-geo-tree {
   display: grid;
-  gap: 0.75rem;
+  gap: 0.85rem;
 }
 
 .edd-geo-country {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.75rem;
   min-width: 0;
-  padding: 0.85rem 0.9rem;
+  padding: 1rem;
   border: 1px solid #e1e3e5;
   border-radius: 10px;
   background: #fff;
+}
+
+.edd-geo-country > .edd-help,
+.edd-geo-city .edd-help,
+.edd-geo-city-add .edd-help {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.edd-geo-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1.5rem;
+  margin: 0;
+}
+
+.edd-geo-mode label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.edd-geo-mode input {
+  margin: 0;
+  flex: 0 0 auto;
 }
 
 .edd-geo-country__head,
@@ -5368,15 +5554,18 @@ s-table-cell.edd-table-actions-cell {
 
 .edd-pin-editor s-select,
 .edd-geo-city-add s-search-field {
+  display: block;
   width: 100%;
   min-width: 0;
   max-width: 100%;
+  margin: 0;
 }
 
 .edd-geo-city-add {
   display: grid;
   gap: 0.5rem;
   min-width: 0;
+  margin: 0;
 }
 
 .edd-geo-suggest {

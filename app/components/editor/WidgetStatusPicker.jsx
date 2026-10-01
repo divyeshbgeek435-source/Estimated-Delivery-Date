@@ -4,8 +4,8 @@ export function WidgetStatusPicker({ location, value, onChange, scheduleAt, onSc
   const page = storefrontPageLabel(location);
 
   return (
-    <div className="edd-status-picker">
-      <p className="edd-field-heading edd-status-picker__title">Widget status</p>
+    <s-section className="edd-status-picker" aria-label="Widget status">
+      <p className="edd-section-heading">Widget status</p>
       <div className="edd-publish-when">
         <label className="edd-publish-option">
           <input
@@ -66,6 +66,6 @@ export function WidgetStatusPicker({ location, value, onChange, scheduleAt, onSc
           />
         </label>
       ) : null}
-    </div>
+    </s-section>
   );
 }

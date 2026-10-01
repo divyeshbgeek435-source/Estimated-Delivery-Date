@@ -21,6 +21,7 @@ import { syncedPlacementIds } from "../../lib/form.server";
 import { normalizePosition } from "../../lib/widget-profiles";
 import { resolveTimeZone, timezoneForStore } from "../../lib/timezone";
 import { normalizeIconLibrary } from "../../lib/icon-media";
+import { normalizeTrackerConfig } from "../../lib/tracker-config";
 import {
   ACTIVATION_CONFLICT_KEY,
   describePlacement,
@@ -208,6 +209,7 @@ function withDefaults(widget) {
       processingTitle: icons.processingTitle || DEFAULT_ICONS.processingTitle,
       deliveredTitle: icons.deliveredTitle || DEFAULT_ICONS.deliveredTitle,
       savedIcons: normalizeIconLibrary(icons.savedIcons),
+      trackerConfig: icons.trackerConfig ? normalizeTrackerConfig(icons.trackerConfig) : undefined,
     },
     styleConfig,
     placementConfig: {
@@ -710,6 +712,10 @@ function shippingCreateData(rules) {
 
 function iconCreateData(icon = {}) {
   const merged = { ...DEFAULT_ICONS, ...compact(icon) };
+  const trackerConfig =
+    merged.trackerConfig != null
+      ? normalizeTrackerConfig(merged.trackerConfig)
+      : undefined;
   return {
     purchased: merged.purchased,
     processing: merged.processing,
@@ -726,6 +732,7 @@ function iconCreateData(icon = {}) {
     processingColor: merged.processingColor || "",
     deliveredColor: merged.deliveredColor || "",
     savedIcons: normalizeIconLibrary(merged.savedIcons),
+    ...(trackerConfig ? { trackerConfig } : {}),
   };
 }
 
@@ -1096,14 +1103,11 @@ export async function getWidgetByShop(shopDomain, widgetId) {
 }
 
 export async function saveWidgetEditor(merchantId, widgetId, values, options = {}) {
-  const location =
-    options.location ||
-    (
-      await prisma.widget.findFirst({
-        where: { id: widgetId, merchantId },
-        select: { id: true, location: true },
-      })
-    )?.location;
+  const existing = await prisma.widget.findFirst({
+    where: { id: widgetId, merchantId },
+    select: { id: true, location: true, iconConfig: true },
+  });
+  const location = options.location || existing?.location;
   if (!location) return null;
 
   const shippingBase = {
@@ -1135,6 +1139,17 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
         : values.activationConflict,
   });
 
+  const existingTracker =
+    existing?.iconConfig && typeof existing.iconConfig === "object"
+      ? existing.iconConfig.trackerConfig
+      : null;
+  const nextTrackerConfig =
+    values.trackerConfig != null
+      ? normalizeTrackerConfig(values.trackerConfig)
+      : existingTracker
+        ? normalizeTrackerConfig(existingTracker)
+        : null;
+
   const iconPayload = {
     purchased: values.purchased,
     processing: values.processing,
@@ -1151,6 +1166,7 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     processingColor: values.processingColor || "",
     deliveredColor: values.deliveredColor || "",
     savedIcons: normalizeIconLibrary(values.savedIcons),
+    ...(nextTrackerConfig ? { trackerConfig: nextTrackerConfig } : {}),
   };
 
   const stylePayload = {
@@ -1181,6 +1197,7 @@ export async function saveWidgetEditor(merchantId, widgetId, values, options = {
     dynamicColor: values.dynamicColor,
     headingFontWeight: Number(values.headingFontWeight) || 600,
     customCss: values.customCss || "",
+    elementStyles: values.elementStyles || {},
   };
 
   const placementIds = syncedPlacementIds(values);

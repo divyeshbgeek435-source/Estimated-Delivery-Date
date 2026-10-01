@@ -29,11 +29,11 @@ const PRODUCT_PROFILE = {
       label: "Below Add to Cart",
       help: "Show the widget just below the Add to Cart button.",
     },
-    {
-      value: PLACEMENT_POSITIONS.PRODUCT_INFO,
-      label: "Product information section",
-      help: "Show the widget with the product title and description.",
-    },
+    // {
+    //   value: PLACEMENT_POSITIONS.PRODUCT_INFO,
+    //   label: "Product information section",
+    //   help: "Show the widget with the product title and description.",
+    // },
     {
       value: PLACEMENT_POSITIONS.CUSTOM,
       label: "Theme editor / custom",

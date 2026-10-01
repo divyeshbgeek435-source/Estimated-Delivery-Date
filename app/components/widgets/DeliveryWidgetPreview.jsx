@@ -21,10 +21,18 @@ import {
   shippingWithPincodeRule,
 } from "../../lib/pincode";
 import { CART_DISPLAY_MODES, ANIMATED_DESIGNS, WIDGET_LOCATIONS } from "../../lib/constants";
+import { buildRenderableSteps, resolveTrackerConfig } from "../../lib/tracker-config";
 import { clampToBounds, STYLE_NUMBER_LIMITS } from "../../lib/number-input";
 import { AnimatedEtaTemplate, JourneyRange, MessageParts } from "./AnimatedEtaTemplates";
+import { TimelineConnector } from "./TimelineConnector";
 import { FormattedText } from "./FormattedText";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
+import { EditableHotspot } from "../editor/EditableHotspot";
+import {
+  elementStyleToCss,
+  resolveElementStyle,
+} from "../../lib/element-styles";
+import { normalizeConnectorStyle, timelineGridTemplate, isDefaultConnector } from "../../lib/connector-styles";
 
 async function checkDelivery(code, shipping, productWeight = "") {
   const options = {
@@ -50,7 +58,22 @@ async function checkDelivery(code, shipping, productWeight = "") {
   return resolveDeliveryAvailability({ ...options, place });
 }
 
-const EMBEDDED_DESCRIPTION_DESIGNS = new Set(["MOMENT", "EXPRESS", "BUBBLE", "SEGMENTS", "METER", "BAND"]);
+const EMBEDDED_DESCRIPTION_DESIGNS = new Set([
+  "MOMENT",
+  "EXPRESS",
+  "BUBBLE",
+  "SEGMENTS",
+  "METER",
+  "BAND",
+  "HERO",
+  "DROP",
+  "CLEAN",
+  "CHECKLIST",
+  "PICKUP",
+  "PREORDER",
+  "WHOLESALE",
+  "CALENDAR",
+]);
 
 export function DeliveryWidgetPreview({
   heading = "",
@@ -67,6 +90,12 @@ export function DeliveryWidgetPreview({
   productWeight = "",
   location = WIDGET_LOCATIONS.PRODUCT,
   cartDisplayMode = CART_DISPLAY_MODES.GENERAL,
+  staticPreview = false,
+  interactive = false,
+  selectedElement = null,
+  onSelectElement,
+  onElementContentChange,
+  preferMobileStyles = false,
 }) {
   const zone = resolveTimeZone(timezone);
   const isCart = location === WIDGET_LOCATIONS.CART || location === WIDGET_LOCATIONS.CHECKOUT;
@@ -80,13 +109,14 @@ export function DeliveryWidgetPreview({
     (shipping.weightRules?.useProductWeight ? "product weight" : "");
 
   useEffect(() => {
+    if (staticPreview) return undefined;
     const countdown = setInterval(() => setTick(new Date()), 1000);
     const dates = setInterval(() => setNow(new Date()), 30000);
     return () => {
       clearInterval(countdown);
       clearInterval(dates);
     };
-  }, []);
+  }, [staticPreview]);
 
   useEffect(() => {
     if (isCart || asksForPincode(shipping.weightRules, shipping.pincodeRules)) return;
@@ -200,36 +230,15 @@ export function DeliveryWidgetPreview({
   const purchasedDate = formatTimelineLabel(getZonedParts(now, zone).dateStr);
   const processingDate = formatTimelineLabel(delivery.processingDateMin, delivery.processingDateMax);
   const deliveredDate = formatTimelineLabel(delivery.deliveryDateMin, delivery.deliveryDateMax);
-  const steps = [
-    {
-      key: "purchased",
-      icon: icons.purchased || "bag",
-      enabled: isIconEnabled(icons, "purchased"),
-      title: icons.purchasedTitle || "Purchased",
-      color: icons.purchasedColor || theme,
-      date: purchasedDate,
+  const tracker = resolveTrackerConfig(icons);
+  const steps = buildRenderableSteps(tracker, {
+    theme,
+    dates: {
+      ordered: purchasedDate,
+      processing: processingDate,
+      delivered: deliveredDate,
     },
-    {
-      key: "processing",
-      icon: icons.processing || "truck",
-      enabled: isIconEnabled(icons, "processing"),
-      title: icons.processingTitle || "Processing",
-      color: icons.processingColor || theme,
-      date: processingDate,
-    },
-    {
-      key: "delivered",
-      icon: icons.delivered || "pin",
-      enabled: isIconEnabled(icons, "delivered"),
-      title: icons.deliveredTitle || "Delivered",
-      color: icons.deliveredColor || theme,
-      date: deliveredDate,
-    },
-  ];
-  const paddingTop = clampToBounds(style.paddingTop, STYLE_NUMBER_LIMITS.padding, 16);
-  const paddingRight = clampToBounds(style.paddingRight, STYLE_NUMBER_LIMITS.padding, 16);
-  const paddingBottom = clampToBounds(style.paddingBottom, STYLE_NUMBER_LIMITS.padding, 12);
-  const paddingLeft = clampToBounds(style.paddingLeft, STYLE_NUMBER_LIMITS.padding, 16);
+  });
   const gap = clampToBounds(style.paddingMiddle, STYLE_NUMBER_LIMITS.padding, 12);
   let designName = design || (layout === "MINIMAL" ? "COMPACT" : "TIMELINE");
   if (isCart && (designName === "COMPACT" || designName === "MINIMAL")) designName = "TIMELINE";
@@ -261,8 +270,9 @@ export function DeliveryWidgetPreview({
 
   const deliveredRange = deliveredDate;
   const headerIcon = icons.headerIcon || "flag";
-  const headerEnabled = isIconEnabled(icons, "headerIcon");
-  const titleEnabled = showHeading !== false;
+  const headerEnabled = tracker.settings.showHeaderIcon && isIconEnabled(icons, "headerIcon");
+  const titleEnabled = showHeading !== false && tracker.settings.showTitle !== false;
+  const descriptionVisible = showDescription !== false && tracker.settings.showDescription !== false;
   const headingText = heading || "Estimated Delivery Date";
   const headingWeight = clampToBounds(style.headingFontWeight, STYLE_NUMBER_LIMITS.headingFontWeight, 600);
   const titleStyle = { fontWeight: headingWeight };
@@ -287,14 +297,44 @@ export function DeliveryWidgetPreview({
     }
   };
 
+  const titleElStyle = {
+    ...titleStyle,
+    ...elementStyleToCss(resolveElementStyle("title", style), { mobile: preferMobileStyles }),
+  };
+  const descriptionElStyle = elementStyleToCss(resolveElementStyle("description", style), {
+    mobile: preferMobileStyles,
+  });
+  const checkSectionStyle = resolveElementStyle("checkSection", style);
+  const checkSectionElStyle = elementStyleToCss(checkSectionStyle, {
+    mobile: preferMobileStyles,
+  });
+  const checkLabelElStyle = elementStyleToCss(resolveElementStyle("checkLabel", style), {
+    mobile: preferMobileStyles,
+  });
+  const checkInputElStyle = elementStyleToCss(resolveElementStyle("checkInput", style), {
+    mobile: preferMobileStyles,
+  });
+  const checkButtonElStyle = elementStyleToCss(resolveElementStyle("checkButton", style), {
+    mobile: preferMobileStyles,
+  });
+  const stepLabelElStyle = elementStyleToCss(resolveElementStyle("stepLabel", style), {
+    mobile: preferMobileStyles,
+  });
+  const stepDateElStyle = elementStyleToCss(resolveElementStyle("stepDate", style), {
+    mobile: preferMobileStyles,
+  });
+  const editingDescription = interactive && selectedElement === "description";
+
   return (
     <div
-      className={`edd-preview essential-estimated-delivery-widget essential-estimated-delivery-card edd-preview--${designName.toLowerCase()}`}
+      className={`edd-preview essential-estimated-delivery-widget essential-estimated-delivery-card edd-preview--${designName.toLowerCase()}${
+        interactive ? " is-interactive" : ""
+      }${selectedElement === "card" ? " is-card-selected" : ""}`}
       style={{
         background: widgetBackground(style),
         borderRadius: `${clampToBounds(style.borderRadius, STYLE_NUMBER_LIMITS.borderRadius, 8)}px`,
         border: `${clampToBounds(style.borderWidth, STYLE_NUMBER_LIMITS.borderWidth, 0)}px solid ${style.borderColor || "#E1E3E5"}`,
-        padding: `${paddingTop}px ${paddingRight}px ${paddingBottom}px ${paddingLeft}px`,
+        padding: "10px",
         color: textColor,
         fontFamily: style.fontFamily || "inherit",
         fontSize: `${fontSize}px`,
@@ -309,6 +349,13 @@ export function DeliveryWidgetPreview({
         ["--edd-journey-rail"]: `${clampToBounds(style.progressWidth, STYLE_NUMBER_LIMITS.progressWidth, 5)}px`,
         ["--edd-heading-weight"]: headingWeight,
       }}
+      onClick={
+        interactive
+          ? (event) => {
+              if (event.target === event.currentTarget) onSelectElement?.("card");
+            }
+          : undefined
+      }
     >
       {(titleEnabled || headerEnabled) &&
       designName !== "TRACKER" &&
@@ -318,31 +365,61 @@ export function DeliveryWidgetPreview({
       !ANIMATED_DESIGNS.has(designName) ? (
         <div className="edd-preview__title-row">
           {headerEnabled ? (
-            <span className="edd-preview__title-icon" style={{ color: theme }}>
+            <EditableHotspot
+              as="span"
+              className="edd-preview__title-icon"
+              elementId="headerIcon"
+              interactive={interactive}
+              selectedElement={selectedElement}
+              onSelect={onSelectElement}
+              style={{ color: theme }}
+            >
               <DeliveryIcon key={`title-${headerIcon}`} name={headerIcon} color={theme} />
-            </span>
+            </EditableHotspot>
           ) : null}
           {titleEnabled ? (
-            <p className="edd-preview__heading" style={titleStyle}>
+            <EditableHotspot
+              as="p"
+              className="edd-preview__heading"
+              elementId="title"
+              interactive={interactive}
+              selectedElement={selectedElement}
+              onSelect={onSelectElement}
+              style={titleElStyle}
+              contentEditable
+              value={headingText}
+              onChange={(value) => onElementContentChange?.("title", value)}
+            >
               <FormattedText value={headingText} />
-            </p>
+            </EditableHotspot>
           ) : null}
         </div>
       ) : null}
       {showDates &&
-      showDescription &&
+      descriptionVisible &&
       ["BANNER", "CARD", "TRACKER"].includes(designName) ? (
-        <div
+        <EditableHotspot
           className="edd-preview__message-row essential-estimated-delivery-description"
-          style={{ color: style.dynamicColor || textColor, marginBottom: gap }}
+          elementId="description"
+          interactive={interactive}
+          selectedElement={selectedElement}
+          onSelect={onSelectElement}
+          style={{ ...descriptionElStyle, color: descriptionElStyle.color || style.dynamicColor || textColor, marginBottom: gap }}
+          contentEditable
+          value={template}
+          onChange={(value) => onElementContentChange?.("description", value)}
         >
           {headerEnabled && isCustomImage(headerIcon) ? (
             <img className="edd-inline-image edd-inline-image--lead" src={safeImageSrc(headerIcon)} alt="" />
           ) : null}
           <p className="edd-preview__message">
-            <MessageParts segments={messageSegments(template, values)} accentColor={style.dynamicColor || textColor} />
+            {editingDescription ? (
+              template
+            ) : (
+              <MessageParts segments={messageSegments(template, values)} accentColor={style.dynamicColor || textColor} />
+            )}
           </p>
-        </div>
+        </EditableHotspot>
       ) : null}
       {showDates && designName === "BANNER" ? (
         <div className="edd-preview__banner">
@@ -384,17 +461,33 @@ export function DeliveryWidgetPreview({
           <div className="edd-preview__tracker-steps">
             {steps.map((step, index) => (
               <Fragment key={step.key}>
-                {index > 0 ? <span className="edd-preview__tracker-dots" aria-hidden="true" style={{ backgroundImage: `radial-gradient(${progress} 1.4px, transparent 1.6px)` }} /> : null}
-                <div className="edd-preview__tracker-step">
-                  {step.enabled ? (
-                    <span className="edd-preview__tracker-icon" style={{ color: step.color }}>
-                      <DeliveryIcon key={step.icon} name={step.icon} color={step.color} />
-                    </span>
+                {index > 0 ? (
+                  isDefaultConnector(tracker.settings?.connector) ? (
+                    <span
+                      className="edd-preview__tracker-dots"
+                      aria-hidden="true"
+                      style={{ backgroundImage: `radial-gradient(${progress} 1.4px, transparent 1.6px)` }}
+                    />
                   ) : (
-                    <span className="edd-preview__tracker-icon edd-preview__tracker-icon--off" aria-hidden="true" />
-                  )}
-                  <strong style={{ color: style.statusColor || textColor }}>{step.title}</strong>
-                  <em style={{ color: style.dateColor || textColor }}>{step.date}</em>
+                    <TimelineConnector
+                      className="edd-preview__tracker-connector"
+                      connector={tracker.settings?.connector}
+                      fallbackColor={progress}
+                      prevStatus={steps[index - 1]?.status || "complete"}
+                      nextStatus={step.status || "pending"}
+                    />
+                  )
+                ) : null}
+                <div className={`edd-preview__tracker-step${step.enabled === false ? " is-icon-off" : ""}`}>
+                  <span
+                    className={`edd-preview__tracker-icon${step.enabled === false ? " is-icon-hidden" : ""}`}
+                    style={{ color: step.color }}
+                    aria-hidden={step.enabled === false ? true : undefined}
+                  >
+                    <DeliveryIcon key={step.icon} name={step.icon} color={step.color} />
+                  </span>
+                  <strong style={{ color: step.labelColor || style.statusColor || textColor, ...(step.labelFontSize != null ? { fontSize: `${step.labelFontSize}px` } : null) }}>{step.title}</strong>
+                  <em style={{ color: step.dateColor || style.dateColor || textColor, ...(step.dateFontSize != null ? { fontSize: `${step.dateFontSize}px` } : null) }}>{step.date}</em>
                 </div>
               </Fragment>
             ))}
@@ -414,12 +507,22 @@ export function DeliveryWidgetPreview({
           progress={progress}
           headerEnabled={headerEnabled}
           headerIcon={headerIcon}
-          showDescription={showDescription}
+          showDescription={descriptionVisible}
           descriptionSegments={messageSegments(template, values)}
+          trackerSettings={tracker.settings}
+          interactive={interactive}
+          selectedElement={selectedElement}
+          onSelectElement={onSelectElement}
+          onElementContentChange={onElementContentChange}
+          descriptionTemplate={template}
+          titleStyleOverride={titleElStyle}
+          descriptionStyleOverride={descriptionElStyle}
+          stepLabelStyleOverride={stepLabelElStyle}
+          stepDateStyleOverride={stepDateElStyle}
         />
       ) : showDates && designName === "JOURNEY" ? (
         <div key={`journey-${designName}`} className="edd-preview__journey">
-          {showDescription ? (
+          {descriptionVisible ? (
             <div
               className="edd-preview__message-row essential-estimated-delivery-description"
               style={{ color: style.dynamicColor || textColor, marginBottom: gap }}
@@ -454,20 +557,22 @@ export function DeliveryWidgetPreview({
           <div className="edd-preview__journey-shell">
             <div className="edd-preview__journey-steps">
               {steps.map((step, index) => (
-                <div key={step.key} className="edd-preview__journey-step" style={{ animationDelay: `${180 + index * 100}ms` }}>
-                  {step.enabled ? (
-                    <span className={`edd-preview__journey-icon${index === 1 ? " edd-preview__journey-icon--truck" : ""}`} style={{ color: step.color }}>
-                      <DeliveryIcon key={step.icon} name={step.icon} color={step.color} />
-                    </span>
-                  ) : (
-                    <span className="edd-preview__journey-icon edd-preview__journey-icon--off" aria-hidden="true" />
-                  )}
-                  <span className="edd-preview__journey-label" style={{ color: style.statusColor || textColor }}>
-                    {step.title}
+                <div key={step.key} className={`edd-preview__journey-step${step.enabled === false ? " is-icon-off" : ""}`} style={{ animationDelay: `${180 + index * 100}ms` }}>
+                  <span
+                    className={`edd-preview__journey-icon${index === 1 ? " edd-preview__journey-icon--truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}`}
+                    style={{ color: step.color }}
+                    aria-hidden={step.enabled === false ? true : undefined}
+                  >
+                    <DeliveryIcon key={step.icon} name={step.icon} color={step.color} />
                   </span>
-                  <strong className="edd-preview__journey-date" style={{ color: style.dateColor || textColor }}>
-                    {step.date}
-                  </strong>
+                  <span className="edd-preview__journey-meta">
+                    <span className="edd-preview__journey-label" style={{ color: step.labelColor || style.statusColor || textColor, ...(step.labelFontSize != null ? { fontSize: `${step.labelFontSize}px` } : null) }}>
+                      {step.title}
+                    </span>
+                    <strong className="edd-preview__journey-date" style={{ color: step.dateColor || style.dateColor || textColor, ...(step.dateFontSize != null ? { fontSize: `${step.dateFontSize}px` } : null) }}>
+                      {step.date}
+                    </strong>
+                  </span>
                 </div>
               ))}
             </div>
@@ -475,7 +580,7 @@ export function DeliveryWidgetPreview({
         </div>
       ) : null}
       {showDates &&
-      showDescription &&
+      descriptionVisible &&
       !EMBEDDED_DESCRIPTION_DESIGNS.has(designName) &&
       designName !== "JOURNEY" &&
       !["BANNER", "CARD", "TRACKER"].includes(designName) ? (
@@ -485,11 +590,7 @@ export function DeliveryWidgetPreview({
         >
           {headerEnabled && isCustomImage(headerIcon) ? (
             <img className="edd-inline-image edd-inline-image--lead" src={safeImageSrc(headerIcon)} alt="" />
-          ) : (
-            <span className="edd-preview__clock" aria-hidden="true">
-              <DeliveryIcon name="clockSolid" color={style.dynamicColor || textColor} />
-            </span>
-          )}
+          ) : null}
           <p className="edd-preview__message">
             <MessageParts segments={messageSegments(template, values)} accentColor={style.dynamicColor || textColor} />
           </p>
@@ -511,41 +612,67 @@ export function DeliveryWidgetPreview({
           ))}
         </div>
       ) : showDates ? (
-        <div className={`edd-preview__timeline ${designName === "STACKED" ? "edd-preview__timeline--stacked" : ""}`} role="list">
+        <div
+          className={`edd-preview__timeline ${designName === "STACKED" ? "edd-preview__timeline--stacked" : ""}`}
+          role="list"
+          style={
+            designName === "STACKED"
+              ? undefined
+              : {
+                  gridTemplateColumns: timelineGridTemplate(steps.length),
+                  columnGap: `${normalizeConnectorStyle(tracker.settings?.connector).spacing}px`,
+                }
+          }
+        >
           {steps.map((step, index) => (
             <Fragment key={step.key}>
               {index > 0 && designName !== "STACKED" ? (
-                <span className="edd-preview__connector" aria-hidden="true">
-                  <span
-                    className="edd-preview__connector-line"
-                    style={{ background: progress, height: `${style.progressWidth || 2}px` }}
-                  />
-                  <span className="edd-preview__connector-arrow" style={{ borderLeftColor: progress }} />
-                </span>
-              ) : null}
-              <div className="edd-preview__timeline-item" role="listitem">
-                {step.enabled ? (
-                  <span
-                    className="edd-preview__timeline-icon"
-                    style={{
-                      color: step.color,
-                      width: `${iconSize}px`,
-                      height: `${iconSize}px`,
-                    }}
-                  >
-                    <DeliveryIcon name={step.icon} color={step.color} key={step.icon} />
+                isDefaultConnector(tracker.settings?.connector) ? (
+                  <span className="edd-preview__connector edd-connector edd-connector--legacy" aria-hidden="true">
+                    <span
+                      className="edd-connector__line"
+                      style={{ background: progress, height: `${style.progressWidth || 2}px` }}
+                    />
+                    <span className="edd-connector__tip edd-connector__tip--head" style={{ borderLeftColor: progress }} />
                   </span>
-                ) : null}
+                ) : (
+                  <TimelineConnector
+                    className="edd-preview__connector"
+                    connector={tracker.settings?.connector}
+                    fallbackColor={progress}
+                    prevStatus={steps[index - 1]?.status || "complete"}
+                    nextStatus={step.status || "pending"}
+                  />
+                )
+              ) : null}
+              <div className={`edd-preview__timeline-item${step.enabled === false ? " is-icon-off" : ""}`} role="listitem">
+                <span
+                  className={`edd-preview__timeline-icon${step.enabled === false ? " is-icon-hidden" : ""}`}
+                  style={{
+                    color: step.color,
+                    width: `${iconSize}px`,
+                    height: `${iconSize}px`,
+                  }}
+                  aria-hidden={step.enabled === false ? true : undefined}
+                >
+                  <DeliveryIcon name={step.icon} color={step.color} key={step.icon} />
+                </span>
                 <span className="edd-preview__timeline-meta">
                   <span
                     className="edd-preview__timeline-date"
-                    style={{ color: style.dateColor || textColor }}
+                    style={{
+                      color: step.dateColor || style.dateColor || textColor,
+                      ...(step.dateFontSize != null ? { fontSize: `${step.dateFontSize}px` } : null),
+                    }}
                   >
                     {step.date}
                   </span>
                   <span
                     className="edd-preview__timeline-label"
-                    style={{ color: style.statusColor || textColor }}
+                    style={{
+                      color: step.labelColor || style.statusColor || textColor,
+                      ...(step.labelFontSize != null ? { fontSize: `${step.labelFontSize}px` } : null),
+                    }}
                   >
                     {step.title}
                   </span>
@@ -565,37 +692,82 @@ export function DeliveryWidgetPreview({
           ))}
         </div>
       ) : null}
-      {askPincode ? (
-        <div className="edd-check">
-          <p className="edd-check__title">Check delivery</p>
-          <div className="edd-check__row">
-            <input
-              className="edd-check__input"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              placeholder="Enter pincode"
-              value={pincodeValue}
-              onChange={(event) => setPincodeValue(digitsOnly(event.currentTarget.value))}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
-                onCheck(event);
-              }}
-            />
-            <button className="edd-check__button" type="button" disabled={checking} onClick={onCheck}>
-              {checking ? "Checking" : "Check"}
-            </button>
-          </div>
-          {check?.available === false && check?.message ? (
-            <p className="edd-check__status" data-tone="error">
-              {formatPincodeStatusLine(check)}
-            </p>
-          ) : null}
-          {check?.available === false ? (
-            <button type="button" className="edd-request-btn" disabled>
-              Request delivery
-            </button>
+      {tracker.settings.showCheckDelivery !== false && (askPincode || designName === "EXPRESS" || interactive) ? (
+        <div
+          className={`edd-check${askPincode ? "" : " edd-check--footer-only"}`}
+          style={{
+            ...checkSectionElStyle,
+            textAlign: checkSectionStyle.textAlign || "center",
+          }}
+        >
+          <EditableHotspot
+            as="p"
+            className="edd-check__title"
+            elementId="checkLabel"
+            interactive={interactive}
+            selectedElement={selectedElement}
+            onSelect={onSelectElement}
+            style={checkLabelElStyle}
+            contentEditable
+            value={tracker.settings.checkDeliveryLabel || "Check delivery"}
+            onChange={(value) => onElementContentChange?.("checkLabel", value)}
+          >
+            {tracker.settings.checkDeliveryLabel || "Check delivery"}
+          </EditableHotspot>
+          {askPincode ? (
+            <>
+              <div
+                className="edd-check__row"
+                style={{
+                  justifyContent: checkSectionStyle.justifyContent || "center",
+                  gap: checkSectionStyle.gap != null ? `${checkSectionStyle.gap}px` : undefined,
+                }}
+              >
+                <input
+                  className="edd-check__input"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  placeholder="Enter pincode"
+                  value={pincodeValue}
+                  style={{
+                    ...checkInputElStyle,
+                    ...(checkInputElStyle.width ? { flex: "0 0 auto" } : null),
+                  }}
+                  onChange={(event) => setPincodeValue(digitsOnly(event.currentTarget.value))}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    onCheck(event);
+                  }}
+                  onClick={(event) => event.stopPropagation()}
+                />
+                <EditableHotspot
+                  as="button"
+                  className="edd-check__button"
+                  elementId="checkButton"
+                  interactive={interactive}
+                  selectedElement={selectedElement}
+                  onSelect={onSelectElement}
+                  style={checkButtonElStyle}
+                  type="button"
+                  disabled={checking || interactive}
+                  onClick={interactive ? undefined : onCheck}
+                >
+                  {checking ? "Checking" : tracker.settings.checkDeliveryButtonLabel || "Check"}
+                </EditableHotspot>
+              </div>
+              {check?.available === false && check?.message ? (
+                <p className="edd-check__status" data-tone="error">
+                  {formatPincodeStatusLine(check)}
+                </p>
+              ) : null}
+              {check?.available === false ? (
+                <button type="button" className="edd-request-btn" disabled>
+                  Request delivery
+                </button>
+              ) : null}
+            </>
           ) : null}
         </div>
       ) : null}

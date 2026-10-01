@@ -17,8 +17,9 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
   const revisionRef = useRef(0);
   const inFlightRef = useRef(0);
   const pendingRef = useRef(null);
-  const lastJobRef = useRef({ intent: "save", extras: {} });
+  const lastJobRef = useRef({ intent: "save", extras: {}, silent: false });
   const submittedSnapshotRef = useRef(null);
+  const silentJobRef = useRef(false);
   const handledRef = useRef("");
   const [status, setStatus] = useState(SAVE_STATUS.SAVED);
   const [errors, setErrors] = useState(null);
@@ -32,7 +33,8 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
   const submitJob = (job) => {
     inFlightRef.current = job.revision;
     submittedSnapshotRef.current = job.snapshot;
-    lastJobRef.current = { intent: job.intent, extras: job.extras };
+    silentJobRef.current = Boolean(job.silent);
+    lastJobRef.current = { intent: job.intent, extras: job.extras, silent: Boolean(job.silent) };
     fetcher.submit(
       {
         intent: job.intent,
@@ -45,32 +47,56 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
     );
   };
 
-  const enqueue = (intent, extras = {}) => {
+  /**
+   * @param {string} intent
+   * @param {object} extras
+   * @param {object} [draftOverride]
+   * @param {{ silent?: boolean }} [options] silent=true skips Unsaved/save-bar UI
+   */
+  const enqueue = (intent, extras = {}, draftOverride, options = {}) => {
+    const silent = Boolean(options.silent);
     revisionRef.current += 1;
+    if (draftOverride) draftRef.current = draftOverride;
+    const draftSnapshot = structuredClone(draftOverride ?? draftRef.current);
+    const snapshot = JSON.stringify({ draft: draftSnapshot, marker: markerRef.current });
     pendingRef.current = {
       intent,
       extras,
       revision: revisionRef.current,
-      draft: structuredClone(draftRef.current),
+      draft: draftSnapshot,
       tab: tabRef.current,
-      snapshot: snapshotOf(),
+      snapshot,
+      silent,
     };
-    lastJobRef.current = { intent, extras };
-    setStatus(SAVE_STATUS.UNSAVED);
+    lastJobRef.current = { intent, extras, silent };
+    if (silent) {
+      // Treat applied draft as saved immediately - no Unsaved / Saving / save bar.
+      lastSavedRef.current = snapshot;
+      submittedSnapshotRef.current = snapshot;
+      setStatus(SAVE_STATUS.SAVED);
+    } else {
+      setStatus(SAVE_STATUS.UNSAVED);
+    }
     if (fetcher.state === "idle") {
       const job = pendingRef.current;
       pendingRef.current = null;
-      setStatus(SAVE_STATUS.SAVING);
-      setErrors(null);
+      if (!job.silent) {
+        setStatus(SAVE_STATUS.SAVING);
+        setErrors(null);
+      }
       submitJob(job);
     }
   };
 
-  const retry = () => enqueue(lastJobRef.current.intent || "save", lastJobRef.current.extras || {});
+  const retry = () =>
+    enqueue(lastJobRef.current.intent || "save", lastJobRef.current.extras || {}, undefined, {
+      silent: Boolean(lastJobRef.current.silent),
+    });
 
   useEffect(() => {
     lastSavedRef.current = snapshotOf(draft, marker);
     pendingRef.current = null;
+    silentJobRef.current = false;
     setStatus(SAVE_STATUS.SAVED);
     setErrors(null);
   }, [widgetId]);
@@ -107,7 +133,7 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
 
   useEffect(() => {
     if (fetcher.state !== "idle") {
-      setStatus(SAVE_STATUS.SAVING);
+      if (!silentJobRef.current) setStatus(SAVE_STATUS.SAVING);
       return;
     }
 
@@ -123,14 +149,17 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
         if (data.errors) {
           setErrors(data.errors);
           setStatus(SAVE_STATUS.ERROR);
+          silentJobRef.current = false;
         } else if (!pendingRef.current) {
           setErrors(null);
           lastSavedRef.current = submittedSnapshotRef.current || snapshotOf();
+          silentJobRef.current = false;
+          // Re-check in case the merchant edited again while silent save was in flight.
           setStatus(snapshotOf() === lastSavedRef.current ? SAVE_STATUS.SAVED : SAVE_STATUS.UNSAVED);
         }
       } else if (!pendingRef.current) {
-        // Stale response after a newer edit - don't leave the UI stuck on "Saving".
         setStatus(snapshotOf() === lastSavedRef.current ? SAVE_STATUS.SAVED : SAVE_STATUS.UNSAVED);
+        silentJobRef.current = false;
       }
     } else if (!pendingRef.current) {
       setStatus((current) => {
@@ -142,8 +171,14 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
     if (pendingRef.current) {
       const job = pendingRef.current;
       pendingRef.current = null;
-      setStatus(SAVE_STATUS.SAVING);
-      setErrors(null);
+      if (!job.silent) {
+        setStatus(SAVE_STATUS.SAVING);
+        setErrors(null);
+      } else {
+        lastSavedRef.current = job.snapshot;
+        submittedSnapshotRef.current = job.snapshot;
+        setStatus(SAVE_STATUS.SAVED);
+      }
       submitJob(job);
     }
   }, [fetcher.state, fetcher.data]);
@@ -152,11 +187,13 @@ export function useEditorSave({ draft, tab, widgetId, marker = "", enabled = tru
     fetcher,
     status,
     errors,
-    saving: status === SAVE_STATUS.SAVING || fetcher.state !== "idle",
-    submitSave: (intent, extras = {}) => enqueue(intent, extras),
+    saving: status === SAVE_STATUS.SAVING || (fetcher.state !== "idle" && !silentJobRef.current),
+    submitSave: (intent, extras = {}, draftOverride, options) =>
+      enqueue(intent, extras, draftOverride, options),
     retry,
     restoreSaved: () => {
       pendingRef.current = null;
+      silentJobRef.current = false;
       setErrors(null);
       setStatus(SAVE_STATUS.SAVED);
       if (!lastSavedRef.current) {

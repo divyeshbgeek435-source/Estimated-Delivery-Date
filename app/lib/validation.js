@@ -11,7 +11,13 @@ import {
   WORKING_DAYS,
 } from "./constants";
 import { isValidTimeZone } from "./timezone";
-import { clampToBounds, SHIPPING_DAY_LIMITS } from "./number-input";
+import {
+  PROCESSING_DAY_ORDER_MESSAGE,
+  PROCESSING_DAY_RANGE_MESSAGE,
+  PROCESSING_DAY_REQUIRED_MESSAGE,
+  SHIPPING_DAY_MAX,
+  TRANSIT_DAY_ORDER_MESSAGE,
+} from "./number-input";
 import {
   DEFAULT_PINCODE_RULES,
   DEFAULT_WEIGHT_RULES,
@@ -20,6 +26,7 @@ import {
   normalizePincodeRules,
   normalizeWeightRules,
 } from "./pincode";
+import { normalizeTrackerConfig } from "./tracker-config";
 
 export function normalizeHex(value, fallback = "#000000") {
   const match = String(value || "").trim().match(/#?([0-9A-Fa-f]{6})/);
@@ -85,23 +92,28 @@ export const blockedDateSchema = z.object({
   recurring: z.boolean().optional(),
 });
 
-const asDayInt = (bounds, fallback) =>
-  z.preprocess(
-    (value) => clampToBounds(value, bounds, fallback),
-    z.number().int().min(bounds.min).max(bounds.max),
-  );
+const asProcessingDay = z.preprocess((value) => {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  const text = String(value ?? "").trim();
+  if (!text) return undefined;
+  if (/^\d+$/.test(text)) return Number(text);
+  return Number.NaN;
+}, z.number({
+  invalid_type_error: PROCESSING_DAY_RANGE_MESSAGE,
+  required_error: PROCESSING_DAY_REQUIRED_MESSAGE,
+}).int({ message: PROCESSING_DAY_RANGE_MESSAGE }).min(0, { message: PROCESSING_DAY_RANGE_MESSAGE }).max(SHIPPING_DAY_MAX, { message: PROCESSING_DAY_RANGE_MESSAGE }));
 
 export const shippingSchema = z
   .object({
-    processingMinDays: asDayInt(SHIPPING_DAY_LIMITS.processingMin, 0),
-    processingMaxDays: asDayInt(SHIPPING_DAY_LIMITS.processingMax, 1),
+    processingMinDays: asProcessingDay,
+    processingMaxDays: asProcessingDay,
     cutoffTime: asString("12:00 AM").pipe(z.string().min(1).max(20)),
     workingDays: z
       .array(z.enum(WORKING_DAYS))
       .default([...DEFAULT_WORKING_DAYS]),
     blockedDates: z.array(blockedDateSchema).default([]),
-    transitMinDays: asDayInt(SHIPPING_DAY_LIMITS.transitMin, 1),
-    transitMaxDays: asDayInt(SHIPPING_DAY_LIMITS.transitMax, 2),
+    transitMinDays: asProcessingDay,
+    transitMaxDays: asProcessingDay,
     transitWorkingDays: z
       .array(z.enum(WORKING_DAYS))
       .default([...DEFAULT_WORKING_DAYS]),
@@ -228,18 +240,26 @@ export const shippingSchema = z
       transitMinDays,
       transitMaxDays,
     };
-    if (next.weightRules?.displayMode !== WEIGHT_DISPLAY_MODES.DIRECT) return next;
-    return {
-      ...next,
-      pincodeRules: { ...next.pincodeRules, enabled: false },
-    };
+    if (next.weightRules?.displayMode === WEIGHT_DISPLAY_MODES.PINCODE) {
+      return {
+        ...next,
+        pincodeRules: { ...next.pincodeRules, enabled: true },
+      };
+    }
+    if (next.weightRules?.displayMode === WEIGHT_DISPLAY_MODES.DIRECT) {
+      return {
+        ...next,
+        pincodeRules: { ...next.pincodeRules, enabled: false },
+      };
+    }
+    return next;
   })
   .refine((value) => value.processingMaxDays >= value.processingMinDays, {
-    message: "Longest processing time must be greater than or equal to the shortest.",
+    message: PROCESSING_DAY_ORDER_MESSAGE,
     path: ["processingMaxDays"],
   })
   .refine((value) => value.transitMaxDays >= value.transitMinDays, {
-    message: "Longest transit time must be greater than or equal to the shortest.",
+    message: TRANSIT_DAY_ORDER_MESSAGE,
     path: ["transitMaxDays"],
   });
 
@@ -275,6 +295,14 @@ export const messageSchema = z.object({
       "CARD",
       "TRACKER",
       "BANNER",
+      "HERO",
+      "DROP",
+      "CLEAN",
+      "CHECKLIST",
+      "PICKUP",
+      "PREORDER",
+      "WHOLESALE",
+      "CALENDAR",
     ]),
   ),
   descriptionEnabled: z.preprocess(
@@ -339,6 +367,27 @@ export const messageSchema = z.object({
   purchasedColor: optionalHexColor,
   processingColor: optionalHexColor,
   deliveredColor: optionalHexColor,
+  trackerConfig: z.preprocess(
+    (value) => {
+      if (value == null || value === "" || value === "null") return undefined;
+      let parsed = value;
+      if (typeof value === "string") {
+        try {
+          parsed = JSON.parse(value);
+        } catch {
+          return undefined;
+        }
+      }
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+      try {
+        // Normalize first so connector + settings always survive save/load.
+        return normalizeTrackerConfig(parsed);
+      } catch {
+        return undefined;
+      }
+    },
+    z.any().optional(),
+  ),
 });
 
 export const styleSchema = z.object({
@@ -372,6 +421,20 @@ export const styleSchema = z.object({
   dynamicColor: hexColor("#202223"),
   headingFontWeight: z.coerce.number().int().min(400).max(900).default(600),
   customCss: asString("").pipe(z.string().max(4000)),
+  elementStyles: z.preprocess(
+    (value) => {
+      if (value == null || value === "") return undefined;
+      if (typeof value === "string") {
+        try {
+          return JSON.parse(value);
+        } catch {
+          return undefined;
+        }
+      }
+      return value;
+    },
+    z.record(z.string(), z.record(z.string(), z.any())).optional(),
+  ),
 });
 
 export const placementSchema = z.object({

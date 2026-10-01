@@ -1,19 +1,16 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "b6ee452490636fdabe1c0381d99da8d2"
-name = "Estimated Delivery Date"
 application_url = "https://example.com"
 embedded = true
-
-[build]
-automatically_update_urls_on_dev = true
-
-[events]
-api_version = "unstable"
-subscription = [ ]
+name = "Estimated Delivery Date"
 
 [webhooks]
 api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/customers/data_request"
@@ -32,32 +29,32 @@ api_version = "2026-10"
   topics = [ "app/scopes_update" ]
 
   [[webhooks.subscriptions]]
-  uri = "/webhooks/app/uninstalled"
-  topics = [ "app/uninstalled" ]
-
-  [[webhooks.subscriptions]]
   uri = "/webhooks/collections/update"
   topics = [ "collections/update" ]
-
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/products/update"
-  topics = [ "products/update" ]
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/shop/update"
   topics = [ "shop/update" ]
 
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/products/update"
+  topics = [ "products/update" ]
+
+[app_proxy]
+url = "https://example.com/api/widget"
+subpath = "delivery-date"
+prefix = "apps"
+
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_markets,write_markets,write_metaobject_definitions,write_metaobjects,write_products,read_themes,write_themes"
+scopes = "read_markets,read_themes,write_markets,write_metaobject_definitions,write_metaobjects,write_products,write_themes"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
 
-[app_proxy]
-url = "/api/widget"
-subpath = "delivery-date"
-prefix = "apps"
+[events]
+api_version = "unstable"
+subscription = [ ]
 
 [shop.metafields.app.embed_enabled]
 type = "boolean"
@@ -76,3 +73,6 @@ description = "Public checkout widget configuration used by the Checkout UI exte
   [shop.metafields.app.checkout_widget.access]
   admin = "merchant_read"
   storefront = "public_read"
+
+[build]
+automatically_update_urls_on_dev = true

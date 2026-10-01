@@ -218,6 +218,8 @@ export function publicStorefrontConfig(widget, delivery, options = {}) {
       purchasedTitle: translation.purchasedTitle || widget.iconConfig.purchasedTitle,
       processingTitle: translation.processingTitle || widget.iconConfig.processingTitle,
       deliveredTitle: translation.deliveredTitle || widget.iconConfig.deliveredTitle,
+      // Keep tracker/connector settings on the public payload for storefront widgets.
+      trackerConfig: widget.iconConfig?.trackerConfig || null,
     },
     style: {
       backgroundType: widget.styleConfig.backgroundType,
@@ -247,6 +249,7 @@ export function publicStorefrontConfig(widget, delivery, options = {}) {
       dynamicColor: widget.styleConfig.dynamicColor,
       headingFontWeight: widget.styleConfig.headingFontWeight || 600,
       customCss: widget.styleConfig.customCss,
+      elementStyles: widget.styleConfig.elementStyles || {},
     },
     cart: widget.cartConfig,
     placement: {

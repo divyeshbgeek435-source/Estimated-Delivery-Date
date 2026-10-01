@@ -31,6 +31,24 @@ function locationIdentity(location) {
   return locationKey(location?.country, location?.city, location?.state || "");
 }
 
+const CHOOSE_COUNTRY = "__choose__";
+
+function selectedOptionValue(event) {
+  const target = event?.currentTarget || event?.target;
+  const fromValues = Array.isArray(target?.values) ? target.values.find(Boolean) : "";
+  return String(fromValues || target?.value || "").trim();
+}
+
+function countryIsoFromChoice(raw) {
+  const text = String(raw || "").trim();
+  if (!text || text === CHOOSE_COUNTRY) return "";
+  const upper = text.toUpperCase();
+  const byValue = PINCODE_COUNTRIES.find((item) => item.value === upper);
+  if (byValue) return byValue.value;
+  const byLabel = PINCODE_COUNTRIES.find((item) => item.label.toLowerCase() === text.toLowerCase());
+  return byLabel?.value || "";
+}
+
 async function loadCityPincodes(country, city, state = "", { refresh = false } = {}) {
   const params = new URLSearchParams({
     country,
@@ -59,9 +77,16 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
     pincodes: [],
   };
   const weight = shipping.weightRules || { value: "", unit: "kg" };
-  const directWeight = weight.displayMode === WEIGHT_DISPLAY_MODES.DIRECT;
-  const pincodeEnabled = Boolean(pincode.enabled) && !directWeight;
-  const [countryPick, setCountryPick] = useState("");
+  const weightMode =
+    weight.displayMode === WEIGHT_DISPLAY_MODES.PINCODE || weight.displayMode === WEIGHT_DISPLAY_MODES.DIRECT
+      ? weight.displayMode
+      : "";
+  const pincodeSelected = weightMode === WEIGHT_DISPLAY_MODES.PINCODE;
+  const [countryPick, setCountryPick] = useState(() => {
+    const saved = (shipping.pincodeRules?.countries || []).map((item) => String(item || "").toUpperCase());
+    const initial = String(shipping.pincodeRules?.country || "").toUpperCase();
+    return saved.includes(initial) ? initial : "";
+  });
   const [addingKey, setAddingKey] = useState("");
   const [lookupError, setLookupError] = useState("");
   const [loadingKeys, setLoadingKeys] = useState(() => new Set());
@@ -70,8 +95,23 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
   const inFlight = useRef(new Set());
   latest.current = pincode;
 
+  useEffect(() => {
+    if (!weightMode) return;
+    const shouldEnable = weightMode === WEIGHT_DISPLAY_MODES.PINCODE;
+    if (Boolean(latest.current.enabled) === shouldEnable) return;
+    onChange({
+      pincodeRules: { ...latest.current, enabled: shouldEnable },
+      weightRules: { ...weight, displayMode: weightMode },
+    });
+  }, [weightMode, onChange, weight]);
+
   const setPincode = (patch) => onChange({ pincodeRules: { ...latest.current, ...patch } });
-  const countries = pincode.countries || [];
+  const countries = (pincode.countries || []).map((item) => String(item || "").toUpperCase());
+  const addedCountries = new Set(countries);
+  const countryChoices = PINCODE_COUNTRIES.filter(
+    (item) => !addedCountries.has(item.value) || item.value === countryPick,
+  );
+  const selectedCountry = PINCODE_COUNTRIES.find((item) => item.value === countryPick);
   const locations = pincode.locations || [];
   const groups = groupDeliveryLocations(pincode);
 
@@ -148,21 +188,27 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locations.length, locations.map((item) => `${locationIdentity(item)}:${(item.pincodes || []).length}`).join("|")]);
 
-  const addCountry = (iso) => {
-    const current = latest.current;
-    const currentCountries = current.countries || [];
-    if (!iso || currentCountries.includes(iso)) {
+  const addCountry = (raw) => {
+    const iso = countryIsoFromChoice(raw);
+    if (!iso) {
       setCountryPick("");
       return;
     }
+    const current = latest.current;
+    const currentCountries = (current.countries || []).map((item) => String(item || "").toUpperCase());
+    setCountryPick(iso);
+    if (currentCountries.includes(iso)) return;
     setLookupError("");
     setPincode({
       enabled: true,
       country: iso,
       countries: [...currentCountries, iso],
+      countryModes: {
+        ...(current.countryModes || {}),
+        [iso]: current.countryModes?.[iso] || LOCATION_SELECTION.SPECIFIC,
+      },
       locations: current.locations || [],
     });
-    setCountryPick("");
   };
 
   const removeCountry = (event, iso) => {
@@ -182,6 +228,7 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
     setLoadingKeys((currentKeys) => new Set([...currentKeys].filter((key) => !key.startsWith(`${country}|`))));
     setFailedKeys((currentKeys) => new Set([...currentKeys].filter((key) => !key.startsWith(`${country}|`))));
     setLookupError("");
+    setCountryPick((currentPick) => (String(currentPick || "").toUpperCase() === country ? "" : currentPick));
     setPincode({
       enabled: nextLocations.length > 0 ? current.enabled : current.enabled,
       countries: nextCountries,
@@ -280,44 +327,23 @@ export function PincodeRulesEditor({ shipping, onChange, errors = {} }) {
         city. An entire country includes every city and every PIN code in that country.
       </s-paragraph>
 
-      {directWeight ? (
-        <s-banner>
-          Pincode check is hidden on the product page because weight is shown directly. Switch to “Enter pincode
-          and show weight” if customers should check a pincode first.
-        </s-banner>
-      ) : (
-        <label className="edd-switch">
-          <input
-            type="checkbox"
-            checked={pincodeEnabled}
-            onChange={(event) => {
-              const enabled = Boolean(event.currentTarget.checked);
-              onChange({
-                pincodeRules: { ...latest.current, enabled },
-                ...(enabled
-                  ? { weightRules: { ...weight, displayMode: WEIGHT_DISPLAY_MODES.PINCODE } }
-                  : {}),
-              });
-            }}
-          />
-          <span>Enable pincode check on the product page</span>
-        </label>
-      )}
-
-      {pincodeEnabled ? (
+      {pincodeSelected ? (
         <div className="edd-pin-editor">
           <s-select
             label="Country"
-            value={countryPick}
-            placeholder="Select country"
-            onChange={(event) => addCountry(event.currentTarget.value)}
+            value={countryPick || CHOOSE_COUNTRY}
+            onChange={(event) => addCountry(selectedOptionValue(event))}
           >
-            {PINCODE_COUNTRIES.filter((item) => !countries.includes(item.value)).map((item) => (
+            <s-option value={CHOOSE_COUNTRY}>Choose Country</s-option>
+            {countryChoices.map((item) => (
               <s-option key={item.value} value={item.value}>
                 {item.label}
               </s-option>
             ))}
           </s-select>
+          {selectedCountry ? (
+            <p className="edd-pin-editor__selected">Selected country: {selectedCountry.label}</p>
+          ) : null}
 
           {groups.length ? (
             <div className="edd-geo-tree">

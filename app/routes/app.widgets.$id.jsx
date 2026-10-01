@@ -35,6 +35,7 @@ import { getCollectionProductHandle } from "../services/shopify/catalog.server";
 import { storefrontPageUrl, widgetThemeEditorUrl } from "../lib/theme-editor";
 import { queueWidgetStorefrontSync, needsThemeSync } from "../services/shopify/store-block.server";
 import { mergeIconLibraries } from "../lib/icon-media";
+import { normalizeTrackerConfig } from "../lib/tracker-config";
 import { saveMerchantIconLibrary, shopTimezoneForMerchant } from "../services/shopify/merchant.server";
 
 async function firstProductHandle(admin, widget) {
@@ -102,13 +103,16 @@ export const loader = async ({ request, params }) => {
   };
 };
 
-function flattenDraft(widget, draft = {}) {
+  function flattenDraft(widget, draft = {}) {
   const shipping = { ...widget.shippingRules, ...(draft.shippingRules || {}) };
   const message = { ...widget.messageConfig, ...(draft.messageConfig || {}) };
   const icons = { ...widget.iconConfig, ...(draft.iconConfig || {}) };
   const style = pickStyle({ ...widget.styleConfig, ...(draft.styleConfig || {}) });
   const placement = { ...widget.placementConfig, ...(draft.placementConfig || {}) };
   const cart = { ...widget.cartConfig, ...(draft.cartConfig || {}) };
+  const trackerConfig = icons.trackerConfig
+    ? normalizeTrackerConfig(icons.trackerConfig)
+    : null;
 
   return {
     shipping: {
@@ -157,6 +161,7 @@ function flattenDraft(widget, draft = {}) {
       processingColor: icons.processingColor || "",
       deliveredColor: icons.deliveredColor || "",
       savedIcons: icons.savedIcons || [],
+      trackerConfig,
       scheduledPublishAt: message.scheduledPublishAt || widget.messageConfig?.scheduledPublishAt || null,
       liveNotice: message.liveNotice || widget.messageConfig?.liveNotice || null,
       activationConflict:
@@ -189,6 +194,10 @@ function pickStyle(style = {}) {
     if (style[key] !== undefined && style[key] !== null && style[key] !== "") {
       next[key] = style[key];
     }
+  }
+  // Preserve empty elementStyles map when explicitly set.
+  if (style.elementStyles && typeof style.elementStyles === "object") {
+    next.elementStyles = style.elementStyles;
   }
   return next;
 }
@@ -299,6 +308,14 @@ export const action = async ({ request, params }) => {
   for (const result of [shippingParsed, messageParsed, styleParsed, placementParsed, editorParsed]) {
     if (!result.success) Object.assign(errors, formErrors(result.error));
   }
+  if (
+    widget.location === WIDGET_LOCATIONS.PRODUCT &&
+    shippingParsed.success &&
+    !shippingParsed.data.weightRules?.displayMode
+  ) {
+    errors.weightDisplay =
+      "Select Enter pincode and show widget, or Show widget directly, before saving.";
+  }
   if (Object.keys(errors).length) {
     return { errors };
   }
@@ -396,10 +413,9 @@ export const action = async ({ request, params }) => {
       { returnWidget: intent !== "autosave", location: widget.location },
     );
 
-    await saveMerchantIconLibrary(
-      merchant.id,
-      mergeIconLibraries(merchant.iconLibrary, messageParsed.data.savedIcons, values.message.savedIcons),
-    );
+    // The editor list is the shared library after adds and removes. Merging the
+    // previous merchant library back in would restore icons the merchant just deleted.
+    await saveMerchantIconLibrary(merchant.id, messageParsed.data.savedIcons || []);
 
     if (intent === "autosave") {
       return { silent: true, revision };

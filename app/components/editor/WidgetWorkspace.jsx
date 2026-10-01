@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
-import { EDITOR_TABS, locationLabel, WIDGET_STATUSES } from "../../lib/constants";
+import { EDITOR_TABS, locationLabel, WIDGET_LOCATIONS, WIDGET_STATUSES } from "../../lib/constants";
 import { rememberHomeFocusWidget } from "../../lib/home-scroll";
 import { applyLiveStatus, formatCountdown, useLivePublishPoll } from "../../lib/use-live-publish";
 import { SAVE_STATUS, useEditorSave } from "../../lib/use-editor-save";
@@ -26,6 +26,7 @@ import { PlacementConflictDialog } from "../common/PlacementConflictDialog";
 import { conflictDialogCopy } from "../../lib/widget-conflicts";
 import { timezoneForStore } from "../../lib/timezone";
 import { ConditionsTab } from "./ConditionsTab";
+import { hasWidgetDisplayChoice } from "./WidgetDisplayPicker";
 import { DesignTab } from "./DesignTab";
 import { PlacementTab } from "./PlacementTab";
 import { WidgetStatusPicker } from "./WidgetStatusPicker";
@@ -177,6 +178,7 @@ export function WidgetWorkspace({
   }, [saveStatus, shopify]);
 
   useEffect(() => {
+    if (saveFetcher.data?.silent) return;
     if (saveFetcher.data?.toast) shopify.toast.show(saveFetcher.data.toast);
   }, [saveFetcher.data, shopify]);
 
@@ -255,6 +257,13 @@ export function WidgetWorkspace({
   };
 
   const submitSave = () => {
+    if (widget.location === WIDGET_LOCATIONS.PRODUCT && !hasWidgetDisplayChoice(draft.shippingRules)) {
+      goTab("conditions");
+      shopify.toast.show("Select Enter pincode and show widget, or Show widget directly, before saving.", {
+        isError: true,
+      });
+      return;
+    }
     if (saveAction === SAVE_ACTIONS.SCHEDULE) {
       const parsed = parseScheduleInput(scheduleAt);
       if (parsed.error) {
@@ -469,7 +478,7 @@ export function WidgetWorkspace({
           ) : null}
           {visitedTabs.has("design") ? (
             <div className="edd-editor__panel" hidden={tab !== "design"}>
-              <DesignTab widget={widget} draft={draft} onChange={setDraft} errors={saveErrors || errors} />
+              <DesignTab widget={widget} draft={draft} onChange={setDraft} />
             </div>
           ) : null}
           {visitedTabs.has("placement") ? (
@@ -531,6 +540,7 @@ export function WidgetWorkspace({
                     <rect x="2" y="4" width="16" height="10" rx="1.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
                     <path d="M7 16h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                   </svg>
+                  <span>Desktop</span>
                 </button>
                 <button
                   type="button"
@@ -543,6 +553,7 @@ export function WidgetWorkspace({
                     <rect x="6" y="2" width="8" height="16" rx="1.8" fill="none" stroke="currentColor" strokeWidth="1.6" />
                     <circle cx="10" cy="15.2" r="0.7" fill="currentColor" />
                   </svg>
+                  <span>Mobile</span>
                 </button>
               </div>
             </div>

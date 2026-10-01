@@ -4,12 +4,22 @@ import { useFetcher, useSearchParams } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { MARKET_SCOPES, ensureScopes } from "../../lib/app-scopes";
 import { WORKING_DAYS, WIDGET_LOCATIONS } from "../../lib/constants";
-import { joinCutoff, splitCutoff } from "../../lib/delivery-calculator";
-import { boundedIntFromEvent, intFieldValue, CUTOFF_LIMITS, SHIPPING_DAY_LIMITS, SHIPPING_DAY_MAX } from "../../lib/number-input";
+import { cutoffToTimeInput, formatCutoffDisplay, timeInputToCutoff } from "../../lib/delivery-calculator";
+import {
+  intFieldValue,
+  processingDayDraftValue,
+  processingDayError,
+  processingDayOrderError,
+  readInputText,
+  SHIPPING_DAY_LIMITS,
+  SHIPPING_DAY_MAX,
+  TRANSIT_DAY_ORDER_MESSAGE,
+} from "../../lib/number-input";
+import { WEIGHT_DISPLAY_MODES } from "../../lib/pincode";
 import { widgetProfile } from "../../lib/widget-profiles";
 import { ActionButton, HostChoiceList } from "../common/ActionButton";
 import { PincodeRulesEditor } from "./PincodeRulesEditor";
-import { hasWeightDisplayChoice, WeightDisplayPicker } from "./WeightDisplayPicker";
+import { explicitWidgetDisplayMode, WidgetDisplayPicker } from "./WidgetDisplayPicker";
 import { DeliveryRequestsPanel } from "./DeliveryRequestsPanel";
 import { resolveTimeZone } from "../../lib/timezone";
 import { TimezonePicker } from "./TimezonePicker";
@@ -24,12 +34,6 @@ const DAY_SHORT = {
   SUNDAY: "S",
 };
 
-function onDayInput(event, key, bounds, onChange) {
-  const parsed = boundedIntFromEvent(event, bounds);
-  if (parsed == null) return;
-  onChange({ [key]: parsed });
-}
-
 function DaysLimitNote() {
   return (
     <s-paragraph color="subdued">Maximum allowed duration is {SHIPPING_DAY_MAX} days.</s-paragraph>
@@ -41,10 +45,6 @@ export function ConditionsTab({ widget, draft, onChange, errors = {}, deliveryRe
   const shipping = draft.shippingRules;
   const profile = widgetProfile(widget.location);
   const isCreateSetup = searchParams.get("created") === "1";
-  const shouldAutoOpenWeight =
-    widget.location === WIDGET_LOCATIONS.PRODUCT &&
-    isCreateSetup &&
-    !hasWeightDisplayChoice(shipping);
 
   useEffect(() => {
     if (!isCreateSetup) return;
@@ -144,13 +144,10 @@ export function ConditionsTab({ widget, draft, onChange, errors = {}, deliveryRe
       {profile.showMarkets ? <MarketsSection draft={draft} onChange={onChange} errors={errors} /> : null}
       {widget.location === WIDGET_LOCATIONS.PRODUCT ? (
         <>
-          <WeightDisplayPicker
-            shipping={shipping}
-            widgetId={widget.id}
-            autoOpen={shouldAutoOpenWeight}
-            onChange={setShipping}
-          />
-          <PincodeRulesEditor shipping={shipping} onChange={setShipping} errors={errors} />
+          <WidgetDisplayPicker shipping={shipping} onChange={setShipping} />
+          {explicitWidgetDisplayMode(shipping) === WEIGHT_DISPLAY_MODES.PINCODE ? (
+            <PincodeRulesEditor shipping={shipping} onChange={setShipping} errors={errors} />
+          ) : null}
           <DeliveryRequestsPanel
             requests={deliveryRequests}
             onAccepted={(saved) => {
@@ -194,6 +191,164 @@ function HiddenShipping({ shipping, timezone }) {
   );
 }
 
+function displayProcessingDay(value) {
+  if (value == null) return "";
+  return String(value);
+}
+
+function sameProcessingDay(text, value) {
+  const left = String(text ?? "").trim();
+  const right = String(value ?? "").trim();
+  if (left === right) return true;
+  return /^\d+$/.test(left) && /^\d+$/.test(right) && Number(left) === Number(right);
+}
+
+function isStepperChange(event) {
+  const inputType = event?.inputType || event?.nativeEvent?.inputType;
+  // Keyboard and paste set inputType. The day stepper does not.
+  return !inputType;
+}
+
+function cannotDecreaseBelowFloor(nextText, currentText, floorText, event) {
+  if (!isStepperChange(event)) return false;
+  const next = String(nextText ?? "").trim();
+  const current = String(currentText ?? "").trim();
+  const floor = String(floorText ?? "").trim();
+  if (!/^\d+$/.test(next) || !/^\d+$/.test(floor) || !/^\d+$/.test(current)) return false;
+  if (Number(next) >= Number(floor)) return false;
+  return Number(next) === Number(current) - 1;
+}
+
+function ShippingDayPair({
+  minKey,
+  maxKey,
+  minLabel,
+  maxLabel,
+  minValue,
+  maxValue,
+  minServerError,
+  maxServerError,
+  orderMessage,
+  preventBelowMin = false,
+  required = false,
+  onChange,
+}) {
+  const [minText, setMinText] = useState(() => displayProcessingDay(minValue));
+  const [maxText, setMaxText] = useState(() => displayProcessingDay(maxValue));
+  const editing = useRef({ min: false, max: false });
+
+  useEffect(() => {
+    if (editing.current.min) return;
+    setMinText((current) => (sameProcessingDay(current, minValue) ? current : displayProcessingDay(minValue)));
+  }, [minValue]);
+
+  useEffect(() => {
+    if (editing.current.max) return;
+    setMaxText((current) => (sameProcessingDay(current, maxValue) ? current : displayProcessingDay(maxValue)));
+  }, [maxValue]);
+
+  const minIssue = processingDayError(minText, required);
+  const maxIssue = processingDayError(maxText, required);
+  const orderIssue = processingDayOrderError(minText, maxText, orderMessage);
+
+  const setDayText = (key, text, event) => {
+    const trimmed = String(text ?? "").trim();
+    if (trimmed.startsWith("-") || (trimmed !== "" && Number(trimmed) < 0)) {
+      const restore = key === minKey ? minText : maxText;
+      const target = event?.currentTarget ?? event?.target;
+      if (target != null) target.value = restore;
+      return;
+    }
+    // Allow up to 3 digits so 61–999 can show the range error, but block huge
+    // values that would freeze the live-preview calculator.
+    if (/^\d+$/.test(trimmed) && trimmed.length > 3) {
+      const restore = key === minKey ? minText : maxText;
+      const target = event?.currentTarget ?? event?.target;
+      if (target != null) target.value = restore;
+      return;
+    }
+    if (key === maxKey && preventBelowMin && cannotDecreaseBelowFloor(trimmed, maxText, minText, event)) {
+      const target = event?.currentTarget ?? event?.target;
+      if (target != null) target.value = maxText;
+      return;
+    }
+    if (key === minKey) {
+      setMinText(text);
+      const patch = { [key]: processingDayDraftValue(text) };
+      // Keep the end of the range on or after the start, including while typing.
+      if (
+        preventBelowMin &&
+        /^\d+$/.test(trimmed) &&
+        /^\d+$/.test(String(maxText ?? "").trim()) &&
+        Number(trimmed) > Number(maxText)
+      ) {
+        const raised = String(Number(trimmed));
+        setMaxText(raised);
+        patch[maxKey] = Number(raised);
+      }
+      onChange(patch);
+      return;
+    }
+    setMaxText(text);
+    onChange({ [key]: processingDayDraftValue(text) });
+  };
+
+  const longestFloor = preventBelowMin && !processingDayError(minText) ? Number(minText) : 0;
+
+  return (
+    <s-stack gap="small-200">
+    <s-grid gridTemplateColumns="1fr 1fr" gap="base">
+      <s-number-field
+        label={minLabel}
+        name={minKey}
+        value={minText}
+        min={0}
+        step={1}
+        suffix="Days"
+        {...(required ? { required: true } : {})}
+        error={minIssue || minServerError || undefined}
+        onFocus={() => {
+          editing.current.min = true;
+        }}
+        onBlur={() => {
+          editing.current.min = false;
+        }}
+        onInput={(event) => setDayText(minKey, readInputText(event), event)}
+      ></s-number-field>
+      <div>
+        <s-number-field
+          label={maxLabel}
+          name={maxKey}
+          value={maxText}
+          min={longestFloor}
+          step={1}
+          suffix="Days"
+          {...(required ? { required: true } : {})}
+          error={maxIssue || maxServerError || undefined}
+          onFocus={() => {
+            editing.current.max = true;
+          }}
+          onBlur={() => {
+            editing.current.max = false;
+            if (!preventBelowMin || processingDayError(minText)) return;
+            const current = String(maxText ?? "").trim();
+            if (/^\d+$/.test(current) && Number(current) >= Number(minText)) return;
+            const restore = String(Number(minText));
+            setMaxText(restore);
+            onChange({ [maxKey]: Number(restore) });
+          }}
+          onInput={(event) => setDayText(maxKey, readInputText(event), event)}
+        ></s-number-field>
+        {orderIssue ? <p className="edd-field-error">{orderIssue}</p> : null}
+      </div>
+    </s-grid>
+    {required ? (
+      <s-paragraph color="subdued">Minimum days and Maximum days must be filled in.</s-paragraph>
+    ) : null}
+    </s-stack>
+  );
+}
+
 function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone }) {
   return (
     <s-section aria-label="Order processing">
@@ -201,34 +356,18 @@ function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone })
       {/* <s-paragraph color="subdued">
         Set how long you need to prepare an order, when the daily cutoff is, and which days you work.
       </s-paragraph> */}
-      <s-grid gridTemplateColumns="1fr 1fr" gap="base">
-        <s-number-field
-          label="Shortest processing"
-          name="processingMinDays"
-          value={intFieldValue(shipping.processingMinDays, SHIPPING_DAY_LIMITS.processingMin, 0)}
-          min={SHIPPING_DAY_LIMITS.processingMin.min}
-          max={SHIPPING_DAY_LIMITS.processingMin.max}
-          step={1}
-          suffix="Days"
-          error={errors.processingMinDays}
-          onInput={(event) =>
-            onDayInput(event, "processingMinDays", SHIPPING_DAY_LIMITS.processingMin, onChange)
-          }
-        ></s-number-field>
-        <s-number-field
-          label="Longest processing"
-          name="processingMaxDays"
-          value={intFieldValue(shipping.processingMaxDays, SHIPPING_DAY_LIMITS.processingMax, 1)}
-          min={SHIPPING_DAY_LIMITS.processingMax.min}
-          max={SHIPPING_DAY_LIMITS.processingMax.max}
-          step={1}
-          suffix="Days"
-          error={errors.processingMaxDays}
-          onInput={(event) =>
-            onDayInput(event, "processingMaxDays", SHIPPING_DAY_LIMITS.processingMax, onChange)
-          }
-        ></s-number-field>
-      </s-grid>
+      <ShippingDayPair
+        minKey="processingMinDays"
+        maxKey="processingMaxDays"
+        minLabel="Minimum days"
+        maxLabel="Maximum days"
+        minValue={shipping.processingMinDays}
+        maxValue={shipping.processingMaxDays}
+        minServerError={errors.processingMinDays}
+        maxServerError={errors.processingMaxDays}
+        preventBelowMin
+        onChange={onChange}
+      />
       <DaysLimitNote />
       <TimezonePicker value={timezone} error={errors.timezone} onChange={onTimezone} />
       <CutoffFields
@@ -257,42 +396,28 @@ function ProcessingSection({ shipping, timezone, errors, onChange, onTimezone })
 
 function TransitSection({ shipping, errors, onChange }) {
   return (
-    <s-section aria-label="Order transit">
-      <p className="edd-section-heading">Order transit</p>
+    <s-section aria-label="Delivery Time">
+      <p className="edd-section-heading">Delivery Time</p>
       {/* <s-paragraph color="subdued">
         Shipping time after the order leaves your facility until it reaches the customer.
       </s-paragraph> */}
-      <s-grid gridTemplateColumns="1fr 1fr" gap="base">
-        <s-number-field
-          label="Shortest transit"
-          name="transitMinDays"
-          value={intFieldValue(shipping.transitMinDays, SHIPPING_DAY_LIMITS.transitMin, 1)}
-          min={SHIPPING_DAY_LIMITS.transitMin.min}
-          max={SHIPPING_DAY_LIMITS.transitMin.max}
-          step={1}
-          suffix="Days"
-          error={errors.transitMinDays}
-          onInput={(event) =>
-            onDayInput(event, "transitMinDays", SHIPPING_DAY_LIMITS.transitMin, onChange)
-          }
-        ></s-number-field>
-        <s-number-field
-          label="Longest transit"
-          name="transitMaxDays"
-          value={intFieldValue(shipping.transitMaxDays, SHIPPING_DAY_LIMITS.transitMax, 2)}
-          min={SHIPPING_DAY_LIMITS.transitMax.min}
-          max={SHIPPING_DAY_LIMITS.transitMax.max}
-          step={1}
-          suffix="Days"
-          error={errors.transitMaxDays}
-          onInput={(event) =>
-            onDayInput(event, "transitMaxDays", SHIPPING_DAY_LIMITS.transitMax, onChange)
-          }
-        ></s-number-field>
-      </s-grid>
+      <ShippingDayPair
+        minKey="transitMinDays"
+        maxKey="transitMaxDays"
+        minLabel="Minimum days"
+        maxLabel="Maximum days"
+        minValue={shipping.transitMinDays}
+        maxValue={shipping.transitMaxDays}
+        minServerError={errors.transitMinDays}
+        maxServerError={errors.transitMaxDays}
+        orderMessage={TRANSIT_DAY_ORDER_MESSAGE}
+        preventBelowMin
+        required
+        onChange={onChange}
+      />
       <s-paragraph color="subdued">The date range will start only from the last processing date.</s-paragraph>
       <DayPills
-        label="Transit days"
+        label="Processing days"
         help="Days carriers move the package"
         namePrefix="transitDay_"
         days={shipping.transitWorkingDays}
@@ -311,49 +436,26 @@ function TransitSection({ shipping, errors, onChange }) {
 }
 
 function CutoffFields({ value, error, onChange }) {
-  const parts = splitCutoff(value);
+  const timeValue = cutoffToTimeInput(value);
+  const selected = formatCutoffDisplay(value);
   return (
     <div className="edd-subsection">
     <s-stack gap="small-200">
-      <p className="edd-field-heading">Processing cutoff time</p>
+      <label className="edd-field-heading" htmlFor="edd-cutoff-time">Processing cutoff time</label>
       <s-paragraph color="subdued">Orders placed after this time start processing on the next working day.</s-paragraph>
       <input type="hidden" name="cutoffTime" value={value} />
       <div className="edd-cutoff">
-        <s-number-field
-          label="Hour"
-          labelAccessibilityVisibility="exclusive"
-          min={CUTOFF_LIMITS.hours.min}
-          max={CUTOFF_LIMITS.hours.max}
-          step={1}
-          value={String(parts.hours)}
-          onInput={(event) => {
-            const hours = boundedIntFromEvent(event, CUTOFF_LIMITS.hours, parts.hours);
-            if (hours == null) return;
-            onChange(joinCutoff(hours, parts.minutes, parts.meridiem));
+        <input
+          id="edd-cutoff-time"
+          className="edd-cutoff__picker"
+          type="time"
+          value={timeValue}
+          onChange={(event) => {
+            const next = timeInputToCutoff(event.currentTarget.value);
+            if (next) onChange(next);
           }}
-        ></s-number-field>
-        <s-number-field
-          label="Minute"
-          labelAccessibilityVisibility="exclusive"
-          min={CUTOFF_LIMITS.minutes.min}
-          max={CUTOFF_LIMITS.minutes.max}
-          step={1}
-          value={String(parts.minutes)}
-          onInput={(event) => {
-            const minutes = boundedIntFromEvent(event, CUTOFF_LIMITS.minutes, parts.minutes);
-            if (minutes == null) return;
-            onChange(joinCutoff(parts.hours, minutes, parts.meridiem));
-          }}
-        ></s-number-field>
-        <s-select
-          label="AM or PM"
-          labelAccessibilityVisibility="exclusive"
-          value={parts.meridiem}
-          onChange={(event) => onChange(joinCutoff(parts.hours, parts.minutes, event.currentTarget.value))}
-        >
-          <s-option value="AM">AM</s-option>
-          <s-option value="PM">PM</s-option>
-        </s-select>
+        />
+        {/* <p className="edd-cutoff__selected">Selected time: {selected}</p> */}
       </div>
       <s-paragraph color="subdued">
         {"{counter}"} is the time left until this cutoff. It counts down in the widget description.
@@ -458,7 +560,8 @@ function BlockedDatesField({ label, help, hiddenName, dates, onChange }) {
     const next = String(value || "");
     if (next && next < minDate) return;
     setStart(next);
-    if (end && next && end < next) setEnd("");
+    // Move the end date forward with the start so it never stays before the new date.
+    if (next && end && end < next) setEnd(next);
   };
 
   const chooseEnd = (value) => {

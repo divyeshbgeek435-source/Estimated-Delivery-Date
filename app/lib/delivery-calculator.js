@@ -1,4 +1,5 @@
 import { addDays, format, parseISO } from "date-fns";
+import { SHIPPING_DAY_MAX } from "./number-input";
 import { formatRuns } from "./rich-text";
 import { FALLBACK_TIMEZONE, resolveTimeZone } from "./timezone";
 
@@ -13,6 +14,13 @@ const WEEKDAY_BY_INDEX = [
   "FRIDAY",
   "SATURDAY",
 ];
+
+/** Keep day counts in the editor-safe range so previews cannot hang the UI. */
+function safeDayCount(days) {
+  const n = Math.floor(Number(days) || 0);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(n, SHIPPING_DAY_MAX);
+}
 
 function pad(value) {
   return String(value).padStart(2, "0");
@@ -128,6 +136,23 @@ export function formatCutoffDisplay(cutoffTime) {
   return `${hours}:${pad(minutes)} ${meridiem}`;
 }
 
+export function cutoffToTimeInput(cutoffTime) {
+  const minutesTotal = parseCutoffMinutes(cutoffTime);
+  const hours24 = Math.floor(minutesTotal / 60) % 24;
+  const minutes = minutesTotal % 60;
+  return `${pad(hours24)}:${pad(minutes)}`;
+}
+
+export function timeInputToCutoff(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return "";
+  const hours24 = Math.min(23, Math.max(0, Number(match[1])));
+  const minutes = Math.min(59, Math.max(0, Number(match[2])));
+  const meridiem = hours24 >= 12 ? "PM" : "AM";
+  const hours = hours24 % 12 === 0 ? 12 : hours24 % 12;
+  return joinCutoff(hours, minutes, meridiem);
+}
+
 function isDateBlocked(dateStr, blockedDates = []) {
   return (blockedDates || []).some((item) => {
     const start = typeof item === "string" ? item : item?.date;
@@ -166,10 +191,10 @@ export function nextValidWorkingDay(dateStr, workingDays, blockedDates, includeT
 
 function addWorkingDays(dateStr, days, workingDays, blockedDates) {
   let current = dateStr;
-  let remaining = Math.max(0, Math.floor(Number(days) || 0));
+  let remaining = safeDayCount(days);
   if (!remaining || !(workingDays || []).length) return current;
   // Cap the search so a calendar with no valid days cannot hang the UI.
-  const maxSteps = Math.max(366, remaining * 14);
+  const maxSteps = Math.max(366, remaining * 3);
   for (let step = 0; step < maxSteps && remaining > 0; step += 1) {
     current = format(addDays(parseISO(`${current}T12:00:00`), 1), "yyyy-MM-dd");
     if (isWorkingDate(current, workingDays, blockedDates)) {
@@ -276,30 +301,34 @@ export function calculateDeliveryDate({
     todayIsValid && !afterCutoff,
   );
 
+  const processingMin = safeDayCount(processingMinDays);
+  const processingMax = Math.max(safeDayCount(processingMaxDays), processingMin);
   const processingDateMin = addWorkingDays(
     processingStart,
-    Number(processingMinDays) || 0,
+    processingMin,
     workingDays,
     blockedDates,
   );
   const processingDateMax = addWorkingDays(
     processingStart,
-    Number(processingMaxDays) || Number(processingMinDays) || 0,
+    processingMax,
     workingDays,
     blockedDates,
   );
 
   const transitDays = transitWorkingDays?.length ? transitWorkingDays : workingDays;
   const transitBlocked = transitBlockedDates || [];
+  const transitMin = safeDayCount(transitMinDays);
+  const transitMax = Math.max(safeDayCount(transitMaxDays), transitMin);
   const deliveryDateMin = addWorkingDays(
     processingDateMax,
-    Number(transitMinDays) || 0,
+    transitMin,
     transitDays,
     transitBlocked,
   );
   const deliveryDateMax = addWorkingDays(
     processingDateMax,
-    Number(transitMaxDays) || Number(transitMinDays) || 0,
+    transitMax,
     transitDays,
     transitBlocked,
   );

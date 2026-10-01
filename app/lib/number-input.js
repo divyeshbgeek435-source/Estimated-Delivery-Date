@@ -1,4 +1,11 @@
-export const SHIPPING_DAY_MAX = 30;
+export const SHIPPING_DAY_MAX = 60;
+
+export const PROCESSING_DAY_RANGE_MESSAGE = "Enter a value from 0 to 60 days.";
+export const PROCESSING_DAY_REQUIRED_MESSAGE = "This field is required.";
+export const PROCESSING_DAY_ORDER_MESSAGE =
+  "Maximum days must be equal to or more than minimum days.";
+export const TRANSIT_DAY_ORDER_MESSAGE =
+  "Maximum days must be equal to or more than minimum days.";
 
 export const SHIPPING_DAY_LIMITS = {
   processingMin: { min: 0, max: SHIPPING_DAY_MAX },
@@ -58,6 +65,45 @@ export function parseBoundedInt(raw, bounds = {}) {
   const number = digitInt(raw);
   if (!Number.isFinite(number)) return null;
   return clampInt(number, bounds.min, bounds.max, null);
+}
+
+export function readInputText(event) {
+  const target = event?.currentTarget ?? event?.target;
+  const fromValues = Array.isArray(target?.values) ? target.values.find((item) => item != null && item !== "") : "";
+  const raw =
+    fromValues != null && fromValues !== ""
+      ? fromValues
+      : target?.value != null && target.value !== ""
+        ? target.value
+        : event?.detail?.value != null
+          ? event.detail.value
+          : target?.value;
+  return String(raw ?? "")
+    .replace(/\s*days\s*$/i, "")
+    .trim();
+}
+
+export function processingDayError(value, required = false) {
+  const text = String(value ?? "").trim();
+  if (!text && required) return PROCESSING_DAY_REQUIRED_MESSAGE;
+  if (!/^\d+$/.test(text)) return PROCESSING_DAY_RANGE_MESSAGE;
+  const number = Number(text);
+  if (number < SHIPPING_DAY_LIMITS.processingMin.min || number > SHIPPING_DAY_LIMITS.processingMin.max) {
+    return PROCESSING_DAY_RANGE_MESSAGE;
+  }
+  return "";
+}
+
+export function processingDayOrderError(minValue, maxValue, message = PROCESSING_DAY_ORDER_MESSAGE) {
+  if (processingDayError(minValue) || processingDayError(maxValue)) return "";
+  if (Number(maxValue) < Number(minValue)) return message;
+  return "";
+}
+
+export function processingDayDraftValue(text) {
+  const trimmed = String(text ?? "").trim();
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  return trimmed;
 }
 
 export function intFieldValue(value, bounds, fallback = 0) {

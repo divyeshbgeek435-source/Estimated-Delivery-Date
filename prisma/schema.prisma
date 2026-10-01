@@ -126,6 +126,7 @@ type IconConfig {
   processingColor String @default("")
   deliveredColor  String @default("")
   savedIcons      Json?
+  trackerConfig   Json?
 }
 
 type StyleConfig {
@@ -156,6 +157,7 @@ type StyleConfig {
   dynamicColor       String @default("#202223")
   headingFontWeight  Int    @default(600)
   customCss          String @default("")
+  elementStyles      Json?
 }
 
 type PlacementConfig {

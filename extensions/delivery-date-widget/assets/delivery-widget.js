@@ -84,6 +84,205 @@
       .replace(/"/g, "&quot;");
   }
 
+  const CONNECTOR_STYLES = new Set([
+    "default",
+    "arrow",
+    "line",
+    "bold",
+    "chevron",
+    "dashed",
+    "dotted",
+    "curved",
+    "minimal",
+    "moving",
+    "flowing",
+    "pulsing",
+    "sliding-chevron",
+    "animated-dotted",
+    "animated-dashed",
+    "gradient-flow",
+    "progress-fill",
+    "glow",
+    "bounce",
+    "shimmer",
+    "curved-flow",
+  ]);
+  const CONNECTOR_LEGACY = { animated: "animated-dashed", gradient: "gradient-flow", progress: "progress-fill" };
+  const CONNECTOR_LINE_ONLY = new Set([
+    "line",
+    "dashed",
+    "dotted",
+    "gradient-flow",
+    "animated-dotted",
+    "animated-dashed",
+    "progress-fill",
+    "shimmer",
+    "flowing",
+  ]);
+  const CONNECTOR_ANIMATED = new Set([
+    "moving",
+    "flowing",
+    "pulsing",
+    "sliding-chevron",
+    "animated-dotted",
+    "animated-dashed",
+    "gradient-flow",
+    "progress-fill",
+    "glow",
+    "bounce",
+    "shimmer",
+    "curved-flow",
+  ]);
+  // These styles paint the rail in CSS (dashes, dots, gradients). An inline
+  // background color would cover that pattern and freeze the animation.
+  const CONNECTOR_CSS_PAINT = new Set([
+    "dashed",
+    "dotted",
+    "animated-dashed",
+    "animated-dotted",
+    "flowing",
+    "gradient-flow",
+    "shimmer",
+  ]);
+
+  function normalizeConnector(connector) {
+    const source = connector && typeof connector === "object" ? connector : {};
+    const clamp = (value, min, max, fallback) => {
+      const num = Number(value);
+      if (!Number.isFinite(num)) return fallback;
+      return Math.min(max, Math.max(min, num));
+    };
+    const lengthRaw = source.length;
+    const length = lengthRaw == null || lengthRaw === "" ? null : clamp(lengthRaw, 12, 96, null);
+    const rawStyle = CONNECTOR_LEGACY[source.arrowStyle] || source.arrowStyle;
+    return {
+      arrowStyle: CONNECTOR_STYLES.has(rawStyle) ? rawStyle : "default",
+      size: clamp(source.size, 8, 28, 12),
+      thickness: clamp(source.thickness, 1, 8, 2),
+      color: String(source.color || ""),
+      activeColor: String(source.activeColor || ""),
+      completedColor: String(source.completedColor || ""),
+      upcomingColor: String(source.upcomingColor || ""),
+      opacity: clamp(source.opacity, 0, 100, 100),
+      spacing: clamp(source.spacing, 0, 24, 8),
+      length,
+      animationEnabled: source.animationEnabled !== false,
+      animationSpeed: clamp(source.animationSpeed, 0.4, 4, 1.6),
+      direction: source.direction === "rtl" ? "rtl" : "ltr",
+    };
+  }
+
+  function resolveConnectorState(prevStatus, nextStatus) {
+    if (prevStatus === "complete" && nextStatus !== "pending") return "completed";
+    if (prevStatus === "complete" && nextStatus === "pending") return "active";
+    if (prevStatus === "active" || nextStatus === "active") return "active";
+    if (prevStatus === "complete") return "completed";
+    return "upcoming";
+  }
+
+  function resolveConnectorPaint(connector, fallback, prevStatus, nextStatus) {
+    const style = normalizeConnector(connector);
+    const state = resolveConnectorState(prevStatus, nextStatus);
+    if (state === "completed" && style.completedColor) return style.completedColor;
+    if (state === "active" && style.activeColor) return style.activeColor;
+    if (state === "upcoming" && style.upcomingColor) return style.upcomingColor;
+    if (style.color) return style.color;
+    return fallback || "#202223";
+  }
+
+  function timelineGridTemplate(stepCount) {
+    const count = Math.max(1, Number(stepCount) || 1);
+    if (count === 1) return "minmax(0, 1fr)";
+    const parts = [];
+    for (let i = 0; i < count; i += 1) {
+      if (i > 0) parts.push("minmax(var(--edd-connector-min, 1.1rem), var(--edd-connector-flex, 0.55fr))");
+      parts.push("minmax(0, 1fr)");
+    }
+    return parts.join(" ");
+  }
+
+  function buildConnectorHtml(connector, { fallbackColor, prevStatus, nextStatus, legacy = false } = {}) {
+    const style = normalizeConnector(connector);
+    if (style.arrowStyle === "default" && !legacy) return "";
+    const arrowStyle = legacy && style.arrowStyle === "default" ? "legacy" : style.arrowStyle === "default" ? "line" : style.arrowStyle;
+    const state = resolveConnectorState(prevStatus, nextStatus);
+    const paint = resolveConnectorPaint(
+      legacy && style.arrowStyle === "default" ? { ...style, color: style.color || fallbackColor } : style,
+      fallbackColor,
+      prevStatus,
+      nextStatus,
+    );
+    const styleAttr = [
+      `--edd-connector-color:${paint}`,
+      `--edd-connector-size:${style.size}px`,
+      `--edd-connector-thickness:${style.thickness}px`,
+      `--edd-connector-opacity:${style.opacity / 100}`,
+      `--edd-connector-spacing:${style.spacing}px`,
+      `--edd-connector-length:${style.length != null ? `${style.length}px` : "auto"}`,
+      `--edd-connector-speed:${style.animationSpeed}s`,
+    ].join(";");
+    const animated = CONNECTOR_ANIMATED.has(arrowStyle);
+    const animOff = !style.animationEnabled || !animated ? " is-anim-off" : "";
+    const dirClass = style.direction === "rtl" ? " is-rtl" : "";
+    const lengthClass = style.length != null ? " has-fixed-length" : "";
+    let track = "";
+    if (!["arrow", "chevron", "bold"].includes(arrowStyle)) {
+      if (arrowStyle === "curved" || arrowStyle === "curved-flow") {
+        track =
+          `<svg class="edd-connector__curve" viewBox="0 0 40 16" preserveAspectRatio="none" aria-hidden="true"><path class="edd-connector__curve-path" d="M1 8 C12 2, 28 14, 39 8" fill="none" stroke="${paint}" stroke-width="${Math.max(1, style.thickness)}" stroke-linecap="round"/></svg>`;
+      } else if (arrowStyle === "progress-fill") {
+        track = `<span class="edd-connector__track" style="background:color-mix(in srgb, ${paint} 22%, transparent)"><span class="edd-connector__fill" style="background:${paint}"></span></span>`;
+      } else if (arrowStyle === "sliding-chevron") {
+        track = `<span class="edd-connector__line edd-connector__line--ghost"></span>`;
+      } else if (CONNECTOR_CSS_PAINT.has(arrowStyle)) {
+        track = `<span class="edd-connector__line"></span><span class="edd-connector__sheen" aria-hidden="true"></span>`;
+      } else {
+        track = `<span class="edd-connector__line" style="background:${paint}"></span><span class="edd-connector__sheen" aria-hidden="true"></span>`;
+      }
+    }
+    let tip = "";
+    if (!CONNECTOR_LINE_ONLY.has(arrowStyle) && arrowStyle !== "legacy") {
+      if (arrowStyle === "sliding-chevron") {
+        tip = '<span class="edd-connector__tip edd-connector__tip--chevrons" aria-hidden="true"><i></i><i></i><i></i></span>';
+      } else if (["arrow", "moving", "glow", "bounce", "pulsing"].includes(arrowStyle)) {
+        tip = '<span class="edd-connector__tip edd-connector__tip--glyph" aria-hidden="true">→</span>';
+      } else if (arrowStyle === "chevron") {
+        tip = '<span class="edd-connector__tip edd-connector__tip--chevron" aria-hidden="true"></span>';
+      } else if (arrowStyle === "bold") {
+        tip = '<span class="edd-connector__tip edd-connector__tip--bold" aria-hidden="true"></span>';
+      } else if (arrowStyle === "minimal") {
+        tip = '<span class="edd-connector__tip edd-connector__tip--head edd-connector__tip--tiny" aria-hidden="true"></span>';
+      } else {
+        tip = '<span class="edd-connector__tip edd-connector__tip--head" aria-hidden="true"></span>';
+      }
+    } else if (arrowStyle === "legacy") {
+      tip = '<span class="edd-connector__tip edd-connector__tip--head" aria-hidden="true"></span>';
+    }
+    return `<span class="edd-widget__connector edd-connector edd-connector--${arrowStyle} is-${state}${animOff}${dirClass}${lengthClass}" style="${styleAttr}" aria-hidden="true">${track}${tip}</span>`;
+  }
+
+  function railConnectorsHtml(connector, progress, steps) {
+    const style = normalizeConnector(connector);
+    if (style.arrowStyle === "default") return "";
+    if (!steps?.length || steps.length < 2) {
+      return `<div class="edd-anim__connectors">${buildConnectorHtml(connector, {
+        fallbackColor: progress,
+        prevStatus: "complete",
+        nextStatus: "active",
+      })}</div>`;
+    }
+    return `<div class="edd-anim__connectors">${steps
+      .slice(0, -1)
+      .map((step, index) =>
+        buildConnectorHtml(connector, {
+          fallbackColor: progress,
+          prevStatus: step.status || "complete",
+          nextStatus: steps[index + 1]?.status || "pending",
+        }),
+      )
+      .join("")}</div>`;
+  }
+
   const HIGHLIGHT_KEYS = /^(counter|countdown|delivery_from|delivery_to|delivery_date|processing_from|processing_to|processing_date|ordered_date|order_date)$/;
 
   function customImageSrc(value) {
@@ -182,15 +381,18 @@
       : `${String(minutes).padStart(2, "0")}\u00a0min`;
   }
 
-  function hideRoot(root) {
+  function hideRoot(root, message) {
     // Keep a visible placeholder in the theme editor so merchants can find the block.
     if (isThemeEditor()) {
       root.hidden = false;
       root.removeAttribute("hidden");
       root.style.removeProperty("display");
-      if (!root.querySelector("[data-edd-editor-placeholder]")) {
-        root.innerHTML =
-          '<div data-edd-editor-placeholder class="edd-widget essential-estimated-delivery-widget" style="padding:12px 14px;border:1px dashed #8c9196;border-radius:8px;color:#6d7175;font-size:13px;line-height:1.4;background:#fff;">Estimated delivery will appear here when a live widget can be loaded.</div>';
+      const text = message || "Estimated delivery will appear here when a live widget can be loaded.";
+      const placeholder = root.querySelector("[data-edd-editor-placeholder]");
+      if (!placeholder) {
+        root.innerHTML = `<div data-edd-editor-placeholder class="edd-widget essential-estimated-delivery-widget" style="padding:12px 14px;border:1px dashed #8c9196;border-radius:8px;color:#6d7175;font-size:13px;line-height:1.4;background:#fff;">${escapeHtml(text)}</div>`;
+      } else {
+        placeholder.textContent = text;
       }
       return;
     }
@@ -475,6 +677,7 @@
     headerIcon,
     showDescription,
     descriptionHtml,
+    trackerSettings,
   }) {
     const accent = style.dynamicColor || style.dateColor || progress || theme;
     const status = style.statusColor || textColor;
@@ -501,9 +704,23 @@
         ? `<p class="edd-anim__lead edd-anim__lead--above" style="color:${accent}" data-edd-message>${descriptionHtml}</p>`
         : "";
     const stepIcon = (step, index, className) =>
-      step.enabled
-        ? `<span class="${className}${index === 1 ? " is-truck" : ""}" style="color:${step.color}">${icon(step.icon)}</span>`
-        : `<span class="${className} is-off" aria-hidden="true"></span>`;
+      `<span class="${className}${index === 1 ? " is-truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span>`;
+    const stepLabelStyle = (step) => {
+      const color = step.labelColor || status;
+      const size = step.labelFontSize ? `font-size:${Number(step.labelFontSize)}px;` : "";
+      return `color:${color};${size}`;
+    };
+    const stepDateStyle = (step) => {
+      const color = step.dateColor || date;
+      const size = step.dateFontSize ? `font-size:${Number(step.dateFontSize)}px;` : "";
+      return `color:${color};${size}`;
+    };
+    const connectorCfg = trackerSettings?.connector || {};
+    const customConnectors = normalizeConnector(connectorCfg).arrowStyle !== "default";
+    const customRail = customConnectors ? railConnectorsHtml(connectorCfg, progress, steps) : "";
+    const stepLabelDateHtml = (step) =>
+      `<div class="edd-anim__caption"><span class="edd-anim__label" style="${stepLabelStyle(step)}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="${stepDateStyle(step)}">${escapeHtml(step.date)}</strong></div>`;
+    const stepOffClass = (step) => (step.enabled === false ? " is-icon-off" : "");
 
     if (design === "MOMENT") {
       const eyebrow =
@@ -512,7 +729,11 @@
               titleOn ? formatInline(headingText || "") : ""
             }</p>`
           : "";
-      return `<div class="edd-anim edd-anim--moment"><div class="edd-anim__copy">${eyebrow}${lead}</div><div class="edd-anim__rail-wrap"><span class="edd-anim__rail edd-anim__rail--dashed" style="color:${progress}" aria-hidden="true"></span><span class="edd-anim__rail-fill" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__nodes">${steps
+      return `<div class="edd-anim edd-anim--moment"><div class="edd-anim__copy">${eyebrow}${lead}</div><div class="edd-anim__rail-wrap${customConnectors ? " edd-anim__rail-wrap--custom" : ""}">${
+        customConnectors
+          ? customRail
+          : `<span class="edd-anim__rail edd-anim__rail--dashed" style="color:${progress}" aria-hidden="true"></span><span class="edd-anim__rail-fill" style="background:${progress}" aria-hidden="true"></span>`
+      }<div class="edd-anim__nodes">${steps
         .map(
           (step, index) =>
             `<span class="edd-anim__node${index === 0 ? " is-hollow" : ""}" style="border-color:${progress};background:${index === 0 ? "#fff" : progress};animation-delay:${180 + index * 120}ms"></span>`,
@@ -520,7 +741,7 @@
         .join("")}</div></div><div class="edd-anim__steps">${steps
         .map(
           (step, index) =>
-            `<div class="edd-anim__step" style="animation-delay:${220 + index * 120}ms">${stepIcon(step, index, "edd-anim__icon")}<span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+            `<div class="edd-anim__step${stepOffClass(step)}" style="animation-delay:${220 + index * 120}ms">${stepIcon(step, index, "edd-anim__icon")}${stepLabelDateHtml(step)}</div>`,
         )
         .join("")}</div></div>`;
     }
@@ -530,37 +751,65 @@
         ? `<span class="edd-anim__banner-icon" style="color:${theme}">${icon(headerIcon || "bag")}</span>`
         : "";
       const titleBit = titleOn ? `<span style="${titleStyle}">${formatInline(headingText || "Delivery Date")} </span>` : "";
-      return `<div class="edd-anim edd-anim--bubble">${leadAbove}<div class="edd-anim__banner"><span>${titleBit}${range}</span>${bannerIcon}</div><div class="edd-anim__bubble-shell"><span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
+      return `<div class="edd-anim edd-anim--bubble">${leadAbove}<div class="edd-anim__banner"><span>${titleBit}${range}</span>${bannerIcon}</div><div class="edd-anim__bubble-shell${customConnectors ? " edd-anim__bubble-shell--custom" : ""}">${
+        customConnectors ? customRail : `<span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span>`
+      }<div class="edd-anim__steps">${steps
         .map(
           (step, index) =>
-            `<div class="edd-anim__step" style="animation-delay:${180 + index * 110}ms"><span class="edd-anim__bubble${index === 1 ? " is-truck" : ""}" style="color:${step.color}">${step.enabled ? icon(step.icon) : ""}</span><span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+            `<div class="edd-anim__step${stepOffClass(step)}" style="animation-delay:${180 + index * 110}ms"><span class="edd-anim__bubble${index === 1 ? " is-truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span>${stepLabelDateHtml(step)}</div>`,
         )
         .join("")}</div></div></div>`;
     }
 
     if (design === "EXPRESS") {
+      const settings = trackerSettings || {};
+      const showTrack = settings.showTrack !== false;
+      const shellBg = settings.trackShellBg || "#FFFFFF";
+      const shellBorder = settings.trackShellBorder || "#DEDEDE";
+      const shellRadius = Number(settings.trackShellRadius) || 12;
+      const circleStyle = settings.circleStyle || "filled";
+      const progressStyle = settings.progressStyle || "solid";
+      const animate = settings.animationEnabled !== false;
+      const stack = settings.stackOnMobile !== false;
       const clock = headerEnabled
         ? `<span class="edd-anim__express-clock" style="color:${theme}">${icon(headerIcon || "clock")}</span>`
         : "";
       const sub =
         showDescription && descriptionHtml
           ? `<p class="edd-anim__express-sub" style="color:${accent}" data-edd-message>${descriptionHtml}</p>`
-          : `<p class="edd-anim__express-sub">Estimated Delivery Date ${range}</p>`;
+          : showDescription
+            ? `<p class="edd-anim__express-sub">Estimated Delivery Date ${range}</p>`
+            : "";
       const titleBit =
         titleOn && headingText ? `<p class="edd-anim__express-title" style="${titleStyle}">${formatInline(headingText)}</p>` : "";
-      return `<div class="edd-anim edd-anim--express"><div class="edd-anim__express-head">${clock}<div>${titleBit}${sub}</div></div><div class="edd-anim__express-shell"><span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
-        .map(
-          (step, index) =>
-            `<div class="edd-anim__step" style="animation-delay:${180 + index * 110}ms"><span class="edd-anim__circle${index === 1 ? " is-truck" : ""}" style="background:${progress};color:#fff">${step.enabled ? icon(step.icon) : ""}</span><span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
-        )
-        .join("")}</div></div></div>`;
+      const rail = customConnectors
+        ? customRail
+        : progressStyle === "dashed"
+          ? `<span class="edd-anim__rail edd-anim__rail--dashed" style="color:${progress}" aria-hidden="true"></span>`
+          : `<span class="edd-anim__rail edd-anim__rail--solid" style="background:${progress}" aria-hidden="true"></span>`;
+      const stepCount = Math.max(1, steps.length);
+      const track = showTrack
+        ? `<div class="edd-anim__express-shell" style="background:${shellBg};border-color:${shellBorder};border-radius:${shellRadius}px;--edd-step-count:${stepCount}">${rail}<div class="edd-anim__steps" style="--edd-step-count:${stepCount}">${steps
+            .map((step, index) => {
+              const filled = circleStyle === "filled";
+              const stepColor = step.color || progress;
+              const circleStyleAttr = filled
+                ? `background:${stepColor};color:#fff;border-color:${stepColor}`
+                : `background:#fff;color:${stepColor};border:2px solid ${stepColor}`;
+              const delay = animate ? `${180 + index * 110}ms` : "0ms";
+              const statusClass = escapeHtml(step.status || (index === 0 ? "complete" : index === 1 ? "active" : "pending"));
+              return `<div class="edd-anim__step is-${statusClass}${stepOffClass(step)}" style="animation-delay:${delay}"><span class="edd-anim__circle${index === 1 ? " is-truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}" style="${circleStyleAttr}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span>${stepLabelDateHtml(step)}</div>`;
+            })
+            .join("")}</div></div>`
+        : "";
+      return `<div class="edd-anim edd-anim--express${animate ? "" : " is-static"}${stack ? " edd-anim--express-responsive" : ""}"><div class="edd-anim__express-head">${clock}<div>${titleBit}${sub}</div></div>${track}</div>`;
     }
 
     if (design === "SEGMENTS") {
       return `<div class="edd-anim edd-anim--segments-wrap">${titleRow()}${leadAbove}<div class="edd-anim edd-anim--segments">${steps
         .map(
           (step, index) =>
-            `<div class="edd-anim__segment" style="animation-delay:${120 + index * 100}ms">${stepIcon(step, index, "edd-anim__icon")}<span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+            `<div class="edd-anim__segment${stepOffClass(step)}" style="animation-delay:${120 + index * 100}ms">${stepIcon(step, index, "edd-anim__icon")}${stepLabelDateHtml(step)}</div>`,
         )
         .join("")}</div></div>`;
     }
@@ -569,7 +818,7 @@
       return `<div class="edd-anim edd-anim--meter">${titleRow()}${leadAbove}<div class="edd-anim__meter-track"><span class="edd-anim__meter-fill" style="background:${progress}" aria-hidden="true"></span><div class="edd-anim__steps">${steps
         .map(
           (step, index) =>
-            `<div class="edd-anim__step" style="animation-delay:${160 + index * 120}ms"><span class="edd-anim__meter-dot${index === 0 ? " is-active" : ""}${index === 1 ? " is-truck" : ""}" style="border-color:${progress};background:${index === 0 ? progress : "#fff"};color:${index === 0 ? "#fff" : step.color}">${step.enabled ? icon(step.icon) : ""}</span><span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+            `<div class="edd-anim__step${stepOffClass(step)}" style="animation-delay:${160 + index * 120}ms"><span class="edd-anim__meter-dot${index === 0 ? " is-active" : ""}${index === 1 ? " is-truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}" style="border-color:${progress};background:${index === 0 ? progress : "#fff"};color:${index === 0 ? "#fff" : step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span>${stepLabelDateHtml(step)}</div>`,
         )
         .join("")}</div></div></div>`;
     }
@@ -578,12 +827,122 @@
       return `<div class="edd-anim edd-anim--band-wrap">${titleRow()}${leadAbove}<div class="edd-anim edd-anim--band" style="border-color:${progress}">${steps
         .map(
           (step, index) =>
-            `<div class="edd-anim__band-step" style="animation-delay:${140 + index * 110}ms">${stepIcon(step, index, "edd-anim__icon")}<span class="edd-anim__label" style="color:${status}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="color:${date}">${escapeHtml(step.date)}</strong></div>`,
+            `<div class="edd-anim__band-step${stepOffClass(step)}" style="animation-delay:${140 + index * 110}ms">${stepIcon(step, index, "edd-anim__icon")}${stepLabelDateHtml(step)}</div>`,
+        )
+        .join("")}</div></div>`;
+    }
+
+    if (design === "HERO") {
+      const label = titleOn ? `<p class="edd-anim__hero-label" style="${titleStyle}">${formatInline(headingText)}</p>` : "";
+      return `<div class="edd-anim edd-anim--hero">${label}<p class="edd-anim__hero-date" style="color:${date}">${range}</p>${lead}<div class="edd-anim__hero-steps">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__hero-step${stepOffClass(step)}" style="animation-delay:${120 + index * 90}ms">${stepIcon(step, index, "edd-anim__icon")}<div class="edd-anim__caption"><span class="edd-anim__label" style="${stepLabelStyle(step)}">${escapeHtml(step.title)}</span></div></div>`,
+        )
+        .join("")}</div></div>`;
+    }
+
+    if (design === "DROP") {
+      const top = `<div class="edd-anim__drop-top">${headerIconHtml}${
+        titleOn ? `<p class="edd-anim__drop-label" style="${titleStyle}">${formatInline(headingText)}</p>` : ""
+      }</div>`;
+      return `<div class="edd-anim edd-anim--drop">${top}<div class="edd-anim__drop-badge" style="border-color:${progress};color:${date}">${range}</div>${lead}</div>`;
+    }
+
+    if (design === "CLEAN") {
+      const label = titleOn
+        ? `<p class="edd-anim__minimal-label" style="${titleStyle};color:${status}">${formatInline(headingText)}</p>`
+        : "";
+      return `<div class="edd-anim edd-anim--minimal">${label}<p class="edd-anim__minimal-date" style="color:${date}">${range}</p>${lead}</div>`;
+    }
+
+    if (design === "CHECKLIST") {
+      return `<div class="edd-anim edd-anim--checklist">${titleRow()}${leadAbove}<div class="edd-anim__checklist">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__check-row${stepOffClass(step)}" style="animation-delay:${100 + index * 80}ms"><span class="edd-anim__check-mark${step.enabled === false ? " is-icon-hidden" : ""}" style="border-color:${progress};color:${progress}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon("check")}</span><span class="edd-anim__label" style="${stepLabelStyle(step)}">${escapeHtml(step.title)}</span><strong class="edd-anim__date" style="${stepDateStyle(step)}">${escapeHtml(step.date)}</strong></div>`,
+        )
+        .join("")}</div></div>`;
+    }
+
+    if (design === "PICKUP") {
+      const stubIcon = headerEnabled
+        ? `<span class="edd-anim__pickup-icon">${icon(headerIcon || "pin")}</span>`
+        : "";
+      const titleBit = titleOn ? `<p class="edd-anim__title" style="${titleStyle}">${formatInline(headingText)}</p>` : "";
+      return `<div class="edd-anim edd-anim--pickup"><div class="edd-anim__pickup-stub" style="background:${progress}">${stubIcon}<span>PICKUP</span></div><div class="edd-anim__pickup-body">${titleBit}<p class="edd-anim__pickup-date" style="color:${date}">${range}</p>${lead}<div class="edd-anim__pickup-steps">${steps
+        .map((step) => `<span class="edd-anim__pickup-chip" style="color:${status};border-color:${progress}">${escapeHtml(step.title)}</span>`)
+        .join("")}</div></div></div>`;
+    }
+
+    if (design === "PREORDER") {
+      return `<div class="edd-anim edd-anim--preorder">${titleRow()}${leadAbove}<div class="edd-anim__preorder-rail"><span class="edd-anim__preorder-line" style="background:${progress}" aria-hidden="true"></span>${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__preorder-step" style="animation-delay:${120 + index * 100}ms"><span class="edd-anim__preorder-dot" style="border-color:${progress};background:${index === 0 ? progress : "#fff"}"></span><div>${stepLabelDateHtml(step)}</div></div>`,
+        )
+        .join("")}</div></div>`;
+    }
+
+    if (design === "WHOLESALE") {
+      const aside = `<div class="edd-anim__wholesale-aside" style="border-color:${progress}">${headerIconHtml}${
+        titleOn ? `<p class="edd-anim__title" style="${titleStyle}">${formatInline(headingText)}</p>` : ""
+      }<p class="edd-anim__wholesale-date" style="color:${date}">${range}</p></div>`;
+      return `<div class="edd-anim edd-anim--wholesale">${aside}<div class="edd-anim__wholesale-main">${leadAbove}<div class="edd-anim__wholesale-steps">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__wholesale-step${stepOffClass(step)}" style="animation-delay:${100 + index * 80}ms">${stepIcon(step, index, "edd-anim__icon")}${stepLabelDateHtml(step)}</div>`,
+        )
+        .join("")}</div></div></div>`;
+    }
+
+    if (design === "CALENDAR") {
+      return `<div class="edd-anim edd-anim--calendar">${titleRow()}${leadAbove}<div class="edd-anim__calendar-grid">${steps
+        .map(
+          (step, index) =>
+            `<div class="edd-anim__calendar-card${index === 2 ? " is-focus" : ""}" style="border-color:${progress};animation-delay:${100 + index * 90}ms">${stepLabelDateHtml(step)}</div>`,
         )
         .join("")}</div></div>`;
     }
 
     return "";
+  }
+
+  function elementStyleInline(styleConfig, elementId, fallbacks = {}) {
+    const stored = (styleConfig?.elementStyles && styleConfig.elementStyles[elementId]) || {};
+    const style = { ...fallbacks, ...stored };
+    const parts = [];
+    const push = (prop, value) => {
+      if (value == null || value === "") return;
+      parts.push(`${prop}:${value}`);
+    };
+    if (style.fontFamily) push("font-family", style.fontFamily);
+    if (style.fontSize != null) push("font-size", `${Number(style.fontSize)}px`);
+    if (style.fontWeight != null) push("font-weight", String(style.fontWeight));
+    if (style.color) push("color", style.color);
+    if (style.backgroundColor) push("background-color", style.backgroundColor);
+    if (style.textAlign) push("text-align", style.textAlign);
+    if (style.width != null) push("width", `${Number(style.width)}px`);
+    if (style.height != null) push("height", `${Number(style.height)}px`);
+    if (style.minWidth != null) push("min-width", `${Number(style.minWidth)}px`);
+    if (style.maxWidth != null) push("max-width", `${Number(style.maxWidth)}px`);
+    if (style.borderRadius != null) push("border-radius", `${Number(style.borderRadius)}px`);
+    if (style.borderWidth != null || style.borderColor) {
+      push("border-style", "solid");
+      if (style.borderWidth != null) push("border-width", `${Number(style.borderWidth)}px`);
+      if (style.borderColor) push("border-color", style.borderColor);
+    }
+    if (style.paddingX != null || style.paddingY != null) {
+      const py = style.paddingY != null ? `${Number(style.paddingY)}px` : "0";
+      const px = style.paddingX != null ? `${Number(style.paddingX)}px` : "0";
+      push("padding", `${py} ${px}`);
+    }
+    if (style.marginTop != null) push("margin-top", `${Number(style.marginTop)}px`);
+    if (style.marginBottom != null) push("margin-bottom", `${Number(style.marginBottom)}px`);
+    if (style.gap != null) push("gap", `${Number(style.gap)}px`);
+    if (style.justifyContent) push("justify-content", style.justifyContent);
+    if (style.width != null) push("flex", "0 0 auto");
+    return parts.join(";");
   }
 
   function applyCardStyle(card, style) {
@@ -635,17 +994,37 @@
     const progress = style.progressColor || theme;
     const delivery = widget.delivery || {};
     const icons = widget.icons || {};
+    const trackerConfig = icons.trackerConfig || null;
+    const trackerSettings = trackerConfig?.settings || {};
     const heading = widget.heading || "";
     const headerIcon = icons.headerIcon || "flag";
-    const headerEnabled = icons.headerIconEnabled !== false;
-    const titleEnabled = widget.headingEnabled !== false;
+    const headerEnabled =
+      (trackerSettings.showHeaderIcon !== false) && icons.headerIconEnabled !== false;
+    const titleEnabled =
+      widget.headingEnabled !== false && trackerSettings.showTitle !== false;
     const headingWeight = Number(style.headingFontWeight) || 600;
     const headingText = heading || "Estimated Delivery Date";
     const titleStyle = `font-weight:${headingWeight}`;
     let design = String(widget.design || (widget.layout === "MINIMAL" ? "COMPACT" : "TIMELINE")).toUpperCase();
     if (isCart && (design === "COMPACT" || design === "MINIMAL")) design = "TIMELINE";
-    const embeddedDescription = ["MOMENT", "EXPRESS", "BUBBLE", "SEGMENTS", "METER", "BAND"].includes(design);
-    const descriptionEnabled = widget.descriptionEnabled !== false;
+    const embeddedDescription = [
+      "MOMENT",
+      "EXPRESS",
+      "BUBBLE",
+      "SEGMENTS",
+      "METER",
+      "BAND",
+      "HERO",
+      "DROP",
+      "CLEAN",
+      "CHECKLIST",
+      "PICKUP",
+      "PREORDER",
+      "WHOLESALE",
+      "CALENDAR",
+    ].includes(design);
+    const descriptionEnabled =
+      widget.descriptionEnabled !== false && trackerSettings.showDescription !== false;
     const tagValues = {
       ...(delivery || {}),
       image: customImageSrc(icons.headerIcon),
@@ -677,39 +1056,69 @@
           .join("")
       : "";
     const iconSize = readablePx(style.iconSize, 24, 22);
-    const steps = [
+    const dateMap = {
+      ordered: delivery.purchasedLabel || "",
+      processing: delivery.processingLabel || "",
+      delivered: delivery.deliveredLabel || "",
+    };
+    const configuredSteps = Array.isArray(trackerConfig?.steps) ? trackerConfig.steps : null;
+    const steps = (configuredSteps || [
       {
         icon: icons.purchased || "bag",
         enabled: icons.purchasedEnabled !== false,
         title: icons.purchasedTitle || "Purchased",
         color: icons.purchasedColor || theme,
-        date: delivery.purchasedLabel || "",
+        dateSource: "ordered",
+        status: "complete",
       },
       {
         icon: icons.processing || "truck",
         enabled: icons.processingEnabled !== false,
         title: icons.processingTitle || "Processing",
         color: icons.processingColor || theme,
-        date: delivery.processingLabel || "",
+        dateSource: "processing",
+        status: "active",
       },
       {
         icon: icons.delivered || "pin",
         enabled: icons.deliveredEnabled !== false,
         title: icons.deliveredTitle || "Delivered",
         color: icons.deliveredColor || theme,
-        date: delivery.deliveredLabel || "",
+        dateSource: "delivered",
+        status: "pending",
       },
-    ];
+    ])
+      .filter((step) => Boolean(step))
+      .map((step) => {
+        const dateSource = step.dateSource || "delivered";
+        const dateValue =
+          dateSource === "custom"
+            ? step.customDate || ""
+            : dateSource === "ordered"
+              ? dateMap.ordered
+              : dateSource === "processing"
+                ? dateMap.processing
+                : dateMap.delivered;
+        return {
+          icon: step.icon || "bag",
+          enabled: step.enabled !== false,
+          title: step.title || "Step",
+          color: step.color || theme,
+          date: dateValue,
+          status: step.status || "pending",
+          labelFontSize: step.labelFontSize,
+          labelColor: step.labelColor || "",
+          dateFontSize: step.dateFontSize,
+          dateColor: step.dateColor || "",
+        };
+      });
     const gap = style.paddingMiddle || 12;
     const leadImage =
       headerEnabled && customImageSrc(icons.headerIcon)
         ? `<img class="edd-inline-image edd-inline-image--lead" src="${icons.headerIcon.startsWith("data:image/") ? icons.headerIcon.replace(/"/g, "") : escapeHtml(icons.headerIcon)}" alt="" />`
         : "";
-    const clock = leadImage || `<span class="edd-widget__clock" aria-hidden="true">${icon("clockSolid")}</span>`;
-    const descriptionRow = (withClock) =>
-      `<div class="edd-widget__message-row essential-estimated-delivery-description" style="color:${style.dynamicColor || textColor};margin-bottom:${gap}px">${
-        withClock ? clock : leadImage
-      }<p class="edd-widget__message" data-edd-message>${message}</p></div>`;
+    const descriptionRow = () =>
+      `<div class="edd-widget__message-row essential-estimated-delivery-description" style="color:${style.dynamicColor || textColor};margin-bottom:${gap}px">${leadImage}<p class="edd-widget__message" data-edd-message>${message}</p></div>`;
 
     const headerMarkup = headerEnabled
       ? `<span class="edd-widget__banner-icon">${icon(headerIcon)}</span>`
@@ -727,17 +1136,29 @@
     const journeyRange = journeyRangeHtml(delivery.deliveredLabel || delivery.delivery_from || "", style.dynamicColor || textColor);
     const timeline =
       design === "BANNER"
-        ? `${showDescriptionAbove ? descriptionRow(false) : ""}<div class="edd-widget__banner">${headerMarkup}<p class="edd-widget__banner-text">${titleBit}<strong>${deliveredRange}</strong></p></div>`
+        ? `${showDescriptionAbove ? descriptionRow() : ""}<div class="edd-widget__banner">${headerMarkup}<p class="edd-widget__banner-text">${titleBit}<strong>${deliveredRange}</strong></p></div>`
         : design === "CARD"
-          ? `${showDescriptionAbove ? descriptionRow(false) : ""}<div class="edd-widget__highlight">${highlightMarkup}<p>${titleBit}<strong>${deliveredRange}</strong></p></div>`
+          ? `${showDescriptionAbove ? descriptionRow() : ""}<div class="edd-widget__highlight">${highlightMarkup}<p>${titleBit}<strong>${deliveredRange}</strong></p></div>`
           : design === "TRACKER"
-            ? `${showDescriptionAbove ? descriptionRow(false) : ""}<div class="edd-widget__tracker"><div class="edd-widget__tracker-head">${trackerFlag}<p>${titleBit}<strong>${deliveredRange}</strong></p></div><div class="edd-widget__tracker-steps">${steps
-                .map(
-                  (step, index) =>
-                    `${index ? `<span class="edd-widget__tracker-dots" aria-hidden="true"></span>` : ""}<div class="edd-widget__tracker-step">${step.enabled ? `<span class="edd-widget__tracker-icon" style="color:${step.color}">${icon(step.icon)}</span>` : `<span class="edd-widget__tracker-icon edd-widget__tracker-icon--off" aria-hidden="true"></span>`}<b style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</b><i style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</i></div>`,
-                )
-                .join("")}</div></div>`
-          : ["MOMENT", "BUBBLE", "EXPRESS", "SEGMENTS", "METER", "BAND"].includes(design)
+            ? (() => {
+                const connectorCfg = trackerSettings.connector || {};
+                const customConnectors = normalizeConnector(connectorCfg).arrowStyle !== "default";
+                return `${showDescriptionAbove ? descriptionRow() : ""}<div class="edd-widget__tracker"><div class="edd-widget__tracker-head">${trackerFlag}<p>${titleBit}<strong>${deliveredRange}</strong></p></div><div class="edd-widget__tracker-steps${customConnectors ? " edd-widget__tracker-steps--custom" : ""}">${steps
+                  .map((step, index) => {
+                    const connector = index
+                      ? customConnectors
+                        ? buildConnectorHtml(connectorCfg, {
+                            fallbackColor: progress,
+                            prevStatus: steps[index - 1]?.status || "complete",
+                            nextStatus: step.status || "pending",
+                          })
+                        : `<span class="edd-widget__tracker-dots" aria-hidden="true"></span>`
+                      : "";
+                    return `${connector}<div class="edd-widget__tracker-step${step.enabled === false ? " is-icon-off" : ""}"><span class="edd-widget__tracker-icon${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span><b style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</b><i style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</i></div>`;
+                  })
+                  .join("")}</div></div>`;
+              })()
+          : ["MOMENT", "BUBBLE", "EXPRESS", "SEGMENTS", "METER", "BAND", "HERO", "DROP", "CLEAN", "CHECKLIST", "PICKUP", "PREORDER", "WHOLESALE", "CALENDAR"].includes(design)
             ? animatedTemplateHtml({
                 design,
                 steps,
@@ -753,14 +1174,15 @@
                 headerIcon,
                 showDescription: descriptionEnabled,
                 descriptionHtml: descriptionEnabled ? message : "",
+                trackerSettings,
               })
           : design === "JOURNEY"
             ? `<div class="edd-widget__journey">${
-                showDescriptionAbove ? descriptionRow(false) : ""
+                showDescriptionAbove ? descriptionRow() : ""
               }<div class="edd-widget__journey-head">${journeyFlag}<p>${titleBit}${journeyRange}</p></div><div class="edd-widget__journey-shell"><div class="edd-widget__journey-steps">${steps
                 .map(
                   (step, index) =>
-                    `<div class="edd-widget__journey-step" style="animation-delay:${180 + index * 100}ms">${step.enabled ? `<span class="edd-widget__journey-icon${index === 1 ? " edd-widget__journey-icon--truck" : ""}" style="color:${step.color}">${icon(step.icon)}</span>` : `<span class="edd-widget__journey-icon edd-widget__journey-icon--off" aria-hidden="true"></span>`}<span class="edd-widget__journey-label" style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</span><strong class="edd-widget__journey-date" style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</strong></div>`,
+                    `<div class="edd-widget__journey-step${step.enabled === false ? " is-icon-off" : ""}" style="animation-delay:${180 + index * 100}ms"><span class="edd-widget__journey-icon${index === 1 ? " edd-widget__journey-icon--truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span><span class="edd-widget__journey-meta"><span class="edd-widget__journey-label" style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</span><strong class="edd-widget__journey-date" style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</strong></span></div>`,
                 )
                 .join("")}</div></div></div>`
         : design === "COMPACT"
@@ -769,17 +1191,28 @@
           ? `<div class="edd-widget__pills">${steps
               .map((step) => `<span class="edd-widget__pill" style="color:${step.color};border-color:${step.color}">${escapeHtml(step.title)}: ${escapeHtml(step.date)}</span>`)
               .join("")}</div>`
-          : `<div class="edd-widget__timeline${design === "STACKED" ? " edd-widget__timeline--stacked" : ""}">${steps
+          : (() => {
+              const connectorCfg = trackerSettings.connector || {};
+              const normalized = normalizeConnector(connectorCfg);
+              const spacing = normalized.spacing;
+              const grid =
+                design === "STACKED"
+                  ? ""
+                  : ` style="grid-template-columns:${timelineGridTemplate(steps.length)};column-gap:${spacing}px"`;
+              return `<div class="edd-widget__timeline${design === "STACKED" ? " edd-widget__timeline--stacked" : ""}"${grid}>${steps
                 .map((step, index) => {
                   const connector =
                     index > 0 && design !== "STACKED"
-                      ? `<span class="edd-widget__connector" aria-hidden="true"><span class="edd-widget__connector-line" style="background:${progress};height:${style.progressWidth || 2}px"></span><span class="edd-widget__connector-arrow" style="border-left-color:${progress}"></span></span>`
+                      ? buildConnectorHtml(connectorCfg, {
+                          fallbackColor: progress,
+                          prevStatus: steps[index - 1]?.status || "complete",
+                          nextStatus: step.status || "pending",
+                          legacy: true,
+                        })
                       : "";
-                  const stepIcon = step.enabled
-                    ? `<span class="edd-widget__icon" style="color:${step.color};width:${iconSize}px;height:${iconSize}px">${icon(step.icon)}</span>`
-                    : "";
+                  const stepIcon = `<span class="edd-widget__icon${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color};width:${iconSize}px;height:${iconSize}px"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span>`;
                   return `${connector}
-            <div class="edd-widget__step">
+            <div class="edd-widget__step${step.enabled === false ? " is-icon-off" : ""}">
               ${stepIcon}
               <span class="edd-widget__meta">
                 <span class="edd-widget__date" style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</span>
@@ -788,11 +1221,12 @@
             </div>`;
                 })
                 .join("")}</div>`;
+            })();
 
     body.innerHTML = `
       ${css ? `<style>${css}</style>` : ""}
-      ${!["BANNER", "CARD", "TRACKER", "JOURNEY", "MOMENT", "BUBBLE", "EXPRESS", "SEGMENTS", "METER", "BAND"].includes(design) ? classicTitle : ""}
-      ${showDescriptionRow ? descriptionRow(true) : ""}
+      ${!["BANNER", "CARD", "TRACKER", "JOURNEY", "MOMENT", "BUBBLE", "EXPRESS", "SEGMENTS", "METER", "BAND", "HERO", "DROP", "CLEAN", "CHECKLIST", "PICKUP", "PREORDER", "WHOLESALE", "CALENDAR"].includes(design) ? classicTitle : ""}
+      ${showDescriptionRow ? descriptionRow() : ""}
       ${timeline}
       ${
         perProduct && itemRows
@@ -815,15 +1249,75 @@
     const extras = root.querySelector("[data-edd-extras]");
     const widget = payload.widget;
     if (!extras || !widget) return;
+    const style = widget.style || {};
     const pincode = widget.pincode || {};
+    const trackerSettings = widget.icons?.trackerConfig?.settings || {};
+    const showCheckDelivery = trackerSettings.showCheckDelivery !== false;
+    const checkLabel = escapeHtml(trackerSettings.checkDeliveryLabel || "Check delivery");
+    const checkButtonLabel = escapeHtml(trackerSettings.checkDeliveryButtonLabel || "Check");
+    const sectionStyle = elementStyleInline(style, "checkSection", {
+      textAlign: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingY: 14,
+    });
+    const labelStyle = elementStyleInline(style, "checkLabel", {
+      fontSize: 13,
+      fontWeight: 700,
+      textAlign: "center",
+      marginBottom: 8,
+      color: style.textColor || "",
+    });
+    const inputStyle = elementStyleInline(style, "checkInput", {
+      fontSize: 14,
+      color: "#202223",
+      backgroundColor: "#FFFFFF",
+      borderColor: "#c9cccf",
+      borderWidth: 1,
+      borderRadius: 8,
+      height: 40,
+      paddingX: 14,
+    });
+    const buttonStyle = elementStyleInline(style, "checkButton", {
+      fontSize: 14,
+      fontWeight: 650,
+      color: "#FFFFFF",
+      backgroundColor: style.themeColor || "#111827",
+      borderWidth: 0,
+      borderRadius: 8,
+      height: 40,
+      minWidth: 76,
+      paddingX: 16,
+      textAlign: "center",
+    });
+    const rowStyle = elementStyleInline(
+      { elementStyles: { checkRow: { justifyContent: (style.elementStyles?.checkSection || {}).justifyContent || "center", gap: (style.elementStyles?.checkSection || {}).gap ?? 8 } } },
+      "checkRow",
+      { justifyContent: "center", gap: 8 },
+    );
     const showPincode =
-      Boolean(pincode.enabled) && widget.weight?.displayMode !== "DIRECT" && widget.location !== "CART";
-    if (!showPincode) {
+      showCheckDelivery &&
+      Boolean(pincode.enabled) &&
+      widget.weight?.displayMode !== "DIRECT" &&
+      widget.location !== "CART";
+    const showExpressFooter =
+      showCheckDelivery &&
+      !showPincode &&
+      String(widget.design || "").toUpperCase() === "EXPRESS";
+    if (!showPincode && !showExpressFooter) {
       extras.innerHTML = "";
       extras.hidden = true;
       return;
     }
     extras.hidden = false;
+    if (showExpressFooter) {
+      extras.innerHTML = `
+        <div class="edd-check edd-check--footer-only" style="${sectionStyle}">
+          <p class="edd-check__title" style="${labelStyle}">${checkLabel}</p>
+        </div>
+      `;
+      return;
+    }
     const value = extras.querySelector("[data-edd-pincode-input]")?.value || pincode.code || "";
     const fieldId = `edd-pincode-${root.dataset.productId || "widget"}`.replace(/[^a-zA-Z0-9_-]/g, "");
     const tone = pincode.available === false ? "error" : "";
@@ -833,11 +1327,11 @@
         ? `<button class="edd-request-btn" type="button" data-edd-request form="edd-pincode-unbound">Request delivery</button>`
         : "";
     extras.innerHTML = `
-      <div class="edd-check" data-edd-pincode-form>
-        <p class="edd-check__title">Check delivery</p>
-        <div class="edd-check__row">
-          <input id="${fieldId}" class="edd-check__input" data-edd-pincode-input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="postal-code" placeholder="Enter pincode" value="${escapeHtml(digitsOnly(value))}" aria-label="Pincode" form="edd-pincode-unbound">
-          <button class="edd-check__button" type="button" data-edd-check form="edd-pincode-unbound">Check</button>
+      <div class="edd-check" data-edd-pincode-form style="${sectionStyle}">
+        <p class="edd-check__title" style="${labelStyle}">${checkLabel}</p>
+        <div class="edd-check__row" style="${rowStyle}">
+          <input id="${fieldId}" class="edd-check__input" data-edd-pincode-input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="postal-code" placeholder="Enter pincode" value="${escapeHtml(digitsOnly(value))}" aria-label="Pincode" form="edd-pincode-unbound" style="${inputStyle}">
+          <button class="edd-check__button" type="button" data-edd-check form="edd-pincode-unbound" style="${buttonStyle}">${checkButtonLabel}</button>
         </div>
         <p class="edd-check__status" data-edd-pincode-status ${tone ? `data-tone="${tone}"` : ""}${statusText ? "" : " hidden"}>${escapeHtml(statusText)}</p>
         ${requestButton}
@@ -1090,9 +1584,18 @@
         }).catch(() => null);
         if (posted && posted.ok) response = posted;
       }
-      if (!response?.ok) {
+      const contentType = response?.headers?.get("content-type") || "";
+      const blockedByPassword =
+        Boolean(response?.redirected && String(response.url || "").includes("/password")) ||
+        contentType.includes("text/html");
+      if (!response?.ok || blockedByPassword) {
         delete root.dataset.eddReady;
-        hideRoot(root);
+        hideRoot(
+          root,
+          blockedByPassword
+            ? "The online store password is blocking this widget. Turn off password protection, then reload."
+            : "",
+        );
         return;
       }
       const payload = await response.json().catch(() => ({}));

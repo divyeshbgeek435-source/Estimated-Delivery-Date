@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ANIMATED_ICON_OPTIONS, ICON_OPTIONS } from "../../lib/constants";
 import {
   createLibraryIcon,
@@ -6,7 +6,6 @@ import {
   isCustomImage,
   mergeIconLibraries,
   normalizeIconLibrary,
-  resizeImageFile,
 } from "../../lib/icon-media";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
 
@@ -29,9 +28,6 @@ export function IconMediaPicker({
   onChange,
   error,
 }) {
-  const fileRef = useRef(null);
-  const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
   const current = value || fallback;
   const [urlValue, setUrlValue] = useState(() => remoteUrlValue(current));
   const [tab, setTab] = useState(() =>
@@ -55,27 +51,11 @@ export function IconMediaPicker({
     onLibraryChange(mergeIconLibraries(saved, [entry]));
   };
 
-  const pickFile = async (event) => {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file || !active) return;
-    setBusy(true);
-    setMessage("");
-    try {
-      const src = await resizeImageFile(file);
-      onChange(src);
-      remember(src, file.name);
-      setTab("library");
-    } catch (err) {
-      setMessage(err?.message || "Could not upload that image.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const removeSaved = (id) => {
-    if (!onLibraryChange) return;
-    onLibraryChange(saved.filter((item) => item.id !== id));
+  const removeSaved = (event, item) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!onLibraryChange || !active) return;
+    onLibraryChange(saved.filter((entry) => entry.id !== item.id && entry.src !== item.src));
   };
 
   const options = tab === "animated" ? ANIMATED_ICON_OPTIONS : ICON_OPTIONS;
@@ -96,34 +76,6 @@ export function IconMediaPicker({
         </div>
       ) : null}
       <div className="edd-icon-slot" aria-disabled={active ? undefined : "true"}>
-        <div className="edd-icon-change">
-          <span className="edd-icon-change__preview">
-            <DeliveryIcon name={current} color={color || "#202223"} />
-          </span>
-          <div className="edd-icon-change__actions">
-            <button
-              type="button"
-              className="edd-btn"
-              disabled={!active || busy}
-              onClick={() => fileRef.current?.click()}
-            >
-              {busy ? "Uploading…" : isCustomImage(current) ? "Change image" : "Upload icon"}
-            </button>
-            {isCustomImage(current) ? (
-              <button type="button" className="edd-btn" disabled={!active} onClick={() => onChange(fallback)}>
-                Use built-in
-              </button>
-            ) : null}
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
-            hidden
-            disabled={!active}
-            onChange={pickFile}
-          />
-        </div>
         <s-text-field
           label={`${label} URL`}
           labelAccessibilityVisibility="exclusive"
@@ -188,7 +140,7 @@ export function IconMediaPicker({
                     className="edd-icon-library-remove"
                     disabled={!active}
                     aria-label={`Remove ${item.label}`}
-                    onClick={() => removeSaved(item.id)}
+                    onClick={(event) => removeSaved(event, item)}
                   >
                     Remove
                   </button>
@@ -196,7 +148,7 @@ export function IconMediaPicker({
               ))}
             </div>
           ) : (
-            <p className="edd-icon-empty">Upload or paste an icon to reuse it across every template.</p>
+            <p className="edd-icon-empty">Paste an image URL to reuse it across every template.</p>
           )
         ) : (
           <div className="edd-icon-grid">
@@ -216,7 +168,7 @@ export function IconMediaPicker({
           </div>
         )}
       </div>
-      {error || message ? <s-banner tone="critical">{error || message}</s-banner> : null}
+      {error ? <s-banner tone="critical">{error}</s-banner> : null}
     </div>
   );
 }

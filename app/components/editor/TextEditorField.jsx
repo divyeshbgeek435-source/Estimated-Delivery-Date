@@ -114,7 +114,7 @@ export function TextEditorField({
           document.execCommand("insertText", false, pasted);
         }}
       />
-      <input type="hidden" name={name} value={text} />
+      {name ? <input type="hidden" name={name} value={text} /> : null}
       {error ? <span className="edd-text-editor__error">{error}</span> : null}
     </div>
   );

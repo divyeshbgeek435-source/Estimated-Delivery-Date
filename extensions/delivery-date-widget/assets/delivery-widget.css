@@ -82,8 +82,10 @@
 .edd-widget__title-row {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.45rem;
   margin: 0 0 0.55rem;
+  text-align: center;
 }
 
 .edd-widget__title-row .edd-widget__heading {
@@ -114,7 +116,9 @@
 .edd-widget__message-row {
   display: flex;
   align-items: flex-start;
+  justify-content: center;
   gap: 0.55rem;
+  text-align: center;
 }
 
 .edd-widget__clock {
@@ -140,10 +144,12 @@
 }
 
 .edd-widget__message {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
   font-size: 1em;
   overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .edd-widget__message strong {
@@ -178,28 +184,189 @@
   margin-top: 0.15rem;
 }
 
-.edd-widget__connector {
-  display: flex;
+.edd-widget__connector,
+.edd-connector {
+  position: relative;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
+  align-self: start;
   height: var(--edd-icon-box, 24px);
-  min-width: 1.1rem;
+  min-width: var(--edd-connector-min, 1.25rem);
   width: 100%;
+  color: var(--edd-connector-color, #202223);
+  opacity: var(--edd-connector-opacity, 1);
+  padding-inline: max(4px, calc(var(--edd-connector-spacing, 8px) * 0.5));
+  box-sizing: border-box;
 }
 
-.edd-widget__connector-line {
+.edd-connector.is-rtl {
+  transform: scaleX(-1);
+}
+
+.edd-connector__line,
+.edd-connector__track {
   display: block;
-  flex: 1;
-  min-width: 0.5rem;
-  background: #111;
+  flex: 1 1 auto;
+  min-width: 0.75rem;
+  height: var(--edd-connector-thickness, 2px);
+  border-radius: 999px;
+  background: currentColor;
 }
 
-.edd-widget__connector-arrow {
+.edd-connector--line,
+.edd-connector--dashed,
+.edd-connector--dotted,
+.edd-connector--gradient,
+.edd-connector--animated,
+.edd-connector--progress {
+  gap: 0;
+}
+
+.edd-connector.has-fixed-length .edd-connector__line,
+.edd-connector.has-fixed-length .edd-connector__track,
+.edd-connector.has-fixed-length .edd-connector__curve {
+  flex: 0 0 var(--edd-connector-length);
+  width: var(--edd-connector-length);
+  max-width: 100%;
+}
+
+.edd-connector--dashed .edd-connector__line,
+.edd-connector--animated-dashed .edd-connector__line {
+  background: repeating-linear-gradient(90deg, currentColor 0 6px, transparent 6px 11px);
+}
+
+.edd-connector--dotted .edd-connector__line {
+  height: max(2px, var(--edd-connector-thickness, 2px));
+  background: radial-gradient(circle, currentColor 1.15px, transparent 1.25px) center / 7px 100% repeat-x;
+  background-color: transparent;
+}
+
+.edd-connector--gradient .edd-connector__line {
+  background: linear-gradient(90deg, transparent, currentColor 28%, currentColor 72%, transparent);
+}
+
+.edd-connector--minimal {
+  gap: 2px;
+}
+
+.edd-connector--minimal .edd-connector__line {
+  height: 1px;
+  opacity: 0.9;
+}
+
+.edd-connector__tip--tiny {
+  border-top-width: 3px;
+  border-bottom-width: 3px;
+  border-left-width: 4px;
+}
+
+.edd-connector--animated .edd-connector__line {
+  background: repeating-linear-gradient(90deg, currentColor 0 6px, transparent 6px 12px);
+  background-size: 18px 100%;
+  animation: edd-connector-march var(--edd-connector-speed, 1.4s) linear infinite;
+}
+
+.edd-connector--animated.is-anim-off .edd-connector__line {
+  animation: none;
+}
+
+.edd-connector__track {
+  position: relative;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+  overflow: hidden;
+}
+
+.edd-connector__fill {
+  display: block;
+  height: 100%;
+  width: 72%;
+  border-radius: inherit;
+  background: currentColor;
+}
+
+.edd-connector--progress:not(.is-anim-off) .edd-connector__fill {
+  animation: edd-connector-fill var(--edd-connector-speed, 1.4s) ease-in-out infinite alternate;
+}
+
+.edd-connector__curve {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 1.1rem;
+  height: calc(var(--edd-connector-size, 12px) + 4px);
+  color: inherit;
+  overflow: visible;
+}
+
+.edd-connector__tip {
+  flex: 0 0 auto;
+  line-height: 1;
+}
+
+.edd-connector__tip--glyph {
+  font-size: var(--edd-connector-size, 12px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  transform: translateY(-0.5px);
+}
+
+.edd-connector__tip--head {
   width: 0;
   height: 0;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 6px solid #111;
-  flex: 0 0 auto;
+  border-top: calc(var(--edd-connector-size, 12px) * 0.28) solid transparent;
+  border-bottom: calc(var(--edd-connector-size, 12px) * 0.28) solid transparent;
+  border-left: calc(var(--edd-connector-size, 12px) * 0.42) solid currentColor;
+}
+
+.edd-connector__tip--chevron {
+  width: calc(var(--edd-connector-size, 12px) * 0.42);
+  height: calc(var(--edd-connector-size, 12px) * 0.42);
+  border-top: calc(var(--edd-connector-thickness, 2px) + 0.5px) solid currentColor;
+  border-right: calc(var(--edd-connector-thickness, 2px) + 0.5px) solid currentColor;
+  transform: rotate(45deg);
+  margin-inline: 1px;
+}
+
+.edd-connector__tip--bold {
+  width: 0;
+  height: 0;
+  border-top: calc(var(--edd-connector-size, 12px) * 0.38) solid transparent;
+  border-bottom: calc(var(--edd-connector-size, 12px) * 0.38) solid transparent;
+  border-left: calc(var(--edd-connector-size, 12px) * 0.55) solid currentColor;
+}
+
+.edd-connector--minimal,
+.edd-connector--curved {
+  gap: 2px;
+}
+
+.edd-connector--curved .edd-connector__tip--head {
+  margin-left: -2px;
+}
+
+@keyframes edd-connector-march {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 18px 0;
+  }
+}
+
+@keyframes edd-connector-fill {
+  from {
+    width: 35%;
+  }
+  to {
+    width: 88%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edd-connector--animated .edd-connector__line,
+  .edd-connector--progress .edd-connector__fill {
+    animation: none !important;
+  }
 }
 
 .edd-widget__step {
@@ -303,14 +470,17 @@
 .edd-widget__pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.45rem;
 }
 
 .edd-widget__pill {
-  border: 1px solid currentColor;
+  border: 1.5px solid currentColor;
   border-radius: 999px;
-  padding: 0.25rem 0.7rem;
+  padding: 0.35rem 0.75rem;
+  background: color-mix(in srgb, currentColor 8%, transparent);
   font-size: 0.85rem;
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 .edd-icon,
@@ -484,7 +654,21 @@
 .edd-widget__highlight {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.65rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.edd-widget__banner {
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.edd-widget__highlight {
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
 }
 
 .edd-widget__banner-icon,
@@ -531,6 +715,14 @@
   gap: 0.2rem;
 }
 
+.edd-widget__tracker-steps--custom .edd-connector {
+  flex: 1 1 auto;
+  min-width: 1.25rem;
+  align-self: flex-start;
+  margin-top: 0.85rem;
+  padding-inline: 2px;
+}
+
 .edd-widget__tracker-dots {
   flex: 1 1 auto;
   min-width: 1.4rem;
@@ -556,8 +748,66 @@
   height: var(--edd-icon-box, 36px);
 }
 
-.edd-widget__tracker-icon--off {
-  height: 0.35rem;
+.edd-widget__tracker-icon--off,
+.edd-widget__journey-icon--off,
+.is-icon-hidden {
+  visibility: hidden;
+}
+
+.edd-widget__step.is-icon-off .edd-widget__meta,
+.edd-widget__journey-step.is-icon-off .edd-widget__journey-meta,
+.edd-widget__tracker-step.is-icon-off > b {
+  position: relative;
+  z-index: 1;
+}
+
+.edd-widget__step.is-icon-off .edd-widget__meta {
+  margin-top: calc(-1 * (var(--edd-icon-box, 24px) + 0.4rem));
+  min-height: var(--edd-icon-box, 24px);
+  justify-content: center;
+}
+
+.edd-widget__journey-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.edd-widget__journey-step.is-icon-off .edd-widget__journey-meta {
+  margin-top: calc(-1 * (var(--edd-icon-box, 40px) + 0.35rem));
+  min-height: var(--edd-icon-box, 40px);
+  justify-content: center;
+}
+
+.edd-widget__tracker-step.is-icon-off > b {
+  margin-top: calc(-1 * (var(--edd-icon-box, 36px) + 0.3rem));
+  min-height: var(--edd-icon-box, 36px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edd-anim__caption {
+  display: grid;
+  justify-items: center;
+  gap: 0.28rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.edd-anim__step.is-icon-off > .edd-anim__caption,
+.edd-anim__band-step.is-icon-off > .edd-anim__caption,
+.edd-anim__segment.is-icon-off > .edd-anim__caption,
+.edd-anim__hero-step.is-icon-off > .edd-anim__caption,
+.edd-anim__wholesale-step.is-icon-off > .edd-anim__caption {
+  margin-top: calc(-1 * (var(--edd-icon-box, 40px) + 0.28rem));
+  min-height: var(--edd-icon-box, 40px);
+  align-content: center;
+  position: relative;
+  z-index: 1;
 }
 
 .edd-widget__tracker-step b {
@@ -682,9 +932,7 @@
 }
 
 .edd-widget__journey-icon--off {
-  height: 0.45rem;
-  background: transparent;
-  box-shadow: none;
+  visibility: hidden;
 }
 
 .edd-widget__journey-label {
@@ -799,12 +1047,12 @@
 @container edd (max-width: 28rem) {
   /* Keep classic Timeline horizontal on narrow product columns (match admin). */
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.35rem;
   }
 
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__connector {
-    display: flex;
+    display: inline-flex;
+    min-width: 0.85rem;
   }
 
   .edd-widget__timeline:not(.edd-widget__timeline--stacked) .edd-widget__step {
@@ -824,6 +1072,15 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: 0.35rem;
+  }
+
+  .edd-anim--express-responsive .edd-anim__steps {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .edd-anim--express-responsive .edd-anim__express-shell .edd-anim__rail {
+    display: none;
   }
 
   .edd-anim__step {
@@ -1197,17 +1454,52 @@
 
 .edd-anim__express-shell {
   position: relative;
-  margin-top: 0.35rem;
-  padding: 1rem 0.55rem 0.65rem;
+  margin-top: 0.55rem;
+  padding: 1rem 0.55rem 0.7rem;
   border-radius: 12px;
   background: #fff;
   border: 1px solid #dedede;
 }
 
 .edd-anim__express-shell .edd-anim__rail {
-  left: 14%;
-  right: 14%;
+  left: calc(100% / (2 * var(--edd-step-count, 3)));
+  right: calc(100% / (2 * var(--edd-step-count, 3)));
   top: calc(1rem + (var(--edd-icon-box, 38px) * 0.5));
+}
+
+.edd-anim--express.is-static .edd-anim__step,
+.edd-anim--express.is-static .edd-anim__express-head {
+  animation: none !important;
+}
+
+.edd-anim--express .edd-anim__circle {
+  border: 2px solid transparent;
+  box-sizing: border-box;
+}
+
+.edd-anim--express .edd-anim__step.is-pending {
+  opacity: 0.72;
+}
+
+.edd-check--footer-only {
+  padding-top: 0.75rem;
+}
+
+.edd-check--footer-only .edd-check__title {
+  margin: 0;
+  font-size: 0.95em;
+  font-weight: 700;
+}
+
+@media (max-width: 420px) {
+  .edd-anim--express-responsive .edd-anim__steps {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .edd-anim--express-responsive .edd-anim__express-shell .edd-anim__rail {
+    display: none;
+  }
 }
 
 .edd-anim__circle {
@@ -1280,6 +1572,286 @@
   box-shadow: 0 8px 18px rgba(80, 40, 120, 0.08);
 }
 
+.edd-anim--hero {
+  display: grid;
+  gap: 0.55rem;
+  text-align: center;
+}
+
+.edd-anim__hero-label {
+  margin: 0;
+  font-size: 0.85em;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.8;
+}
+
+.edd-anim__hero-date {
+  margin: 0;
+  font-size: 1.45em;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.edd-anim__hero-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.edd-anim__hero-step {
+  display: grid;
+  justify-items: center;
+  gap: 0.25rem;
+}
+
+.edd-anim--drop {
+  display: grid;
+  gap: 0.7rem;
+  justify-items: center;
+  text-align: center;
+}
+
+.edd-anim__drop-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.edd-anim__drop-label {
+  margin: 0;
+  font-size: 0.9em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.edd-anim__drop-badge {
+  min-width: 10rem;
+  padding: 0.85rem 1.1rem;
+  border: 2px dashed;
+  border-radius: 999px;
+  font-size: 1.15em;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.edd-anim--minimal {
+  display: grid;
+  gap: 0.35rem;
+  text-align: left;
+}
+
+.edd-anim__minimal-label {
+  margin: 0;
+  font-size: 0.8em;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.edd-anim__minimal-date {
+  margin: 0;
+  font-size: 1.2em;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.edd-anim--checklist,
+.edd-anim__checklist {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.edd-anim__check-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.edd-anim__check-mark {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-grid;
+  place-items: center;
+  border: 1.5px solid;
+  border-radius: 999px;
+}
+
+.edd-anim__check-mark .edd-icon,
+.edd-anim__check-mark svg {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.edd-anim--pickup {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.edd-anim__pickup-stub {
+  display: grid;
+  place-content: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0.4rem;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  text-align: center;
+}
+
+.edd-anim__pickup-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-grid;
+  place-items: center;
+  color: #fff;
+}
+
+.edd-anim__pickup-body {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.85rem 0.9rem;
+}
+
+.edd-anim__pickup-date {
+  margin: 0;
+  font-size: 1.05em;
+  font-weight: 750;
+}
+
+.edd-anim__pickup-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.edd-anim__pickup-chip {
+  padding: 0.2rem 0.5rem;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 0.72em;
+  font-weight: 650;
+}
+
+.edd-anim--preorder {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.edd-anim__preorder-rail {
+  position: relative;
+  display: grid;
+  gap: 0.75rem;
+  padding-left: 0.15rem;
+}
+
+.edd-anim__preorder-line {
+  position: absolute;
+  top: 0.45rem;
+  bottom: 0.45rem;
+  left: 0.52rem;
+  width: 3px;
+  border-radius: 999px;
+  opacity: 0.35;
+}
+
+.edd-anim__preorder-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.7rem;
+  align-items: start;
+}
+
+.edd-anim__preorder-dot {
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-top: 0.2rem;
+  border: 2px solid;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.8);
+}
+
+.edd-anim__preorder-step .edd-anim__label,
+.edd-anim__preorder-step .edd-anim__date {
+  display: block;
+}
+
+.edd-anim--wholesale {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.9fr) 1.2fr;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.edd-anim__wholesale-aside {
+  display: grid;
+  align-content: start;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border-left: 4px solid;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.edd-anim__wholesale-date {
+  margin: 0;
+  font-size: 1.05em;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.edd-anim__wholesale-main,
+.edd-anim__wholesale-steps {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.edd-anim__wholesale-step {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.edd-anim--calendar {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.edd-anim__calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.edd-anim__calendar-card {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.65rem 0.45rem;
+  border: 1px solid;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  text-align: center;
+}
+
+.edd-anim__calendar-card.is-focus {
+  box-shadow: 0 6px 16px rgba(4, 120, 87, 0.12);
+  transform: translateY(-1px);
+}
+
 @keyframes edd-dash-crawl {
   from {
     background-position: 0 0;
@@ -1337,6 +1909,7 @@
   padding: 0.9rem 0 0;
   border-top: 1px solid rgba(32, 34, 35, 0.12);
   font-family: inherit;
+  text-align: center;
 }
 
 .edd-check__title {
@@ -1349,6 +1922,7 @@
 .edd-check__row {
   display: flex;
   align-items: stretch;
+  justify-content: center;
   gap: 0.55rem;
 }
 
@@ -1436,4 +2010,245 @@
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
+}
+
+/* Animated connector styles (parity with admin) */
+.edd-connector {
+  overflow: visible;
+}
+
+.edd-connector.is-upcoming {
+  opacity: calc(var(--edd-connector-opacity, 1) * 0.55);
+}
+
+.edd-connector__line--ghost {
+  opacity: 0.18;
+}
+
+.edd-connector__sheen {
+  position: absolute;
+  inset: 40% 8%;
+  pointer-events: none;
+  border-radius: 999px;
+  opacity: 0;
+}
+
+.edd-connector__tip--chevrons {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.edd-connector__tip--chevrons i {
+  width: calc(var(--edd-connector-size, 12px) * 0.28);
+  height: calc(var(--edd-connector-size, 12px) * 0.28);
+  border-top: 1.5px solid currentColor;
+  border-right: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.35;
+}
+
+.edd-connector--animated-dashed:not(.is-anim-off) .edd-connector__line,
+.edd-connector--animated-dotted:not(.is-anim-off) .edd-connector__line {
+  background-size: 18px 100%;
+  animation: edd-connector-march var(--edd-connector-speed, 1.6s) linear infinite;
+}
+
+.edd-connector--flowing:not(.is-anim-off) .edd-connector__line {
+  background: linear-gradient(90deg, transparent, currentColor 40%, currentColor 60%, transparent);
+  background-size: 200% 100%;
+  animation: edd-connector-flow var(--edd-connector-speed, 1.6s) ease-in-out infinite;
+}
+
+.edd-connector--gradient-flow:not(.is-anim-off) .edd-connector__line {
+  background: linear-gradient(90deg, transparent, currentColor, transparent);
+  background-size: 220% 100%;
+  animation: edd-connector-flow var(--edd-connector-speed, 1.6s) linear infinite;
+}
+
+.edd-connector--shimmer:not(.is-anim-off) .edd-connector__sheen {
+  opacity: 1;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  background-size: 40% 100%;
+  animation: edd-connector-shimmer var(--edd-connector-speed, 1.6s) linear infinite;
+}
+
+.edd-connector--progress-fill:not(.is-anim-off) .edd-connector__fill {
+  animation: edd-connector-fill var(--edd-connector-speed, 1.6s) ease-in-out infinite alternate;
+}
+
+.edd-connector--moving:not(.is-anim-off) .edd-connector__tip--glyph {
+  animation: edd-connector-slide var(--edd-connector-speed, 1.6s) ease-in-out infinite;
+}
+
+.edd-connector--moving .edd-connector__line {
+  opacity: 0.55;
+}
+
+.edd-connector--pulsing:not(.is-anim-off) {
+  animation: edd-connector-pulse var(--edd-connector-speed, 1.6s) ease-in-out infinite;
+}
+
+.edd-connector--glow:not(.is-anim-off) .edd-connector__tip--glyph {
+  animation: edd-connector-glow var(--edd-connector-speed, 1.6s) ease-in-out infinite;
+}
+
+.edd-connector--bounce:not(.is-anim-off) .edd-connector__tip--glyph {
+  animation: edd-connector-bounce var(--edd-connector-speed, 1.6s) ease-in-out infinite;
+}
+
+.edd-connector--sliding-chevron:not(.is-anim-off) .edd-connector__tip--chevrons i {
+  animation: edd-connector-chevron-fade var(--edd-connector-speed, 1.6s) ease-in-out infinite;
+}
+
+.edd-connector--sliding-chevron:not(.is-anim-off) .edd-connector__tip--chevrons i:nth-child(2) {
+  animation-delay: calc(var(--edd-connector-speed, 1.6s) * 0.18);
+}
+
+.edd-connector--sliding-chevron:not(.is-anim-off) .edd-connector__tip--chevrons i:nth-child(3) {
+  animation-delay: calc(var(--edd-connector-speed, 1.6s) * 0.36);
+}
+
+.edd-connector--curved-flow:not(.is-anim-off) .edd-connector__curve-path {
+  stroke-dasharray: 8 6;
+  animation: edd-connector-dash-draw var(--edd-connector-speed, 1.6s) linear infinite;
+}
+
+.edd-connector--animated-dotted .edd-connector__line {
+  height: max(2px, var(--edd-connector-thickness, 2px));
+  background: radial-gradient(circle, currentColor 1.15px, transparent 1.25px) center / 7px 100% repeat-x;
+  background-color: transparent;
+}
+
+@keyframes edd-connector-flow {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@keyframes edd-connector-shimmer {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+@keyframes edd-connector-slide {
+  0%,
+  100% {
+    transform: translate(0, -0.5px);
+  }
+  50% {
+    transform: translate(4px, -0.5px);
+  }
+}
+
+@keyframes edd-connector-pulse {
+  0%,
+  100% {
+    opacity: var(--edd-connector-opacity, 1);
+    transform: scale(1);
+  }
+  50% {
+    opacity: calc(var(--edd-connector-opacity, 1) * 0.72);
+    transform: scale(0.98);
+  }
+}
+
+@keyframes edd-connector-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0 currentColor);
+  }
+  50% {
+    filter: drop-shadow(0 0 4px currentColor);
+  }
+}
+
+@keyframes edd-connector-bounce {
+  0%,
+  100% {
+    transform: translate(0, -0.5px);
+  }
+  40% {
+    transform: translate(3px, -2px);
+  }
+  60% {
+    transform: translate(3px, 0.5px);
+  }
+}
+
+@keyframes edd-connector-chevron-fade {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes edd-connector-dash-draw {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+.edd-anim__connectors {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.edd-anim__rail-wrap,
+.edd-anim__bubble-shell,
+.edd-anim__meter-track,
+.edd-anim__preorder-rail,
+.edd-anim__express-shell {
+  position: relative;
+}
+
+.edd-anim__rail-wrap--custom .edd-anim__nodes,
+.edd-anim__bubble-shell--custom .edd-anim__steps {
+  position: relative;
+  z-index: 1;
+}
+
+.edd-anim__between {
+  flex: 0 1 2.5rem;
+  min-width: 1rem;
+  max-width: 3.5rem;
+  align-self: center;
+}
+
+.edd-anim--segments-connected,
+.edd-anim--band-connected,
+.edd-anim__hero-steps--connected,
+.edd-anim__wholesale-steps--connected {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edd-connector:not(.is-anim-off) .edd-connector__line,
+  .edd-connector:not(.is-anim-off) .edd-connector__fill,
+  .edd-connector:not(.is-anim-off) .edd-connector__tip,
+  .edd-connector:not(.is-anim-off) .edd-connector__sheen,
+  .edd-connector:not(.is-anim-off) .edd-connector__curve-path,
+  .edd-connector:not(.is-anim-off) {
+    animation: none !important;
+  }
 }

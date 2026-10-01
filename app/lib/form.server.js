@@ -1,4 +1,4 @@
-import { PLACEMENT_MODES, WORKING_DAYS } from "./constants";
+import { PLACEMENT_MODES } from "./constants";
 import { idsIntersect, mergeIdLists } from "./form-ids";
 
 export {
@@ -7,13 +7,6 @@ export {
   parseIdList,
   shopifyNumericId,
 } from "./form-ids";
-
-export function readWorkingDays(formData, prefix = "workingDay_") {
-  return WORKING_DAYS.filter((day) => {
-    const value = formData.get(`${prefix}${day}`);
-    return value === "on" || value === "true" || value === day;
-  });
-}
 
 export function readJsonField(formData, name, fallback) {
   const raw = formData.get(name);

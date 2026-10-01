@@ -12,11 +12,6 @@ function modelHasField(modelName, fieldName) {
   );
 }
 
-/** @deprecated Delivery requests live on WidgetEvent; kept for older imports. */
-export function hasDeliveryRequestModel() {
-  return false;
-}
-
 export function hasWidgetEventKind() {
   return modelHasField("WidgetEvent", "kind");
 }

@@ -57,12 +57,6 @@ export function storefrontPageLabel(location) {
   return "product page";
 }
 
-export function storefrontActionLabel(location) {
-  if (location === "CART") return "View cart page";
-  if (location === "CHECKOUT") return "View checkout page";
-  return "View product page";
-}
-
 export function storefrontPageUrl(shop, location, productHandle = "") {
   const handle = String(shop || "").replace(/\.myshopify\.com$/i, "");
   const host = handle.includes(".") ? handle : `${handle}.myshopify.com`;

@@ -1,2 +1,5 @@
+extends: theme-check:theme-app-extension
+context: app
+
 AssetSizeAppBlockJavaScript:
   enabled: false

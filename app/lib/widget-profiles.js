@@ -29,11 +29,14 @@ const PRODUCT_PROFILE = {
       label: "Below Add to Cart",
       help: "Show the widget just below the Add to Cart button.",
     },
+<<<<<<< HEAD
     // {
     //   value: PLACEMENT_POSITIONS.PRODUCT_INFO,
     //   label: "Product information section",
     //   help: "Show the widget with the product title and description.",
     // },
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
     {
       value: PLACEMENT_POSITIONS.CUSTOM,
       label: "Theme editor / custom",
@@ -106,10 +109,4 @@ export function normalizePosition(location, position) {
   if (location === WIDGET_LOCATIONS.CART) return PLACEMENT_POSITIONS.CART_PAGE;
   if (location === WIDGET_LOCATIONS.CHECKOUT) return PLACEMENT_POSITIONS.CHECKOUT_BLOCK;
   return PLACEMENT_POSITIONS.BELOW_ATC;
-}
-
-export function checkoutSlotForPosition(position) {
-  if (position === PLACEMENT_POSITIONS.AFTER_SHIPPING) return "shipping";
-  if (position === PLACEMENT_POSITIONS.THANK_YOU) return "thankyou";
-  return "checkout";
 }

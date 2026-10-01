@@ -55,41 +55,6 @@ function partsFromDate(date, timeZone) {
   };
 }
 
-function toIsoDay(value) {
-  if (!value && value !== 0) return "";
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return "";
-    return format(value, "yyyy-MM-dd");
-  }
-  const match = String(value).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  if (!match) return "";
-  const day = `${match[1]}-${pad(match[2])}-${pad(match[3])}`;
-  const date = parseISO(`${day}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? "" : day;
-}
-
-function dayDate(value) {
-  const day = toIsoDay(value);
-  if (!day) return null;
-  const date = parseISO(`${day}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function formatDay(value, pattern) {
-  const date = dayDate(value);
-  if (!date) return "";
-  try {
-    return format(date, pattern);
-  } catch {
-    return "";
-  }
-}
-
-function addCalendarDays(value, amount) {
-  const date = dayDate(value) || new Date();
-  return format(addDays(date, amount), "yyyy-MM-dd");
-}
-
 export function getZonedParts(date, timeZone) {
   const when = date instanceof Date ? date : new Date(date);
   const safeDate = Number.isNaN(when.getTime()) ? new Date() : when;
@@ -343,11 +308,6 @@ export function calculateDeliveryDate({
   };
 }
 
-export function formatDisplayDate(dateStr, pattern = "EEEE, MMMM d") {
-  if (!dateStr) return "";
-  return format(parseISO(`${dateStr}T12:00:00`), pattern);
-}
-
 export function formatWidgetDate(dateStr, settings = {}) {
   if (!dateStr) return "";
   const includeYear = Boolean(settings.includeYear);
@@ -423,31 +383,6 @@ export function messageSegments(template, values = {}) {
     .filter((part) => part.type === "image" || part.text);
 }
 
-export function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-export function resolveMessageHtml(template, values = {}) {
-  return messageSegments(template, values)
-    .map((part) => {
-      if (part.type === "image") {
-        const src = String(part.src || "").trim();
-        if (!src) return "";
-        return `<img class="edd-inline-image" src="${escapeHtml(src)}" alt="" />`;
-      }
-      let text = escapeHtml(part.text);
-      if (part.underline) text = `<u>${text}</u>`;
-      if (part.italic) text = `<em>${text}</em>`;
-      if (part.highlight || part.bold) text = `<strong>${text}</strong>`;
-      return text;
-    })
-    .join("");
-}
-
 export function messageValues({
   delivery,
   countdown,
@@ -501,12 +436,6 @@ export function buildStorefrontDelivery(shipping, timezone = FALLBACK_TIMEZONE, 
   };
 }
 
-export function resolveMessage(template, values) {
-  return String(template || "").replace(/\{([a-z_]+)\}/gi, (match, key) =>
-    Object.prototype.hasOwnProperty.call(values, key) ? String(values[key] ?? "") : match,
-  );
-}
-
 export function cssGradientDirection(direction) {
   switch (direction) {
     case "TO_RIGHT":
@@ -528,17 +457,4 @@ export function widgetBackground(style = {}) {
     return `linear-gradient(${cssGradientDirection(style.gradientDirection)}, ${style.gradientStart}, ${style.gradientEnd})`;
   }
   return style.backgroundColor || "#E8E8E8";
-}
-
-export function summarizeWorkingDays(workingDays = []) {
-  const labels = {
-    MONDAY: "Mon",
-    TUESDAY: "Tue",
-    WEDNESDAY: "Wed",
-    THURSDAY: "Thu",
-    FRIDAY: "Fri",
-    SATURDAY: "Sat",
-    SUNDAY: "Sun",
-  };
-  return workingDays.map((day) => labels[day] || day).join("–");
 }

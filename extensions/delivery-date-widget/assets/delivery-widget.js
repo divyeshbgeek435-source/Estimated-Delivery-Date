@@ -190,6 +190,7 @@
     return fallback || "#202223";
   }
 
+<<<<<<< HEAD
   function timelineGridTemplate(stepCount) {
     const count = Math.max(1, Number(stepCount) || 1);
     if (count === 1) return "minmax(0, 1fr)";
@@ -201,6 +202,8 @@
     return parts.join(" ");
   }
 
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
   function buildConnectorHtml(connector, { fallbackColor, prevStatus, nextStatus, legacy = false } = {}) {
     const style = normalizeConnector(connector);
     if (style.arrowStyle === "default" && !legacy) return "";
@@ -405,15 +408,6 @@
 
   function isThemeEditor() {
     return Boolean(window.Shopify?.designMode || window.Shopify?.visualPreviewMode);
-  }
-
-  function isCartPage() {
-    const path = window.location.pathname.replace(/\/+$/, "") || "/";
-    if (path === "/cart" || path.endsWith("/cart")) return true;
-    if (document.querySelector("[data-edd-root][data-location='CART']")) return true;
-    return Boolean(
-      document.querySelector("form[action='/cart'], form[action$='/cart'], #main-cart-items, cart-items"),
-    );
   }
 
   function isProductPage() {
@@ -974,6 +968,13 @@
     card.style.setProperty("--edd-date-size", `${dateSize}px`);
     card.style.setProperty("--edd-status-size", `${statusSize}px`);
     card.style.setProperty("--edd-heading-weight", String(Number(style.headingFontWeight) || 600));
+    const contentAlign = style.elementStyles && style.elementStyles.content && style.elementStyles.content.textAlign;
+    const align = contentAlign === "left" || contentAlign === "right" ? contentAlign : "center";
+    card.style.setProperty("--edd-content-align", align);
+    card.style.setProperty(
+      "--edd-content-justify",
+      align === "left" ? "flex-start" : align === "right" ? "flex-end" : "center",
+    );
   }
 
   function renderCard(root, payload) {
@@ -1112,6 +1113,20 @@
           dateColor: step.dateColor || "",
         };
       });
+<<<<<<< HEAD
+=======
+    const textFloor = readablePx(style.fontSize, 15, 14);
+    const statusBase = Math.max(readablePx(style.statusFontSize, textFloor, 13), textFloor);
+    const dateBase = Math.max(readablePx(style.dateFontSize, textFloor, 13), textFloor);
+    const labelPx = (step) => {
+      const set = Number(step.labelFontSize);
+      return Number.isFinite(set) && set > 0 ? set : statusBase;
+    };
+    const datePx = (step) => {
+      const set = Number(step.dateFontSize);
+      return Number.isFinite(set) && set > 0 ? set : dateBase;
+    };
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
     const gap = style.paddingMiddle || 12;
     const leadImage =
       headerEnabled && customImageSrc(icons.headerIcon)
@@ -1154,7 +1169,11 @@
                           })
                         : `<span class="edd-widget__tracker-dots" aria-hidden="true"></span>`
                       : "";
+<<<<<<< HEAD
                     return `${connector}<div class="edd-widget__tracker-step${step.enabled === false ? " is-icon-off" : ""}"><span class="edd-widget__tracker-icon${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span><b style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</b><i style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</i></div>`;
+=======
+                    return `${connector}<div class="edd-widget__tracker-step${step.enabled === false ? " is-icon-off" : ""}"><span class="edd-widget__tracker-icon${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span><b style="color:${step.labelColor || style.statusColor || textColor};font-size:${labelPx(step)}px">${escapeHtml(step.title)}</b><i style="color:${step.dateColor || style.dateColor || textColor};font-size:${datePx(step)}px">${escapeHtml(step.date)}</i></div>`;
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
                   })
                   .join("")}</div></div>`;
               })()
@@ -1182,14 +1201,22 @@
               }<div class="edd-widget__journey-head">${journeyFlag}<p>${titleBit}${journeyRange}</p></div><div class="edd-widget__journey-shell"><div class="edd-widget__journey-steps">${steps
                 .map(
                   (step, index) =>
+<<<<<<< HEAD
                     `<div class="edd-widget__journey-step${step.enabled === false ? " is-icon-off" : ""}" style="animation-delay:${180 + index * 100}ms"><span class="edd-widget__journey-icon${index === 1 ? " edd-widget__journey-icon--truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span><span class="edd-widget__journey-meta"><span class="edd-widget__journey-label" style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</span><strong class="edd-widget__journey-date" style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</strong></span></div>`,
+=======
+                    `<div class="edd-widget__journey-step${step.enabled === false ? " is-icon-off" : ""}" style="animation-delay:${180 + index * 100}ms"><span class="edd-widget__journey-icon${index === 1 ? " edd-widget__journey-icon--truck" : ""}${step.enabled === false ? " is-icon-hidden" : ""}" style="color:${step.color}"${step.enabled === false ? ' aria-hidden="true"' : ""}>${icon(step.icon)}</span><span class="edd-widget__journey-meta"><span class="edd-widget__journey-label" style="color:${step.labelColor || style.statusColor || textColor};font-size:${labelPx(step)}px">${escapeHtml(step.title)}</span><strong class="edd-widget__journey-date" style="color:${step.dateColor || style.dateColor || textColor};font-size:${datePx(step)}px">${escapeHtml(step.date)}</strong></span></div>`,
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
                 )
                 .join("")}</div></div></div>`
         : design === "COMPACT"
         ? `<p class="edd-widget__minimal" style="color:${style.dateColor || textColor}">Delivery ${escapeHtml(delivery.deliveredLabel || delivery.delivery_from || "")}</p>`
         : design === "PILL"
           ? `<div class="edd-widget__pills">${steps
-              .map((step) => `<span class="edd-widget__pill" style="color:${step.color};border-color:${step.color}">${escapeHtml(step.title)}: ${escapeHtml(step.date)}</span>`)
+              .map((step) => {
+                const label = labelPx(step);
+                const date = datePx(step);
+                return `<span class="edd-widget__pill" style="font-size:${Math.max(label, date)}px;color:${step.color};border-color:${step.color}"><span style="font-size:${label}px;color:${step.labelColor || step.color}">${escapeHtml(step.title)}:</span> <strong style="font-size:${date}px;color:${step.dateColor || step.color}">${escapeHtml(step.date)}</strong></span>`;
+              })
               .join("")}</div>`
           : (() => {
               const connectorCfg = trackerSettings.connector || {};
@@ -1198,7 +1225,11 @@
               const grid =
                 design === "STACKED"
                   ? ""
+<<<<<<< HEAD
                   : ` style="grid-template-columns:${timelineGridTemplate(steps.length)};column-gap:${spacing}px"`;
+=======
+                  : ` style="--edd-timeline-gap:${spacing}px"`;
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
               return `<div class="edd-widget__timeline${design === "STACKED" ? " edd-widget__timeline--stacked" : ""}"${grid}>${steps
                 .map((step, index) => {
                   const connector =
@@ -1215,8 +1246,8 @@
             <div class="edd-widget__step${step.enabled === false ? " is-icon-off" : ""}">
               ${stepIcon}
               <span class="edd-widget__meta">
-                <span class="edd-widget__date" style="color:${style.dateColor || textColor}">${escapeHtml(step.date)}</span>
-                <span class="edd-widget__label" style="color:${style.statusColor || textColor}">${escapeHtml(step.title)}</span>
+                <span class="edd-widget__date" style="color:${step.dateColor || style.dateColor || textColor};font-size:${datePx(step)}px">${escapeHtml(step.date)}</span>
+                <span class="edd-widget__label" style="color:${step.labelColor || style.statusColor || textColor};font-size:${labelPx(step)}px">${escapeHtml(step.title)}</span>
               </span>
             </div>`;
                 })
@@ -1640,6 +1671,18 @@
     return root.closest("[id^='shopify-block'], .shopify-block, .shopify-app-block") || root;
   }
 
+  function stretchPlacedNode(node) {
+    if (!node) return;
+    node.style.display = "block";
+    node.style.width = "100%";
+    node.style.maxWidth = "100%";
+    node.style.minWidth = "0";
+    node.style.flex = "1 0 100%";
+    node.style.gridColumn = "1 / -1";
+    node.style.alignSelf = "stretch";
+    node.style.justifySelf = "stretch";
+  }
+
   function placeCollectionRoot(root) {
     if ((root.dataset.location || "") !== "PRODUCT" || !isCollectionPage()) return;
     if (root.dataset.eddPlaced === "COLLECTION") return;
@@ -1684,6 +1727,7 @@
     if (root.dataset.eddPlaced === key) return;
 
     const node = movableNode(root);
+    stretchPlacedNode(node);
     const atc = firstMatch([
       'form[action*="/cart/add"] button[type="submit"]',
       'form[action*="/cart/add"] button[name="add"]',
@@ -1738,10 +1782,7 @@
 
     const node = movableNode(root);
     if (inCartDrawer(node)) return;
-    node.style.display = "block";
-    node.style.width = "100%";
-    node.style.maxWidth = "100%";
-    node.style.flex = "1 1 100%";
+    stretchPlacedNode(node);
     const checkout = checkoutButton();
     const mount = checkoutMount(checkout);
     if (inCartDrawer(mount) || inCartDrawer(checkout)) return;

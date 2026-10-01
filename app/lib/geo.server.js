@@ -1,4 +1,4 @@
-import { COUNTRY_GEO_NAMES, INDIA_STATES, countryGeoName, uniqueNames } from "./geo";
+import { INDIA_STATES, countryGeoName, uniqueNames } from "./geo";
 import { normalizeCountry } from "./pincode";
 import { suggestCitiesForPostal } from "./pincode.server";
 
@@ -98,10 +98,6 @@ export async function listCitiesForCountry(country) {
     }
     return cities;
   });
-}
-
-export function supportedGeoCountries() {
-  return Object.keys(COUNTRY_GEO_NAMES);
 }
 
 export async function suggestCitiesForCountry(country, query) {

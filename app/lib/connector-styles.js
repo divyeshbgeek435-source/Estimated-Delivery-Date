@@ -151,6 +151,7 @@ export function connectorCssVars(connector, { color } = {}) {
     ["--edd-connector-speed"]: `${style.animationSpeed}s`,
   };
 }
+<<<<<<< HEAD
 
 export function timelineGridTemplate(stepCount) {
   const count = Math.max(1, Number(stepCount) || 1);
@@ -231,3 +232,5 @@ export function buildConnectorHtml(
 
   return `<span class="${classPrefix}__connector edd-connector edd-connector--${style.arrowStyle} is-${state}${animOff}${dirClass}${lengthClass}" style="${styleAttr}" aria-hidden="true">${trackMarkup(style.arrowStyle)}${tip}</span>`;
 }
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)

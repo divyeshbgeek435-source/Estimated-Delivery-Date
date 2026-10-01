@@ -14,11 +14,6 @@ export const SHIPPING_DAY_LIMITS = {
   transitMax: { min: 0, max: SHIPPING_DAY_MAX },
 };
 
-export const CUTOFF_LIMITS = {
-  hours: { min: 1, max: 12 },
-  minutes: { min: 0, max: 59 },
-};
-
 export const STYLE_NUMBER_LIMITS = {
   borderRadius: { min: 0, max: 32 },
   borderWidth: { min: 0, max: 12 },

@@ -1,4 +1,3 @@
-import { unauthenticated } from "../../shopify.server";
 import { appBlockEditorUrl, appEmbedEditorUrl } from "../../lib/theme-editor";
 import { defaultEmbedIdentifiers, parseAppEmbedEnabled } from "../../lib/theme-embed";
 
@@ -132,11 +131,6 @@ function sessionHasThemeAccess(session) {
   return scopes.includes("read_themes") || scopes.includes("write_themes");
 }
 
-function recentEmbedPing(shop) {
-  const at = embedPings.get(shop);
-  return Boolean(at && Date.now() - at < 15 * 60 * 1000);
-}
-
 export function markAppEmbedPing(shop) {
   if (shop) embedPings.set(shop, Date.now());
 }
@@ -168,10 +162,6 @@ export function buildEmbedStatusPayload(shop, result) {
     checked: Boolean(result.checked),
     ...editorLinksForShop(shop, result?.themeId),
   };
-}
-
-export async function loadEditorLinks(admin, shop, themeId) {
-  return editorLinksForShop(shop, themeId);
 }
 
 async function readThemeEmbedStatus(admin, identifiers, { fresh = false } = {}) {
@@ -292,26 +282,4 @@ export async function loadLiveAppEmbedStatus(admin, shop, session, { fresh = fal
 
   inflight.set(key, work);
   return work;
-}
-
-export async function isAppEmbedEnabledForShop(shop) {
-  if (!shop) return false;
-  const cached = cache.get(shop);
-  if (cached && cached.expires > Date.now() && cached.result?.checked) {
-    return Boolean(cached.enabled);
-  }
-
-  try {
-    const { admin, session } = await unauthenticated.admin(shop);
-    const result = await loadLiveAppEmbedStatus(admin, shop, session);
-    if (result.checked && typeof result.enabled === "boolean") {
-      return result.enabled;
-    }
-    // Only fall back to a recent storefront ping when theme status is unknown.
-    if (result.missingThemeAccess || result.enabled == null) return recentEmbedPing(shop);
-    return Boolean(result.enabled);
-  } catch {
-    if (cached && cached.expires > Date.now()) return Boolean(cached.enabled);
-    return recentEmbedPing(shop);
-  }
 }

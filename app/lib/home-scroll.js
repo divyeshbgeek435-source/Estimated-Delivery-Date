@@ -47,13 +47,6 @@ export function clearHomeReturnState() {
   store.removeItem(FOCUS_KEY);
 }
 
-/** @deprecated Prefer peek + clear after restore; kept for callers that still consume once. */
-export function consumeHomeReturnState() {
-  const state = peekHomeReturnState();
-  clearHomeReturnState();
-  return state;
-}
-
 export function restoreHomePosition({ widgetId, scrollY, onDone } = {}) {
   if (typeof window === "undefined") return;
 

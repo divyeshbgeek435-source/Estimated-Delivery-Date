@@ -13,6 +13,10 @@ export const EDITABLE_ELEMENTS = [
   { id: "checkLabel", label: "Check delivery label", kind: "text" },
   { id: "checkInput", label: "Check delivery input", kind: "input" },
   { id: "checkButton", label: "Check button", kind: "button" },
+<<<<<<< HEAD
+=======
+  { id: "content", label: "Content alignment", kind: "layout" },
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 ];
 
 export const TEXT_ALIGN_OPTIONS = [
@@ -45,6 +49,7 @@ export const TEXT_DECORATION_OPTIONS = [
   { value: "line-through", label: "Strikethrough" },
 ];
 
+<<<<<<< HEAD
 export const DEFAULT_ELEMENT_STYLE = {
   fontFamily: "",
   fontSize: null,
@@ -77,6 +82,8 @@ export const DEFAULT_ELEMENT_STYLE = {
   justifyContent: "",
 };
 
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -99,10 +106,13 @@ export function buildElementSelection(id, stepIndex = null) {
   return `${id}:${stepIndex}`;
 }
 
+<<<<<<< HEAD
 export function getElementMeta(id) {
   return EDITABLE_ELEMENTS.find((item) => item.id === id) || null;
 }
 
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 export function normalizeElementStyle(style = {}) {
   const source = asObject(style);
   return {
@@ -225,6 +235,12 @@ export function resolveElementStyle(elementId, styleConfig = {}) {
       paddingX: 16,
       textAlign: "center",
     },
+<<<<<<< HEAD
+=======
+    content: {
+      textAlign: "center",
+    },
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
   };
   const fallback = fallbacks[elementId] || {};
   return normalizeElementStyle({
@@ -275,11 +291,32 @@ export function elementStyleToCss(elementStyle, { mobile = false } = {}) {
   return css;
 }
 
+<<<<<<< HEAD
 export function elementStyleToInline(elementStyle, { mobile = false } = {}) {
   const css = elementStyleToCss(elementStyle, { mobile });
   return Object.entries(css)
     .map(([key, value]) => `${key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`)}:${value}`)
     .join(";");
+=======
+const CONTENT_JUSTIFY = {
+  left: "flex-start",
+  center: "center",
+  right: "flex-end",
+};
+
+/** left | center | right for the title, description, and date chips. */
+export function resolveContentAlign(styleConfig = {}) {
+  const align = resolveElementStyle("content", styleConfig).textAlign;
+  return TEXT_ALIGN_OPTIONS.some((item) => item.value === align) ? align : "center";
+}
+
+export function contentAlignCssVars(styleConfig = {}) {
+  const align = resolveContentAlign(styleConfig);
+  return {
+    ["--edd-content-align"]: align,
+    ["--edd-content-justify"]: CONTENT_JUSTIFY[align] || "center",
+  };
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 }
 
 export function patchElementStyle(styleConfig, elementId, patch) {

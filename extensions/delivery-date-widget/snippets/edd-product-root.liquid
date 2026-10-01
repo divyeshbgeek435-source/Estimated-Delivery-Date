@@ -3,6 +3,7 @@ Estimated delivery root for the product page. Rendered only by the product app b
 @param {product} [product] - The current product
 @param {collection} [collection] - The current collection
 @param {string} [shopify_attributes] - Theme editor block attributes
+@param {string} [source] - "block" when the merchant placed the app block, "embed" for the body fallback
 {% enddoc %}
 {% liquid
   assign edd_product = product
@@ -20,6 +21,7 @@ Estimated delivery root for the product page. Rendered only by the product app b
   class="edd-root"
   data-edd-root
   data-location="PRODUCT"
+  data-edd-source="{{ source | default: 'block' }}"
   data-page="{{ template.name }}"
   {% if edd_product %}
     data-product-id="{{ edd_product.id }}"

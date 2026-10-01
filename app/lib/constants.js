@@ -97,6 +97,7 @@ export const MESSAGE_TAGS = [
   { tag: "{processing_from}", label: "Processing from" },
   { tag: "{processing_to}", label: "Processing to" },
   { tag: "{ordered_date}", label: "Order date" },
+<<<<<<< HEAD
   // { tag: "{stock_left}", label: "Stock left" },
   { tag: "{product_name}", label: "Product name" },
   // { tag: "{image}", label: "Header image" },
@@ -114,6 +115,9 @@ export const TRANSLATION_LOCALES = [
   { value: "nb", label: "Norwegian" },
   { value: "fi", label: "Finnish" },
   { value: "ja", label: "Japanese" },
+=======
+  { tag: "{product_name}", label: "Product name" },
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 ];
 
 export const FONT_OPTIONS = [
@@ -358,6 +362,7 @@ export const TEMPLATE_CONTENT_PRESETS = {
     headingEnabled: true,
   },
 };
+<<<<<<< HEAD
 
 export const TEMPLATE_COLORS = [
   "#000000",
@@ -389,6 +394,8 @@ export const BACKGROUND_COLORS = [
   "#F8FAFC",
   "#E8FBFC",
 ];
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 
 export const TEMPLATE_STYLE_PRESETS = {
   TIMELINE: {
@@ -1126,14 +1133,4 @@ export function defaultPosition(location) {
   if (location === WIDGET_LOCATIONS.CART) return PLACEMENT_POSITIONS.CART_PAGE;
   if (location === WIDGET_LOCATIONS.CHECKOUT) return PLACEMENT_POSITIONS.CHECKOUT_BLOCK;
   return PLACEMENT_POSITIONS.BELOW_ATC;
-}
-
-export function widgetSnippet(location, displayMode) {
-  if (location === WIDGET_LOCATIONS.CART && displayMode === CART_DISPLAY_MODES.PER_PRODUCT) {
-    return '<div class="essential-estimated-cart-per-product"></div>';
-  }
-  if (location === WIDGET_LOCATIONS.CART) {
-    return '<div class="essential-estimated-cart-general"></div>';
-  }
-  return '<div class="essential-estimated-delivery-block-liquid"></div>';
 }

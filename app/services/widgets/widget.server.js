@@ -276,13 +276,6 @@ export async function findLiveConflicts(merchantId, widgetId, { location, placem
   );
 }
 
-export async function findProductPlacementConflicts(merchantId, widgetId, placement) {
-  return findLiveConflicts(merchantId, widgetId, {
-    location: WIDGET_LOCATIONS.PRODUCT,
-    placement,
-  });
-}
-
 async function unpublishWidgets(merchantId, widgetIds = []) {
   const ids = [...new Set((widgetIds || []).filter(Boolean))];
   if (!ids.length) return [];
@@ -487,58 +480,6 @@ export async function activateDueWidgets(merchantId) {
   return activated;
 }
 
-export async function listActivationConflicts(merchantId) {
-  await activateDueWidgets(merchantId);
-  const widgets = await prisma.widget.findMany({
-    where: {
-      merchantId,
-      location: { in: [WIDGET_LOCATIONS.PRODUCT, WIDGET_LOCATIONS.CART] },
-    },
-    select: {
-      id: true,
-      name: true,
-      location: true,
-      status: true,
-      messageConfig: { select: { translations: true } },
-    },
-  });
-  return widgets
-    .map((widget) => {
-      const conflict = parseActivationConflict(widget.messageConfig?.translations?.[ACTIVATION_CONFLICT_KEY]);
-      if (!conflict?.conflicts?.length) return null;
-      return {
-        id: widget.id,
-        name: widget.name,
-        location: widget.location,
-        status: widget.status,
-        dueAt: conflict.dueAt || null,
-        conflicts: conflict.conflicts,
-      };
-    })
-    .filter(Boolean);
-}
-
-export async function listLiveNotices(merchantId) {
-  await activateDueWidgets(merchantId);
-  const widgets = await prisma.widget.findMany({
-    where: { merchantId, status: WIDGET_STATUSES.ACTIVE },
-    select: {
-      id: true,
-      name: true,
-      location: true,
-      messageConfig: { select: { translations: true } },
-    },
-  });
-  return widgets
-    .filter((widget) => widget.messageConfig?.translations?.[LIVE_NOTICE_KEY])
-    .map((widget) => ({
-      id: widget.id,
-      name: widget.name,
-      location: widget.location,
-      at: widget.messageConfig.translations[LIVE_NOTICE_KEY],
-    }));
-}
-
 export async function acknowledgeLiveNotice(merchantId, widgetId) {
   const widget = await prisma.widget.findFirst({
     where: { id: widgetId, merchantId },
@@ -649,14 +590,6 @@ export async function getPublishStatus(merchantId, widgetId = null) {
         conflicts: widget.activationConflict.conflicts,
       })),
   };
-}
-
-export async function listWidgets(merchantId) {
-  const widgets = await prisma.widget.findMany({
-    where: { merchantId },
-    orderBy: { updatedAt: "desc" },
-  });
-  return widgets.map(withDefaults);
 }
 
 export async function getWidgetForMerchant(merchantId, widgetId) {
@@ -825,162 +758,6 @@ export async function updateWidget(merchantId, widgetId, data) {
     where: { id: widgetId },
     data,
   });
-}
-
-export async function saveShippingRules(merchantId, widgetId, shipping) {
-  const widget = await prisma.widget.findFirst({
-    where: { id: widgetId, merchantId },
-    select: { id: true },
-  });
-  if (!widget) return null;
-
-  const shippingBase = {
-    ...clampShippingDayFields(shipping),
-    cutoffTime: shipping.cutoffTime,
-    workingDays: shipping.workingDays,
-    blockedDates: shipping.blockedDates,
-    transitWorkingDays: shipping.transitWorkingDays,
-    transitBlockedDates: shipping.transitBlockedDates,
-  };
-  const pincodeRules = await expandPincodeRulesForCheck(
-    shipping.pincodeRules || DEFAULT_PINCODE_RULES,
-    shippingBase,
-  );
-  const payload = {
-    ...shippingBase,
-    pincodeRules,
-    weightRules: shipping.weightRules || DEFAULT_WEIGHT_RULES,
-    countryRules: shipping.countryRules || toCountryRules(pincodeRules),
-  };
-
-  await prisma.widget.update({
-    where: { id: widgetId },
-    data: {
-      shippingRules: embedSet(payload),
-      timezone: shipping.timezone ? resolveTimeZone(shipping.timezone) : undefined,
-      currentStep: "shipping",
-    },
-  });
-
-  return getWidgetForMerchant(merchantId, widgetId);
-}
-
-export async function saveMessageAndIcons(merchantId, widgetId, values) {
-  const widget = await prisma.widget.findFirst({
-    where: { id: widgetId, merchantId },
-    select: { id: true },
-  });
-  if (!widget) return null;
-
-  await prisma.widget.update({
-    where: { id: widgetId },
-    data: {
-      messageConfig: embedSet(prismaMessageData({ heading: values.heading, template: values.template })),
-      iconConfig: embedSet(iconCreateData(values)),
-      currentStep: "message",
-    },
-  });
-  return getWidgetForMerchant(merchantId, widgetId);
-}
-
-export async function saveStyle(merchantId, widgetId, values) {
-  const widget = await prisma.widget.findFirst({
-    where: { id: widgetId, merchantId },
-    select: { id: true },
-  });
-  if (!widget) return null;
-
-  const payload = {
-    backgroundType: values.backgroundType,
-    backgroundColor: values.backgroundColor,
-    gradientStart: values.gradientStart,
-    gradientEnd: values.gradientEnd,
-    gradientDirection: values.gradientDirection,
-    borderRadius: values.borderRadius,
-    themeColor: values.themeColor,
-  };
-
-  await prisma.widget.update({
-    where: { id: widgetId },
-    data: {
-      styleConfig: embedSet(styleCreateData(payload)),
-      currentStep: "style",
-    },
-  });
-  return getWidgetForMerchant(merchantId, widgetId);
-}
-
-export async function savePlacement(merchantId, widgetId, values) {
-  const widget = await prisma.widget.findFirst({
-    where: { id: widgetId, merchantId },
-    select: { id: true, location: true, placementConfig: true },
-  });
-  if (!widget) return null;
-
-  const payload = {
-    mode: values.mode,
-    ...syncedPlacementIds(values),
-    products: values.products || [],
-    collections: values.collections || [],
-  };
-
-  await prisma.widget.update({
-    where: { id: widgetId },
-    data: {
-      placementConfig: embedSet(placementCreateData({ ...widget.placementConfig, ...payload }, widget.location)),
-      currentStep: "placement",
-    },
-  });
-  return getWidgetForMerchant(merchantId, widgetId);
-}
-
-export async function saveCartConfig(merchantId, widgetId, values) {
-  const widget = await prisma.widget.findFirst({
-    where: { id: widgetId, merchantId },
-    select: { id: true },
-  });
-  if (!widget) return null;
-
-  await prisma.widget.update({
-    where: { id: widgetId },
-    data: {
-      cartConfig: embedSet(cartCreateData({}, values.displayMode)),
-      currentStep: "display",
-    },
-  });
-  return getWidgetForMerchant(merchantId, widgetId);
-}
-
-export async function saveCheckoutConfig(merchantId, widgetId, values) {
-  const widget = await prisma.widget.findFirst({
-    where: { id: widgetId, merchantId },
-    select: { id: true },
-  });
-  if (!widget) return null;
-
-  const payload = {
-    heading: values.heading,
-    template: values.template,
-    purchasedIcon: values.purchased || values.purchasedIcon,
-    processingIcon: values.processing || values.processingIcon,
-    deliveredIcon: values.delivered || values.deliveredIcon,
-    backgroundType: values.backgroundType,
-    backgroundColor: values.backgroundColor,
-    gradientStart: values.gradientStart,
-    gradientEnd: values.gradientEnd,
-    gradientDirection: values.gradientDirection,
-    borderRadius: values.borderRadius,
-    themeColor: values.themeColor,
-  };
-
-  await prisma.widget.update({
-    where: { id: widgetId },
-    data: {
-      checkoutConfig: embedSet(checkoutCreateData(payload)),
-      currentStep: "display",
-    },
-  });
-  return getWidgetForMerchant(merchantId, widgetId);
 }
 
 export async function setWidgetStatus(merchantId, widgetId, status, { force = false } = {}) {

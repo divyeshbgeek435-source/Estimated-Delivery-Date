@@ -7,8 +7,7 @@ embedded = true
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,write_metaobjects,write_metaobject_definitions,read_themes,write_themes,read_orders,write_checkouts"
-optional_scopes = [ "read_markets" ]
+scopes = "write_products,write_metaobjects,write_metaobject_definitions"
 
 [auth]
 redirect_urls = [ "https://example.com/api/auth" ]
@@ -18,6 +17,7 @@ api_version = "2026-10"
 
 [build]
 automatically_update_urls_on_dev = true
+<<<<<<< HEAD
 
 [app_proxy]
 url = "/api/widget"
@@ -41,3 +41,5 @@ description = "Public checkout widget configuration used by the Checkout UI exte
   [shop.metafields.app.checkout_widget.access]
   admin = "merchant_read"
   storefront = "public_read"
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)

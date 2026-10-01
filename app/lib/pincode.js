@@ -312,13 +312,6 @@ export function toCountryRules(pincodeRules = {}) {
   };
 }
 
-export function parsePincodeList(value) {
-  return String(value || "")
-    .split(/[\s,;]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 export function matchPincodeRule(code, rules = {}) {
   const needle = normalizePincode(code);
   if (!needle) return null;
@@ -544,13 +537,6 @@ export function resolveDeliveryAvailability({
     displayMode,
     message: PINCODE_AVAILABLE_MESSAGE,
   };
-}
-
-export async function resolveDeliveryAvailabilityAsync(options = {}, lookup) {
-  const first = resolveDeliveryAvailability(options);
-  if (!first.needsLookup || typeof lookup !== "function") return first;
-  const place = await lookup(first.country, first.code);
-  return resolveDeliveryAvailability({ ...options, place });
 }
 
 export function shippingWithPincodeRule(shipping, rule) {

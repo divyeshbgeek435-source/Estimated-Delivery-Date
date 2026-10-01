@@ -238,6 +238,7 @@ export function createTrackerStep(partial = {}) {
   );
 }
 
+<<<<<<< HEAD
 export function moveTrackerStep(steps, fromIndex, toIndex) {
   const next = [...normalizeTrackerSteps(steps)];
   if (fromIndex < 0 || toIndex < 0 || fromIndex >= next.length || toIndex >= next.length) return next;
@@ -246,6 +247,8 @@ export function moveTrackerStep(steps, fromIndex, toIndex) {
   return next;
 }
 
+=======
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 export function resolveStepDate(step, dates = {}) {
   if (!step) return "";
   if (step.dateSource === "custom") return step.customDate || "";

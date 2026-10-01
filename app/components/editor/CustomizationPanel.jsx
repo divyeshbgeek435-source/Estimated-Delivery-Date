@@ -6,6 +6,10 @@ import {
   HEADING_WEIGHT_OPTIONS,
   MESSAGE_TAGS,
 } from "../../lib/constants";
+<<<<<<< HEAD
+=======
+import { patchElementStyle, resolveContentAlign, TEXT_ALIGN_OPTIONS } from "../../lib/element-styles";
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 import { boundedIntFromEvent, STYLE_NUMBER_LIMITS } from "../../lib/number-input";
 import { HostChoiceList } from "../common/ActionButton";
 import { IconMediaPicker } from "../common/IconMediaPicker";
@@ -151,6 +155,10 @@ export function CustomizationPanel({
   const headingEnabled = message.headingEnabled !== false;
   const descriptionEnabled = message.descriptionEnabled !== false;
   const headingWeight = Number(style.headingFontWeight) || 600;
+<<<<<<< HEAD
+=======
+  const contentAlign = resolveContentAlign(style);
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 
   const setStyle = (patch) => onStyleChange({ ...style, ...patch });
   const tracker = resolveTrackerConfig(icons);
@@ -423,7 +431,11 @@ export function CustomizationPanel({
 
       <section className="edd-customize-block edd-icons-panel">
         <h3>Icons & steps</h3>
+<<<<<<< HEAD
         <p>Icon, color, label, date, and type size for Purchased, Processing, and Delivered.</p>
+=======
+        <p>Icon, color, label, date, and text size for each step. Status size and Date size update the live preview and the storefront, including Quick Dates chips.</p>
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
         {stepTabsShell({
           includeTypography: true,
           includeMeta: true,
@@ -543,6 +555,28 @@ export function CustomizationPanel({
       </section>
 
       <section className="edd-customize-block">
+<<<<<<< HEAD
+=======
+        <h3>Alignment</h3>
+        <p>Title, description, and date chips follow this. The live preview updates as you change it.</p>
+        <HostChoiceList
+          label="Alignment"
+          labelAccessibilityVisibility="exclusive"
+          onChange={(event) => {
+            const value = event.currentTarget.values?.[0] || event.currentTarget.value || "center";
+            onStyleChange(patchElementStyle(style, "content", { textAlign: value }));
+          }}
+        >
+          {TEXT_ALIGN_OPTIONS.map((item) => (
+            <s-choice key={item.value} value={item.value} selected={contentAlign === item.value}>
+              {item.label}
+            </s-choice>
+          ))}
+        </HostChoiceList>
+      </section>
+
+      <section className="edd-customize-block">
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
         <h3>Progress bar</h3>
         <s-color-field
           label="Progress color"

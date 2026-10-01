@@ -19,7 +19,7 @@ Lightweight app embed fallback. Assets load only on product and cart pages.
         assign edd_collection = collection
       endif
     %}
-    {% render "edd-product-root", product: edd_product, collection: edd_collection %}
+    {% render "edd-product-root", product: edd_product, collection: edd_collection, source: "embed" %}
   {% else %}
     {% render "edd-cart-root" %}
   {% endif %}

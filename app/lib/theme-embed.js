@@ -1,4 +1,4 @@
-import { APP_CART_BLOCK_HANDLE, APP_EMBED_HANDLE } from "./theme-editor";
+import { APP_EMBED_HANDLE } from "./theme-editor";
 
 export const THEME_APP_EXTENSION_UID = "edd-theme-app-extension-001";
 export const THEME_APP_EXTENSION_HANDLE = "delivery-date-widget";
@@ -103,66 +103,4 @@ export function appEmbedBlockState(settingsContent, identifiers = defaultEmbedId
 
 export function parseAppEmbedEnabled(settingsContent, identifiers = defaultEmbedIdentifiers()) {
   return appEmbedBlockState(settingsContent, identifiers).enabled;
-}
-
-export function discoverAppEmbedType(raw, identifiers = defaultEmbedIdentifiers()) {
-  const matches = String(raw || "").match(/shopify:\/\/apps\/[^"'\\\s]+\/blocks\/app-embed\/[^"'\\\s]+/gi) || [];
-  const unique = [...new Set(matches)];
-  return unique.find((type) => isOurAppEmbedType(type, identifiers)) || "";
-}
-
-export function discoverAppEmbedBlockId(raw, type) {
-  if (!raw || !type) return "";
-  const escaped = type.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const nearby = new RegExp(`"([^"]+)"\\s*:\\s*\\{[\\s\\S]{0,1200}${escaped}`, "i");
-  return String(raw).match(nearby)?.[1] || "";
-}
-
-export function constructedAppEmbedType(app = {}) {
-  return constructedBlockType(app, APP_EMBED_HANDLE);
-}
-
-export function constructedCartBlockType(app = {}) {
-  return constructedBlockType(app, APP_CART_BLOCK_HANDLE);
-}
-
-function constructedBlockType(app = {}, blockHandle) {
-  const appHandle =
-    String(app.handle || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "") || "estimated-delivery-date";
-  const apiKey = app.apiKey || process.env.SHOPIFY_API_KEY || "428f3d88064e44c926da9dbde635d831";
-  return `shopify://apps/${appHandle}/blocks/${blockHandle}/${apiKey}`;
-}
-
-function findOurEmbedBlock(root, identifiers) {
-  return blocksFrom(root).find(({ block }) => isOurAppEmbedType(block?.type, identifiers));
-}
-
-export function upsertAppEmbedInSettings(settings, type, enabled, identifiers = defaultEmbedIdentifiers(), preferredId = "") {
-  const next = structuredClone(settings);
-  const live = liveSettingsRoot(next);
-  if (!live) return next;
-  live.blocks = live.blocks || {};
-
-  const fromLive = findOurEmbedBlock(live, identifiers);
-  let fromPreset = null;
-  if (!fromLive) {
-    for (const preset of Object.values(next.presets || {})) {
-      fromPreset = findOurEmbedBlock(preset, identifiers);
-      if (fromPreset) break;
-    }
-  }
-
-  const blockId = fromLive?.id || fromPreset?.id || preferredId || "edd-app-embed";
-  const previous = live.blocks[blockId] || fromPreset?.block || {};
-  live.blocks[blockId] = {
-    ...previous,
-    type: previous.type || type,
-    disabled: !enabled,
-    settings: previous.settings || {},
-  };
-  return next;
 }

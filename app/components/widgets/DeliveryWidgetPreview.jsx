@@ -29,10 +29,18 @@ import { FormattedText } from "./FormattedText";
 import { DeliveryIcon } from "../icons/DeliveryIcon";
 import { EditableHotspot } from "../editor/EditableHotspot";
 import {
+<<<<<<< HEAD
   elementStyleToCss,
   resolveElementStyle,
 } from "../../lib/element-styles";
 import { normalizeConnectorStyle, timelineGridTemplate, isDefaultConnector } from "../../lib/connector-styles";
+=======
+  contentAlignCssVars,
+  elementStyleToCss,
+  resolveElementStyle,
+} from "../../lib/element-styles";
+import { normalizeConnectorStyle, isDefaultConnector } from "../../lib/connector-styles";
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
 
 async function checkDelivery(code, shipping, productWeight = "") {
   const options = {
@@ -348,6 +356,7 @@ export function DeliveryWidgetPreview({
         ["--edd-status-size"]: `${statusSize}px`,
         ["--edd-journey-rail"]: `${clampToBounds(style.progressWidth, STYLE_NUMBER_LIMITS.progressWidth, 5)}px`,
         ["--edd-heading-weight"]: headingWeight,
+        ...contentAlignCssVars(style),
       }}
       onClick={
         interactive
@@ -605,11 +614,24 @@ export function DeliveryWidgetPreview({
         </p>
       ) : showDates && designName === "PILL" ? (
         <div className="edd-preview__pills">
-          {steps.map((step) => (
-            <span key={step.key} className="edd-preview__pill" style={{ color: step.color, borderColor: step.color }}>
-              {step.title}: {step.date}
-            </span>
-          ))}
+          {steps.map((step) => {
+            const labelPx = step.labelFontSize != null ? Number(step.labelFontSize) : Math.max(statusSize, fontSize);
+            const datePx = step.dateFontSize != null ? Number(step.dateFontSize) : Math.max(dateSize, fontSize);
+            return (
+              <span
+                key={step.key}
+                className="edd-preview__pill"
+                style={{
+                  color: step.color,
+                  borderColor: step.color,
+                  fontSize: `${Math.max(labelPx, datePx)}px`,
+                }}
+              >
+                <span style={{ fontSize: `${labelPx}px`, color: step.labelColor || undefined }}>{step.title}:</span>{" "}
+                <strong style={{ fontSize: `${datePx}px`, color: step.dateColor || undefined }}>{step.date}</strong>
+              </span>
+            );
+          })}
         </div>
       ) : showDates ? (
         <div
@@ -619,8 +641,12 @@ export function DeliveryWidgetPreview({
             designName === "STACKED"
               ? undefined
               : {
+<<<<<<< HEAD
                   gridTemplateColumns: timelineGridTemplate(steps.length),
                   columnGap: `${normalizeConnectorStyle(tracker.settings?.connector).spacing}px`,
+=======
+                  gap: `${normalizeConnectorStyle(tracker.settings?.connector).spacing}px`,
+>>>>>>> 64a9729 (Remove deprecated components and streamline configuration files)
                 }
           }
         >

@@ -476,13 +476,6 @@ export const placementSchema = z.object({
     }),
 });
 
-export const cartSchema = z.object({
-  displayMode: z.enum([
-    CART_DISPLAY_MODES.PER_PRODUCT,
-    CART_DISPLAY_MODES.GENERAL,
-  ]),
-});
-
 export const editorSchema = z.object({
   name: asString("Delivery widget").pipe(z.string().trim().min(1).max(80)),
   timezone: ianaTimezoneSchema,
@@ -522,10 +515,6 @@ export const searchQuerySchema = z.object({
   q: z.string().trim().max(100).default(""),
   cursor: z.string().optional(),
 });
-
-export function parseFormBooleans(formData, keys) {
-  return keys.filter((key) => formData.get(key) === "on" || formData.get(key) === "true");
-}
 
 export function formErrors(error) {
   if (!(error instanceof z.ZodError)) {

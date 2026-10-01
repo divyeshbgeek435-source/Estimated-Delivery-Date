@@ -34,7 +34,6 @@ model Merchant {
   id              String    @id @default(auto()) @map("_id") @db.ObjectId
   shopDomain      String    @unique
   timezone        String    @default("UTC")
-  billingPlan     String    @default("FREE")
   email           String?
   firstName       String?
   lastName        String?

@@ -76,3 +76,4 @@ description = "Public checkout widget configuration used by the Checkout UI exte
 
 [build]
 automatically_update_urls_on_dev = true
+   
